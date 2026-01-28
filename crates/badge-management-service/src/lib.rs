@@ -14,13 +14,16 @@
 //! - `models`: 领域模型定义
 //! - `error`: 错误类型定义
 //! - `repository`: 数据库仓储层
+//! - `service`: 业务服务层
 
 pub mod error;
 pub mod models;
 pub mod repository;
+pub mod service;
 
 pub use error::{BadgeError, Result};
 pub use models::*;
 pub use repository::{
     BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository,
 };
+pub use service::{BadgeQueryService, dto};
