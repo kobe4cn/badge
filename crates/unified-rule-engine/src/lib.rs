@@ -9,11 +9,13 @@
 pub mod compiler;
 pub mod error;
 pub mod evaluator;
+pub mod executor;
 pub mod models;
 pub mod operators;
 
 pub use compiler::{CompiledRule, RuleCompiler};
 pub use error::{Result, RuleError};
 pub use evaluator::ConditionEvaluator;
+pub use executor::RuleExecutor;
 pub use models::{Condition, EvaluationContext, EvaluationResult, LogicalGroup, Rule, RuleNode};
 pub use operators::{LogicalOperator, Operator};
