@@ -222,8 +222,53 @@ async fn send_notification(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rule_client::{BadgeRuleService, GrantResult, RuleMatch};
+    use crate::rule_mapping::RuleBadgeMapping;
     use badge_shared::kafka::ConsumerMessage;
     use std::collections::HashMap;
+    use std::sync::Arc;
+
+    /// Mock 服务实现，用于 consumer 测试中构造 processor
+    struct MockBadgeRuleService;
+
+    #[async_trait::async_trait]
+    impl BadgeRuleService for MockBadgeRuleService {
+        async fn evaluate_rules(
+            &self,
+            _rule_ids: &[String],
+            _context: serde_json::Value,
+        ) -> Result<Vec<RuleMatch>, crate::error::EngagementError> {
+            Ok(vec![])
+        }
+
+        async fn grant_badge(
+            &self,
+            _user_id: &str,
+            _badge_id: &str,
+            _quantity: i32,
+            _source_ref: &str,
+        ) -> Result<GrantResult, crate::error::EngagementError> {
+            Ok(GrantResult {
+                success: true,
+                user_badge_id: "0".to_string(),
+                message: String::new(),
+            })
+        }
+    }
+
+    /// 构造测试用 processor
+    fn make_test_processor() -> EngagementEventProcessor {
+        let config = badge_shared::config::RedisConfig {
+            url: "redis://localhost:6379".to_string(),
+            pool_size: 1,
+        };
+        let cache = badge_shared::cache::Cache::new(&config).expect("Redis client 创建失败");
+        EngagementEventProcessor::new(
+            cache,
+            Arc::new(MockBadgeRuleService),
+            Arc::new(RuleBadgeMapping::new()),
+        )
+    }
 
     /// 构造测试用的 ConsumerMessage
     fn make_test_message(event: &EventPayload) -> ConsumerMessage {
@@ -242,12 +287,7 @@ mod tests {
     /// 非行为类事件应被拒绝
     #[test]
     fn test_handle_unsupported_event_type() {
-        let config = badge_shared::config::RedisConfig {
-            url: "redis://localhost:6379".to_string(),
-            pool_size: 1,
-        };
-        let cache = badge_shared::cache::Cache::new(&config).expect("Redis client 创建失败");
-        let processor = EngagementEventProcessor::new(cache);
+        let processor = make_test_processor();
 
         // Purchase 是交易类事件，不在行为处理器的支持列表中
         let purchase_type = EventType::Purchase;
@@ -277,12 +317,7 @@ mod tests {
         assert_eq!(deserialized.user_id, "user-001");
 
         // 验证事件类型是受支持的
-        let config = badge_shared::config::RedisConfig {
-            url: "redis://localhost:6379".to_string(),
-            pool_size: 1,
-        };
-        let cache = badge_shared::cache::Cache::new(&config).expect("Redis client 创建失败");
-        let processor = EngagementEventProcessor::new(cache);
+        let processor = make_test_processor();
 
         assert!(is_supported_event_type(
             &deserialized.event_type,
