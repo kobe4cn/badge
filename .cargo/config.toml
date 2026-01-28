@@ -1,0 +1,5 @@
+[alias]
+t = "test"
+c = "clippy"
+b = "build"
+r = "run"
