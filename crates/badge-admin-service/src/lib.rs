@@ -15,6 +15,9 @@
 //! - `dto`: 请求和响应的数据传输对象
 //! - `models`: B端特有的实体模型
 //! - `error`: 错误类型定义
+//! - `handlers`: HTTP 请求处理器
+//! - `routes`: 路由配置
+//! - `state`: 应用状态
 //!
 //! ## 技术栈
 //!
@@ -24,7 +27,10 @@
 
 pub mod dto;
 pub mod error;
+pub mod handlers;
 pub mod models;
+pub mod routes;
+pub mod state;
 
 // 重新导出核心类型
 pub use dto::{
