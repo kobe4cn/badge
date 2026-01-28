@@ -3,6 +3,10 @@ name = "badge-management-service"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "badge_management"
+path = "src/lib.rs"
+
 [[bin]]
 name = "badge-management"
 path = "src/main.rs"
