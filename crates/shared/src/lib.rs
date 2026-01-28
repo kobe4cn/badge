@@ -5,7 +5,9 @@
 pub mod cache;
 pub mod config;
 pub mod database;
+pub mod dlq;
 pub mod error;
 pub mod events;
 pub mod kafka;
+pub mod retry;
 pub mod telemetry;
