@@ -418,3 +418,158 @@ mod tests {
         assert_eq!(response.results[2].error, Some("库存不足".to_string()));
     }
 }
+
+// ==================== 取消服务 DTO ====================
+
+/// 徽章取消请求
+///
+/// 用于撤销/取消用户已持有的徽章
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeBadgeRequest {
+    /// 用户 ID
+    pub user_id: String,
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 取消数量
+    pub quantity: i32,
+    /// 取消原因（必填）
+    pub reason: String,
+    /// 操作人（手动取消时使用）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
+    /// 来源类型
+    pub source_type: SourceType,
+    /// 来源关联 ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref_id: Option<String>,
+}
+
+impl RevokeBadgeRequest {
+    /// 创建手动取消请求
+    pub fn manual(
+        user_id: impl Into<String>,
+        badge_id: i64,
+        quantity: i32,
+        reason: impl Into<String>,
+        operator: impl Into<String>,
+    ) -> Self {
+        Self {
+            user_id: user_id.into(),
+            badge_id,
+            quantity,
+            reason: reason.into(),
+            operator: Some(operator.into()),
+            source_type: SourceType::Manual,
+            source_ref_id: None,
+        }
+    }
+
+    /// 创建系统取消请求
+    pub fn system(
+        user_id: impl Into<String>,
+        badge_id: i64,
+        quantity: i32,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            user_id: user_id.into(),
+            badge_id,
+            quantity,
+            reason: reason.into(),
+            operator: None,
+            source_type: SourceType::System,
+            source_ref_id: None,
+        }
+    }
+
+    /// 设置来源引用 ID
+    pub fn with_source_ref(mut self, ref_id: impl Into<String>) -> Self {
+        self.source_ref_id = Some(ref_id.into());
+        self
+    }
+}
+
+/// 徽章取消响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeBadgeResponse {
+    /// 是否成功
+    pub success: bool,
+    /// 取消后剩余数量
+    pub remaining_quantity: i32,
+    /// 响应消息
+    pub message: String,
+}
+
+impl RevokeBadgeResponse {
+    pub fn success(remaining_quantity: i32) -> Self {
+        Self {
+            success: true,
+            remaining_quantity,
+            message: "徽章取消成功".to_string(),
+        }
+    }
+
+    pub fn failure(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            remaining_quantity: 0,
+            message: message.into(),
+        }
+    }
+}
+
+/// 批量取消响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchRevokeResponse {
+    /// 总请求数
+    pub total: i32,
+    /// 成功数量
+    pub success_count: i32,
+    /// 失败数量
+    pub failed_count: i32,
+    /// 各请求的处理结果
+    pub results: Vec<RevokeResult>,
+}
+
+/// 单个取消结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeResult {
+    /// 用户 ID
+    pub user_id: String,
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 是否成功
+    pub success: bool,
+    /// 剩余数量（成功时返回）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining_quantity: Option<i32>,
+    /// 错误信息（失败时返回）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl RevokeResult {
+    pub fn success(user_id: String, badge_id: i64, remaining_quantity: i32) -> Self {
+        Self {
+            user_id,
+            badge_id,
+            success: true,
+            remaining_quantity: Some(remaining_quantity),
+            error: None,
+        }
+    }
+
+    pub fn failure(user_id: String, badge_id: i64, error: impl Into<String>) -> Self {
+        Self {
+            user_id,
+            badge_id,
+            success: false,
+            remaining_quantity: None,
+            error: Some(error.into()),
+        }
+    }
+}
