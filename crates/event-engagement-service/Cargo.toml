@@ -3,6 +3,10 @@ name = "event-engagement-service"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "event_engagement_service"
+path = "src/lib.rs"
+
 [[bin]]
 name = "event-engagement"
 path = "src/main.rs"
@@ -21,6 +25,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
