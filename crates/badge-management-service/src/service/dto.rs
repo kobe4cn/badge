@@ -5,7 +5,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::models::{BadgeAssets, BadgeType, BenefitType, UserBadgeStatus, ValidityConfig};
+use crate::models::{BadgeAssets, BadgeType, BenefitType, SourceType, UserBadgeStatus, ValidityConfig};
 
 /// 用户徽章 DTO
 ///
@@ -158,6 +158,158 @@ pub struct CategoryStatsDto {
     pub count: i32,
 }
 
+// ==================== 发放服务 DTO ====================
+
+/// 徽章发放请求
+///
+/// 用于发放徽章给用户的请求参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrantBadgeRequest {
+    /// 用户 ID
+    pub user_id: String,
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 发放数量
+    pub quantity: i32,
+    /// 来源类型
+    pub source_type: SourceType,
+    /// 来源关联 ID（如事件 ID、活动 ID）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref_id: Option<String>,
+    /// 幂等键，用于防止重复发放
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    /// 发放原因/备注
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// 操作人（手动发放时使用）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
+}
+
+impl GrantBadgeRequest {
+    /// 创建简单的发放请求（用于规则引擎触发的自动发放）
+    pub fn new(user_id: impl Into<String>, badge_id: i64, quantity: i32) -> Self {
+        Self {
+            user_id: user_id.into(),
+            badge_id,
+            quantity,
+            source_type: SourceType::Event,
+            source_ref_id: None,
+            idempotency_key: None,
+            reason: None,
+            operator: None,
+        }
+    }
+
+    /// 创建带幂等键的发放请求
+    pub fn with_idempotency_key(mut self, key: impl Into<String>) -> Self {
+        self.idempotency_key = Some(key.into());
+        self
+    }
+
+    /// 设置来源信息
+    pub fn with_source(mut self, source_type: SourceType, ref_id: Option<String>) -> Self {
+        self.source_type = source_type;
+        self.source_ref_id = ref_id;
+        self
+    }
+}
+
+/// 徽章发放响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrantBadgeResponse {
+    /// 是否成功
+    pub success: bool,
+    /// 用户徽章记录 ID
+    pub user_badge_id: i64,
+    /// 发放后的新数量
+    pub new_quantity: i32,
+    /// 响应消息
+    pub message: String,
+}
+
+impl GrantBadgeResponse {
+    pub fn success(user_badge_id: i64, new_quantity: i32) -> Self {
+        Self {
+            success: true,
+            user_badge_id,
+            new_quantity,
+            message: "徽章发放成功".to_string(),
+        }
+    }
+
+    pub fn from_existing(user_badge_id: i64, new_quantity: i32) -> Self {
+        Self {
+            success: true,
+            user_badge_id,
+            new_quantity,
+            message: "幂等请求，返回已存在的记录".to_string(),
+        }
+    }
+}
+
+/// 批量发放响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchGrantResponse {
+    /// 总请求数
+    pub total: i32,
+    /// 成功数量
+    pub success_count: i32,
+    /// 失败数量
+    pub failed_count: i32,
+    /// 各请求的处理结果
+    pub results: Vec<GrantResult>,
+}
+
+/// 单个发放结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrantResult {
+    /// 用户 ID
+    pub user_id: String,
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 是否成功
+    pub success: bool,
+    /// 用户徽章 ID（成功时返回）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_badge_id: Option<i64>,
+    /// 发放后数量（成功时返回）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_quantity: Option<i32>,
+    /// 错误信息（失败时返回）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl GrantResult {
+    pub fn success(user_id: String, badge_id: i64, user_badge_id: i64, new_quantity: i32) -> Self {
+        Self {
+            user_id,
+            badge_id,
+            success: true,
+            user_badge_id: Some(user_badge_id),
+            new_quantity: Some(new_quantity),
+            error: None,
+        }
+    }
+
+    pub fn failure(user_id: String, badge_id: i64, error: impl Into<String>) -> Self {
+        Self {
+            user_id,
+            badge_id,
+            success: false,
+            user_badge_id: None,
+            new_quantity: None,
+            error: Some(error.into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +373,48 @@ mod tests {
         let json = serde_json::to_value(&stats).unwrap();
         assert_eq!(json["totalBadges"], 10);
         assert_eq!(json["activeBadges"], 8);
+    }
+
+    #[test]
+    fn test_grant_badge_request_serialization() {
+        let request = GrantBadgeRequest::new("user-123", 1, 2)
+            .with_idempotency_key("req-001")
+            .with_source(SourceType::Event, Some("event-123".to_string()));
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["userId"], "user-123");
+        assert_eq!(json["badgeId"], 1);
+        assert_eq!(json["quantity"], 2);
+        assert_eq!(json["sourceType"], "EVENT");
+        assert_eq!(json["idempotencyKey"], "req-001");
+    }
+
+    #[test]
+    fn test_grant_badge_response_success() {
+        let response = GrantBadgeResponse::success(100, 5);
+        assert!(response.success);
+        assert_eq!(response.user_badge_id, 100);
+        assert_eq!(response.new_quantity, 5);
+    }
+
+    #[test]
+    fn test_batch_grant_response() {
+        let response = BatchGrantResponse {
+            total: 3,
+            success_count: 2,
+            failed_count: 1,
+            results: vec![
+                GrantResult::success("user-1".to_string(), 1, 100, 1),
+                GrantResult::success("user-2".to_string(), 1, 101, 1),
+                GrantResult::failure("user-3".to_string(), 1, "库存不足"),
+            ],
+        };
+
+        assert_eq!(response.total, 3);
+        assert_eq!(response.success_count, 2);
+        assert_eq!(response.failed_count, 1);
+        assert!(response.results[0].success);
+        assert!(!response.results[2].success);
+        assert_eq!(response.results[2].error, Some("库存不足".to_string()));
     }
 }
