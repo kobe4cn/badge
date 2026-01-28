@@ -2,6 +2,8 @@
 //!
 //! 实现 RuleEngineService gRPC 服务接口。
 
+#![allow(clippy::result_large_err)]
+
 use crate::executor::RuleExecutor;
 use crate::models::{Condition, EvaluationContext, LogicalGroup, Rule, RuleNode};
 use crate::operators::{LogicalOperator, Operator};
