@@ -314,26 +314,33 @@ where
         let badge_ids: Vec<i64> = user_badges.iter().map(|ub| ub.badge_id).collect();
         let badges = self.badge_repo.get_badges_by_ids(&badge_ids).await?;
 
-        // 收集所有涉及的系列 ID
-        let series_ids: Vec<i64> = badges.iter().map(|b| b.series_id).collect();
-        let mut series_category_map: HashMap<i64, i64> = HashMap::new();
-        let mut category_names: HashMap<i64, String> = HashMap::new();
+        // 批量获取所有涉及的系列，避免 N+1 查询
+        let series_ids: Vec<i64> = badges
+            .iter()
+            .map(|b| b.series_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        let all_series = self.badge_repo.get_series_by_ids(&series_ids).await?;
 
-        // 获取系列和分类信息
-        for series_id in series_ids {
-            if series_category_map.contains_key(&series_id) {
-                continue;
-            }
-            if let Some(series) = self.badge_repo.get_series(series_id).await? {
-                series_category_map.insert(series_id, series.category_id);
-                if !category_names.contains_key(&series.category_id)
-                    && let Some(category) =
-                        self.badge_repo.get_category(series.category_id).await?
-                {
-                    category_names.insert(category.id, category.name);
-                }
-            }
-        }
+        // 构建系列 -> 分类映射
+        let series_category_map: HashMap<i64, i64> = all_series
+            .iter()
+            .map(|s| (s.id, s.category_id))
+            .collect();
+
+        // 批量获取所有涉及的分类，避免 N+1 查询
+        let category_ids: Vec<i64> = all_series
+            .iter()
+            .map(|s| s.category_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        let categories = self.badge_repo.get_categories_by_ids(&category_ids).await?;
+        let category_names: HashMap<i64, String> = categories
+            .into_iter()
+            .map(|c| (c.id, c.name))
+            .collect();
 
         // 建立 badge_id -> category_id 映射
         let badge_category_map: HashMap<i64, i64> = badges
@@ -397,11 +404,24 @@ where
         let categories = self.badge_repo.list_categories().await?;
         let all_badges = self.badge_repo.list_active_badges().await?;
 
+        // 批量获取所有涉及的系列，避免 N+1 查询
+        let series_ids: Vec<i64> = all_badges
+            .iter()
+            .map(|b| b.series_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        let all_series = self.badge_repo.get_series_by_ids(&series_ids).await?;
+        let series_map: HashMap<i64, i64> = all_series
+            .iter()
+            .map(|s| (s.id, s.category_id))
+            .collect();
+
         // 统计各分类下的徽章数量
         let mut badge_counts: HashMap<i64, i32> = HashMap::new();
         for badge in &all_badges {
-            if let Some(series) = self.badge_repo.get_series(badge.series_id).await? {
-                *badge_counts.entry(series.category_id).or_default() += 1;
+            if let Some(&category_id) = series_map.get(&badge.series_id) {
+                *badge_counts.entry(category_id).or_default() += 1;
             }
         }
 
@@ -514,30 +534,47 @@ where
             .map(|ub| (ub.badge_id, ub.quantity))
             .collect();
 
-        // 统计各分类
-        let mut category_stats: HashMap<i64, (String, i32)> = HashMap::new();
-        for badge in badges {
-            if let Some(series) = self.badge_repo.get_series(badge.series_id).await? {
+        // 批量获取所有涉及的系列，避免 N+1 查询
+        let series_ids: Vec<i64> = badges
+            .iter()
+            .map(|b| b.series_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        let all_series = self.badge_repo.get_series_by_ids(&series_ids).await?;
+        let series_map: HashMap<i64, i64> = all_series
+            .iter()
+            .map(|s| (s.id, s.category_id))
+            .collect();
+
+        // 统计各分类的徽章数量
+        let mut category_counts: HashMap<i64, i32> = HashMap::new();
+        for badge in &badges {
+            if let Some(&category_id) = series_map.get(&badge.series_id) {
                 let qty = qty_map.get(&badge.id).copied().unwrap_or(0);
-                let entry = category_stats.entry(series.category_id).or_insert_with(|| {
-                    // 稍后填充名称
-                    (String::new(), 0)
-                });
-                entry.1 += qty;
+                *category_counts.entry(category_id).or_default() += qty;
             }
         }
 
-        // 填充分类名称
-        let mut by_category = Vec::new();
-        for (cat_id, (_, count)) in category_stats {
-            if let Some(category) = self.badge_repo.get_category(cat_id).await? {
-                by_category.push(CategoryStatsDto {
+        // 批量获取分类信息，避免 N+1 查询
+        let category_ids: Vec<i64> = category_counts.keys().copied().collect();
+        let categories = self.badge_repo.get_categories_by_ids(&category_ids).await?;
+        let category_map: HashMap<i64, String> = categories
+            .into_iter()
+            .map(|c| (c.id, c.name))
+            .collect();
+
+        // 构建分类统计结果
+        let by_category: Vec<CategoryStatsDto> = category_counts
+            .into_iter()
+            .filter_map(|(cat_id, count)| {
+                category_map.get(&cat_id).map(|name| CategoryStatsDto {
                     category_id: cat_id,
-                    category_name: category.name,
+                    category_name: name.clone(),
                     count,
-                });
-            }
-        }
+                })
+            })
+            .collect();
 
         let total = user_badges.iter().map(|ub| ub.quantity).sum();
 
@@ -578,21 +615,23 @@ where
     }
 
     /// 使徽章详情缓存失效
-    pub async fn invalidate_badge_cache(&self, badge_id: i64) -> Result<()> {
+    ///
+    /// 缓存删除失败仅记录警告，不传播错误，保持与 invalidate_user_cache 一致的行为
+    pub async fn invalidate_badge_cache(&self, badge_id: i64) {
         let key = cache_keys::badge_detail(badge_id);
-        self.cache
-            .delete(&key)
-            .await
-            .map_err(|e| BadgeError::Redis(e.to_string()))
+        if let Err(e) = self.cache.delete(&key).await {
+            warn!(key = %key, error = %e, "Failed to invalidate badge cache");
+        }
     }
 
     /// 使分类缓存失效
-    pub async fn invalidate_categories_cache(&self) -> Result<()> {
+    ///
+    /// 缓存删除失败仅记录警告，不传播错误，保持与 invalidate_user_cache 一致的行为
+    pub async fn invalidate_categories_cache(&self) {
         let key = cache_keys::categories();
-        self.cache
-            .delete(&key)
-            .await
-            .map_err(|e| BadgeError::Redis(e.to_string()))
+        if let Err(e) = self.cache.delete(&key).await {
+            warn!(key = %key, error = %e, "Failed to invalidate categories cache");
+        }
     }
 }
 

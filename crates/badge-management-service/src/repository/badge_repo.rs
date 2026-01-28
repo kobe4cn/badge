@@ -39,6 +39,27 @@ impl BadgeRepository {
         Ok(category)
     }
 
+    /// 批量获取分类
+    pub async fn get_categories_by_ids(&self, ids: &[i64]) -> Result<Vec<BadgeCategory>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let categories = sqlx::query_as::<_, BadgeCategory>(
+            r#"
+            SELECT id, name, icon_url, sort_order, status, created_at, updated_at
+            FROM badge_categories
+            WHERE id = ANY($1)
+            ORDER BY sort_order ASC, id ASC
+            "#,
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(categories)
+    }
+
     /// 列出所有启用的分类
     pub async fn list_categories(&self) -> Result<Vec<BadgeCategory>> {
         let categories = sqlx::query_as::<_, BadgeCategory>(
@@ -70,6 +91,28 @@ impl BadgeRepository {
         )
         .bind(id)
         .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(series)
+    }
+
+    /// 批量获取系列
+    pub async fn get_series_by_ids(&self, ids: &[i64]) -> Result<Vec<BadgeSeries>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let series = sqlx::query_as::<_, BadgeSeries>(
+            r#"
+            SELECT id, category_id, name, description, cover_url, sort_order,
+                   status, start_time, end_time, created_at, updated_at
+            FROM badge_series
+            WHERE id = ANY($1)
+            ORDER BY sort_order ASC, id ASC
+            "#,
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(series)
@@ -224,12 +267,20 @@ impl BadgeRepositoryTrait for BadgeRepository {
         self.get_category(id).await
     }
 
+    async fn get_categories_by_ids(&self, ids: &[i64]) -> Result<Vec<BadgeCategory>> {
+        self.get_categories_by_ids(ids).await
+    }
+
     async fn list_categories(&self) -> Result<Vec<BadgeCategory>> {
         self.list_categories().await
     }
 
     async fn get_series(&self, id: i64) -> Result<Option<BadgeSeries>> {
         self.get_series(id).await
+    }
+
+    async fn get_series_by_ids(&self, ids: &[i64]) -> Result<Vec<BadgeSeries>> {
+        self.get_series_by_ids(ids).await
     }
 
     async fn list_series_by_category(&self, category_id: i64) -> Result<Vec<BadgeSeries>> {

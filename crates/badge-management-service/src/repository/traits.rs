@@ -16,10 +16,12 @@ use crate::models::{
 pub trait BadgeRepositoryTrait: Send + Sync {
     // 徽章分类
     async fn get_category(&self, id: i64) -> Result<Option<BadgeCategory>>;
+    async fn get_categories_by_ids(&self, ids: &[i64]) -> Result<Vec<BadgeCategory>>;
     async fn list_categories(&self) -> Result<Vec<BadgeCategory>>;
 
     // 徽章系列
     async fn get_series(&self, id: i64) -> Result<Option<BadgeSeries>>;
+    async fn get_series_by_ids(&self, ids: &[i64]) -> Result<Vec<BadgeSeries>>;
     async fn list_series_by_category(&self, category_id: i64) -> Result<Vec<BadgeSeries>>;
 
     // 徽章
