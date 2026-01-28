@@ -6,11 +6,13 @@
 //! - 短路求值执行
 //! - gRPC 服务接口
 
+pub mod compiler;
 pub mod error;
 pub mod evaluator;
 pub mod models;
 pub mod operators;
 
+pub use compiler::{CompiledRule, RuleCompiler};
 pub use error::{Result, RuleError};
 pub use evaluator::ConditionEvaluator;
 pub use models::{Condition, EvaluationContext, EvaluationResult, LogicalGroup, Rule, RuleNode};
