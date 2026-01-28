@@ -147,21 +147,25 @@ mod tests {
         assert!(BadgeError::ConcurrencyConflict.is_retryable());
         assert!(BadgeError::Redis("connection failed".to_string()).is_retryable());
         assert!(!BadgeError::BadgeNotFound(1).is_retryable());
-        assert!(!BadgeError::InsufficientBadges {
-            required: 5,
-            available: 3
-        }
-        .is_retryable());
+        assert!(
+            !BadgeError::InsufficientBadges {
+                required: 5,
+                available: 3
+            }
+            .is_retryable()
+        );
     }
 
     #[test]
     fn test_error_is_business_error() {
         assert!(BadgeError::BadgeNotFound(1).is_business_error());
-        assert!(BadgeError::InsufficientBadges {
-            required: 5,
-            available: 3
-        }
-        .is_business_error());
+        assert!(
+            BadgeError::InsufficientBadges {
+                required: 5,
+                available: 3
+            }
+            .is_business_error()
+        );
         assert!(!BadgeError::Internal("panic".to_string()).is_business_error());
         assert!(!BadgeError::ConcurrencyConflict.is_business_error());
     }

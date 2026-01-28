@@ -44,11 +44,7 @@ impl UserBadge {
 
     /// 获取可用数量（考虑状态）
     pub fn available_quantity(&self, now: DateTime<Utc>) -> i32 {
-        if self.is_valid(now) {
-            self.quantity
-        } else {
-            0
-        }
+        if self.is_valid(now) { self.quantity } else { 0 }
     }
 }
 
@@ -241,13 +237,8 @@ mod tests {
         assert_eq!(ledger.quantity, 3);
         assert_eq!(ledger.balance_after, 10);
 
-        let ledger = BadgeLedger::redeem_out(
-            "user-1".to_string(),
-            1,
-            2,
-            8,
-            "order-123".to_string(),
-        );
+        let ledger =
+            BadgeLedger::redeem_out("user-1".to_string(), 1, 2, 8, "order-123".to_string());
         assert_eq!(ledger.change_type, ChangeType::RedeemOut);
         assert_eq!(ledger.ref_id, Some("order-123".to_string()));
         assert_eq!(ledger.ref_type, SourceType::Redemption);
