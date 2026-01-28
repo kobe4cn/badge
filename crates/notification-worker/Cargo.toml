@@ -3,6 +3,10 @@ name = "notification-worker"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "notification_worker"
+path = "src/lib.rs"
+
 [[bin]]
 name = "notification-worker"
 path = "src/main.rs"
@@ -20,6 +24,8 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }

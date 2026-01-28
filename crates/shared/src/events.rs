@@ -256,7 +256,7 @@ pub enum NotificationType {
 /// 通知投递渠道
 ///
 /// 各渠道有不同的消息长度限制和格式要求，通知服务会按渠道适配内容
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum NotificationChannel {
     AppPush,
