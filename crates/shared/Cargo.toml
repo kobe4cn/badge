@@ -1,0 +1,21 @@
+[package]
+name = "badge-shared"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+config = { workspace = true }
+async-trait = { workspace = true }
+tonic = { workspace = true }
