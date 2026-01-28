@@ -26,4 +26,4 @@ pub use models::*;
 pub use repository::{
     BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository,
 };
-pub use service::{BadgeQueryService, GrantService, RevokeService, dto};
+pub use service::{BadgeQueryService, GrantService, RedemptionService, RevokeService, dto};

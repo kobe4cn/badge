@@ -8,13 +8,16 @@
 //! - `query_service`: 徽章查询服务（只读操作）
 //! - `grant_service`: 徽章发放服务（写入操作）
 //! - `revoke_service`: 徽章取消服务（写入操作）
+//! - `redemption_service`: 徽章兑换服务（写入操作）
 
 pub mod dto;
 pub mod grant_service;
 pub mod query_service;
+pub mod redemption_service;
 pub mod revoke_service;
 
 pub use dto::*;
 pub use grant_service::GrantService;
 pub use query_service::BadgeQueryService;
+pub use redemption_service::RedemptionService;
 pub use revoke_service::RevokeService;

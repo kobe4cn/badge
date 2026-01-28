@@ -573,3 +573,119 @@ impl RevokeResult {
         }
     }
 }
+
+// ==================== 兑换服务 DTO ====================
+
+/// 徽章兑换请求
+///
+/// 用于兑换徽章换取权益的请求参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedeemBadgeRequest {
+    /// 用户 ID
+    pub user_id: String,
+    /// 兑换规则 ID
+    pub rule_id: i64,
+    /// 幂等键（防止重复提交）
+    pub idempotency_key: String,
+}
+
+impl RedeemBadgeRequest {
+    /// 创建兑换请求
+    pub fn new(
+        user_id: impl Into<String>,
+        rule_id: i64,
+        idempotency_key: impl Into<String>,
+    ) -> Self {
+        Self {
+            user_id: user_id.into(),
+            rule_id,
+            idempotency_key: idempotency_key.into(),
+        }
+    }
+}
+
+/// 徽章兑换响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedeemBadgeResponse {
+    /// 是否成功
+    pub success: bool,
+    /// 订单 ID
+    pub order_id: i64,
+    /// 订单号
+    pub order_no: String,
+    /// 权益名称
+    pub benefit_name: String,
+    /// 响应消息
+    pub message: String,
+}
+
+impl RedeemBadgeResponse {
+    pub fn success(order_id: i64, order_no: String, benefit_name: String) -> Self {
+        Self {
+            success: true,
+            order_id,
+            order_no,
+            benefit_name,
+            message: "兑换成功".to_string(),
+        }
+    }
+
+    pub fn from_existing(
+        order_id: i64,
+        order_no: String,
+        benefit_name: String,
+        status: crate::models::OrderStatus,
+    ) -> Self {
+        Self {
+            success: status == crate::models::OrderStatus::Success,
+            order_id,
+            order_no,
+            benefit_name,
+            message: "幂等请求，返回已存在的订单".to_string(),
+        }
+    }
+
+    pub fn failure(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            order_id: 0,
+            order_no: String::new(),
+            benefit_name: String::new(),
+            message: message.into(),
+        }
+    }
+}
+
+/// 兑换历史 DTO
+///
+/// 用于展示用户的兑换记录
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedemptionHistoryDto {
+    /// 订单 ID
+    pub order_id: i64,
+    /// 订单号
+    pub order_no: String,
+    /// 权益名称
+    pub benefit_name: String,
+    /// 订单状态
+    pub status: crate::models::OrderStatus,
+    /// 消耗的徽章列表
+    pub consumed_badges: Vec<ConsumedBadgeDto>,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
+}
+
+/// 消耗的徽章 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumedBadgeDto {
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 徽章名称
+    pub badge_name: String,
+    /// 消耗数量
+    pub quantity: i32,
+}
