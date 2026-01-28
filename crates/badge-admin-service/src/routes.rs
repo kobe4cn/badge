@@ -109,6 +109,16 @@ fn log_routes() -> Router<AppState> {
     Router::new().route("/logs", get(handlers::operation_log::list_logs))
 }
 
+/// 构建批量任务路由
+///
+/// 包含任务创建、列表查询和详情/进度查询
+fn task_routes() -> Router<AppState> {
+    Router::new()
+        .route("/tasks", post(handlers::batch_task::create_task))
+        .route("/tasks", get(handlers::batch_task::list_tasks))
+        .route("/tasks/{id}", get(handlers::batch_task::get_task))
+}
+
 /// 构建完整的 API 路由
 ///
 /// 包含所有管理后台 API，挂载在 /api/admin 前缀下
@@ -120,7 +130,8 @@ pub fn api_routes() -> Router<AppState> {
         .merge(revoke_routes())
         .merge(stats_routes())
         .merge(user_view_routes())
-        .merge(log_routes());
+        .merge(log_routes())
+        .merge(task_routes());
 
     Router::new().nest("/api/admin", admin_routes)
 }
@@ -138,6 +149,7 @@ mod tests {
         let _stats = stats_routes();
         let _user_view = user_view_routes();
         let _log = log_routes();
+        let _task = task_routes();
         let _api = api_routes();
     }
 }
