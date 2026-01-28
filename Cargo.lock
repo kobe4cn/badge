@@ -275,6 +275,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.8",
  "axum-extra",
+ "badge-management-service",
  "badge-proto",
  "badge-shared",
  "chrono",

@@ -1,0 +1,21 @@
+//! B端服务 DTO 模块
+//!
+//! 包含所有请求和响应的数据传输对象
+
+pub mod request;
+pub mod response;
+
+// 重新导出常用类型
+pub use request::{
+    BadgeQueryFilter, BatchGrantRequest, BatchRevokeRequest, BatchTaskFilter, CreateBadgeRequest,
+    CreateCategoryRequest, CreateRuleRequest, CreateSeriesRequest, GrantLogFilter,
+    ManualGrantRequest, ManualRevokeRequest, OperationLogFilter, PaginationParams,
+    TimeRangeParams, UpdateBadgeRequest, UpdateCategoryRequest, UpdateRuleRequest,
+    UpdateSeriesRequest,
+};
+
+pub use response::{
+    ApiResponse, BadgeAdminDto, BadgeListItemDto, BadgeStatsDto, BatchTaskDto, CategoryDto,
+    CreatedResponse, DeletedResponse, GrantLogDto, OperationLogDto, PageResponse, RuleDto,
+    SeriesDto, StatsOverview, TrendDataPoint, UserBadgeViewDto,
+};

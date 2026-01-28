@@ -7,9 +7,14 @@ edition.workspace = true
 name = "badge-admin"
 path = "src/main.rs"
 
+[lib]
+name = "badge_admin_service"
+path = "src/lib.rs"
+
 [dependencies]
 badge-proto = { path = "../proto" }
 badge-shared = { path = "../shared" }
+badge-management-service = { path = "../badge-management-service" }
 tokio = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
