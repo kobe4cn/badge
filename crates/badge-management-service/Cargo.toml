@@ -1,0 +1,30 @@
+[package]
+name = "badge-management-service"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "badge-management"
+path = "src/main.rs"
+
+[dependencies]
+badge-proto = { path = "../proto" }
+badge-shared = { path = "../shared" }
+tokio = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+mockall = { workspace = true }
+tokio-test = { workspace = true }
+fake = { workspace = true }
