@@ -17,6 +17,7 @@ badge-shared = { path = "../shared" }
 tokio = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
+prost-types = { workspace = true }
 sqlx = { workspace = true }
 redis = { workspace = true }
 serde = { workspace = true }

@@ -308,6 +308,7 @@ dependencies = [
  "fake",
  "mockall",
  "prost",
+ "prost-types",
  "redis",
  "serde",
  "serde_json",

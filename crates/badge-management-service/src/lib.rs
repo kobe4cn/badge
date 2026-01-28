@@ -15,13 +15,16 @@
 //! - `error`: 错误类型定义
 //! - `repository`: 数据库仓储层
 //! - `service`: 业务服务层
+//! - `grpc`: gRPC 服务端实现
 
 pub mod error;
+pub mod grpc;
 pub mod models;
 pub mod repository;
 pub mod service;
 
 pub use error::{BadgeError, Result};
+pub use grpc::BadgeManagementServiceImpl;
 pub use models::*;
 pub use repository::{
     BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository,
