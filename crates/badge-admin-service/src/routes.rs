@@ -36,11 +36,51 @@ pub fn badge_routes() -> Router<AppState> {
         .route("/badges/{id}/offline", post(handlers::badge::offline_badge))
 }
 
+/// 构建规则管理路由
+///
+/// 包含规则 CRUD、发布和测试操作
+fn rule_routes() -> Router<AppState> {
+    Router::new()
+        .route("/rules", post(handlers::rule::create_rule))
+        .route("/rules", get(handlers::rule::list_rules))
+        .route("/rules/{id}", get(handlers::rule::get_rule))
+        .route("/rules/{id}", put(handlers::rule::update_rule))
+        .route("/rules/{id}", delete(handlers::rule::delete_rule))
+        .route("/rules/{id}/publish", post(handlers::rule::publish_rule))
+        .route("/rules/{id}/test", post(handlers::rule::test_rule))
+}
+
+/// 构建发放管理路由
+///
+/// 包含手动发放、批量发放和发放记录查询
+fn grant_routes() -> Router<AppState> {
+    Router::new()
+        .route("/grants/manual", post(handlers::grant::manual_grant))
+        .route("/grants/batch", post(handlers::grant::batch_grant))
+        .route("/grants", get(handlers::grant::list_grants))
+}
+
+/// 构建取消管理路由
+///
+/// 包含手动取消、批量取消和取消记录查询
+fn revoke_routes() -> Router<AppState> {
+    Router::new()
+        .route("/revokes/manual", post(handlers::revoke::manual_revoke))
+        .route("/revokes/batch", post(handlers::revoke::batch_revoke))
+        .route("/revokes", get(handlers::revoke::list_revokes))
+}
+
 /// 构建完整的 API 路由
 ///
 /// 包含所有管理后台 API，挂载在 /api/admin 前缀下
 pub fn api_routes() -> Router<AppState> {
-    Router::new().nest("/api/admin", badge_routes())
+    let admin_routes = Router::new()
+        .merge(badge_routes())
+        .merge(rule_routes())
+        .merge(grant_routes())
+        .merge(revoke_routes());
+
+    Router::new().nest("/api/admin", admin_routes)
 }
 
 #[cfg(test)]
@@ -49,8 +89,10 @@ mod tests {
 
     #[test]
     fn test_routes_construction() {
-        // 验证路由可以正常构建
-        let _routes = badge_routes();
-        let _api_routes = api_routes();
+        let _badge = badge_routes();
+        let _rule = rule_routes();
+        let _grant = grant_routes();
+        let _revoke = revoke_routes();
+        let _api = api_routes();
     }
 }

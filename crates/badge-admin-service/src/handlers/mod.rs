@@ -4,4 +4,7 @@
 
 pub mod badge;
 pub mod category;
+pub mod grant;
+pub mod revoke;
+pub mod rule;
 pub mod series;
