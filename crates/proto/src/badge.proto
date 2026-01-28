@@ -1,0 +1,181 @@
+syntax = "proto3";
+
+package badge.management;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// 徽章管理服务（C端）
+service BadgeManagementService {
+  // 获取用户徽章列表
+  rpc GetUserBadges(GetUserBadgesRequest) returns (GetUserBadgesResponse);
+
+  // 获取徽章详情
+  rpc GetBadgeDetail(GetBadgeDetailRequest) returns (GetBadgeDetailResponse);
+
+  // 获取徽章墙
+  rpc GetBadgeWall(GetBadgeWallRequest) returns (GetBadgeWallResponse);
+
+  // 发放徽章（内部调用）
+  rpc GrantBadge(GrantBadgeRequest) returns (GrantBadgeResponse);
+
+  // 取消徽章（内部调用）
+  rpc RevokeBadge(RevokeBadgeRequest) returns (RevokeBadgeResponse);
+
+  // 兑换徽章
+  rpc RedeemBadge(RedeemBadgeRequest) returns (RedeemBadgeResponse);
+
+  // 置顶/佩戴徽章
+  rpc PinBadge(PinBadgeRequest) returns (PinBadgeResponse);
+}
+
+// 徽章状态
+enum BadgeStatus {
+  BADGE_STATUS_UNSPECIFIED = 0;
+  ACTIVE = 1;
+  EXPIRED = 2;
+  REVOKED = 3;
+  REDEEMED = 4;
+}
+
+// 徽章类型
+enum BadgeType {
+  BADGE_TYPE_UNSPECIFIED = 0;
+  TRANSACTION = 1;
+  ENGAGEMENT = 2;
+  IDENTITY = 3;
+  SEASONAL = 4;
+}
+
+// 徽章信息
+message Badge {
+  string id = 1;
+  string code = 2;
+  string name = 3;
+  string description = 4;
+  BadgeType badge_type = 5;
+  string category_name = 6;
+  string series_name = 7;
+  string icon_url = 8;
+  string icon_3d_url = 9;
+}
+
+// 用户徽章信息
+message UserBadge {
+  string id = 1;
+  Badge badge = 2;
+  int32 quantity = 3;
+  BadgeStatus status = 4;
+  google.protobuf.Timestamp acquired_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  bool is_pinned = 7;
+}
+
+// 获取用户徽章列表请求
+message GetUserBadgesRequest {
+  string user_id = 1;
+  google.protobuf.StringValue badge_type = 2;
+  google.protobuf.StringValue status = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+// 获取用户徽章列表响应
+message GetUserBadgesResponse {
+  repeated UserBadge badges = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+// 获取徽章详情请求
+message GetBadgeDetailRequest {
+  string badge_id = 1;
+  string user_id = 2; // 可选，用于获取用户持有状态
+}
+
+// 获取徽章详情响应
+message GetBadgeDetailResponse {
+  Badge badge = 1;
+  google.protobuf.Int32Value user_quantity = 2;
+  google.protobuf.Timestamp user_acquired_at = 3;
+  google.protobuf.Timestamp user_expires_at = 4;
+  bool can_redeem = 5;
+}
+
+// 获取徽章墙请求
+message GetBadgeWallRequest {
+  string user_id = 1;
+  string sort_by = 2; // name, type, acquired_at
+  string sort_order = 3; // asc, desc
+  repeated string badge_types = 4; // 筛选类型
+}
+
+// 获取徽章墙响应
+message GetBadgeWallResponse {
+  repeated UserBadge badges = 1;
+  int32 total_count = 2;
+  int32 active_count = 3;
+  int32 expired_count = 4;
+  int32 redeemed_count = 5;
+}
+
+// 发放徽章请求
+message GrantBadgeRequest {
+  string user_id = 1;
+  string badge_id = 2;
+  int32 quantity = 3;
+  string source_type = 4; // event, scheduled, manual
+  string source_ref = 5;
+  string operator = 6; // 手动发放时的操作人
+}
+
+// 发放徽章响应
+message GrantBadgeResponse {
+  bool success = 1;
+  string user_badge_id = 2;
+  string message = 3;
+}
+
+// 取消徽章请求
+message RevokeBadgeRequest {
+  string user_id = 1;
+  string badge_id = 2;
+  int32 quantity = 3;
+  string reason = 4;
+  string operator = 5;
+}
+
+// 取消徽章响应
+message RevokeBadgeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// 兑换徽章请求
+message RedeemBadgeRequest {
+  string user_id = 1;
+  string redemption_rule_id = 2;
+}
+
+// 兑换徽章响应
+message RedeemBadgeResponse {
+  bool success = 1;
+  string order_id = 2;
+  string benefit_id = 3;
+  string benefit_name = 4;
+  string message = 5;
+}
+
+// 置顶徽章请求
+message PinBadgeRequest {
+  string user_id = 1;
+  string user_badge_id = 2;
+  bool pin = 3;
+}
+
+// 置顶徽章响应
+message PinBadgeResponse {
+  bool success = 1;
+  string message = 2;
+}
