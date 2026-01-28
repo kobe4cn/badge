@@ -15,7 +15,8 @@ pub use request::{
 };
 
 pub use response::{
-    ApiResponse, BadgeAdminDto, BadgeListItemDto, BadgeStatsDto, BatchTaskDto, CategoryDto,
-    CreatedResponse, DeletedResponse, GrantLogDto, OperationLogDto, PageResponse, RuleDto,
-    SeriesDto, StatsOverview, TrendDataPoint, UserBadgeViewDto,
+    ApiResponse, BadgeAdminDto, BadgeListItemDto, BadgeRankingDto, BadgeStatsDto, BatchTaskDto,
+    CategoryDto, CreatedResponse, DeletedResponse, GrantLogDto, OperationLogDto, PageResponse,
+    RuleDto, SeriesDto, StatsOverview, TrendDataPoint, UserBadgeAdminDto, UserBadgeViewDto,
+    UserLedgerDto, UserRedemptionDto, UserStatsDto,
 };

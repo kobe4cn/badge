@@ -5,6 +5,9 @@
 pub mod badge;
 pub mod category;
 pub mod grant;
+pub mod operation_log;
 pub mod revoke;
 pub mod rule;
 pub mod series;
+pub mod stats;
+pub mod user_view;

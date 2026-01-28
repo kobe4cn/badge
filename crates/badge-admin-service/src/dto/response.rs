@@ -252,6 +252,75 @@ pub struct BadgeStatsDto {
     pub unique_holders: i64,
     pub today_issued: i64,
     pub today_redeemed: i64,
+    /// 近期趋势数据
+    pub daily_trends: Vec<TrendDataPoint>,
+}
+
+/// 徽章排行 DTO
+///
+/// 按发放量排名，包含发放/兑换/持有人数统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BadgeRankingDto {
+    pub badge_id: i64,
+    pub badge_name: String,
+    pub badge_type: String,
+    pub total_issued: i64,
+    pub total_redeemed: i64,
+    pub active_holders: i64,
+}
+
+/// 用户徽章管理视图 DTO
+///
+/// B端查看用户持有徽章时使用，包含有效期信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserBadgeAdminDto {
+    pub badge_id: i64,
+    pub badge_name: String,
+    pub badge_type: String,
+    pub quantity: i32,
+    pub status: String,
+    pub acquired_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// 用户兑换记录 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserRedemptionDto {
+    pub order_id: i64,
+    pub order_no: String,
+    pub benefit_name: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// 用户统计 DTO
+///
+/// 汇总用户的徽章持有和兑换情况
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserStatsDto {
+    pub user_id: String,
+    pub total_badges: i64,
+    pub active_badges: i64,
+    pub expired_badges: i64,
+    pub total_redeemed: i64,
+}
+
+/// 用户账本流水 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserLedgerDto {
+    pub id: i64,
+    pub badge_id: i64,
+    pub badge_name: String,
+    pub change_type: String,
+    pub source_type: String,
+    pub quantity: i32,
+    pub remark: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 /// 操作日志响应 DTO

@@ -70,6 +70,45 @@ fn revoke_routes() -> Router<AppState> {
         .route("/revokes", get(handlers::revoke::list_revokes))
 }
 
+/// 构建统计报表路由
+///
+/// 包含总览、趋势、排行和单徽章统计
+fn stats_routes() -> Router<AppState> {
+    Router::new()
+        .route("/stats/overview", get(handlers::stats::get_overview))
+        .route("/stats/trends", get(handlers::stats::get_trends))
+        .route("/stats/ranking", get(handlers::stats::get_ranking))
+        .route("/stats/badges/{id}", get(handlers::stats::get_badge_stats))
+}
+
+/// 构建会员视图路由
+///
+/// 包含用户徽章、兑换记录、统计和账本流水
+fn user_view_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/users/{user_id}/badges",
+            get(handlers::user_view::get_user_badges),
+        )
+        .route(
+            "/users/{user_id}/redemptions",
+            get(handlers::user_view::get_user_redemptions),
+        )
+        .route(
+            "/users/{user_id}/stats",
+            get(handlers::user_view::get_user_stats),
+        )
+        .route(
+            "/users/{user_id}/ledger",
+            get(handlers::user_view::get_user_ledger),
+        )
+}
+
+/// 构建操作日志路由
+fn log_routes() -> Router<AppState> {
+    Router::new().route("/logs", get(handlers::operation_log::list_logs))
+}
+
 /// 构建完整的 API 路由
 ///
 /// 包含所有管理后台 API，挂载在 /api/admin 前缀下
@@ -78,7 +117,10 @@ pub fn api_routes() -> Router<AppState> {
         .merge(badge_routes())
         .merge(rule_routes())
         .merge(grant_routes())
-        .merge(revoke_routes());
+        .merge(revoke_routes())
+        .merge(stats_routes())
+        .merge(user_view_routes())
+        .merge(log_routes());
 
     Router::new().nest("/api/admin", admin_routes)
 }
@@ -93,6 +135,9 @@ mod tests {
         let _rule = rule_routes();
         let _grant = grant_routes();
         let _revoke = revoke_routes();
+        let _stats = stats_routes();
+        let _user_view = user_view_routes();
+        let _log = log_routes();
         let _api = api_routes();
     }
 }

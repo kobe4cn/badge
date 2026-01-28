@@ -34,10 +34,11 @@ pub mod state;
 
 // 重新导出核心类型
 pub use dto::{
-    ApiResponse, BadgeAdminDto, BadgeQueryFilter, BatchGrantRequest, BatchTaskDto,
-    CreateBadgeRequest, CreateCategoryRequest, CreateRuleRequest, CreateSeriesRequest,
-    GrantLogFilter, ManualGrantRequest, ManualRevokeRequest, OperationLogDto, PageResponse,
-    PaginationParams, StatsOverview, UpdateBadgeRequest,
+    ApiResponse, BadgeAdminDto, BadgeQueryFilter, BadgeRankingDto, BadgeStatsDto,
+    BatchGrantRequest, BatchTaskDto, CreateBadgeRequest, CreateCategoryRequest, CreateRuleRequest,
+    CreateSeriesRequest, GrantLogFilter, ManualGrantRequest, ManualRevokeRequest, OperationLogDto,
+    PageResponse, PaginationParams, StatsOverview, TrendDataPoint, UpdateBadgeRequest,
+    UserBadgeAdminDto, UserLedgerDto, UserRedemptionDto, UserStatsDto,
 };
 pub use error::{AdminError, Result};
 pub use models::{BatchTask, BatchTaskStatus, BatchTaskType, OperationLog};
