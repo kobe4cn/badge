@@ -8,3 +8,4 @@ export * from './api';
 export { default as apiClient } from './api';
 
 export * from './category';
+export * from './series';
