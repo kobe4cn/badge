@@ -149,6 +149,13 @@ async fn issue_coupon(
 }
 
 /// 核销优惠券
+///
+/// 核销流程：
+/// 1. 检查优惠券是否存在
+/// 2. 检查状态是否为 Active
+/// 3. 检查是否已过期
+/// 4. 检查订单金额是否满足最低消费
+/// 5. 计算折扣并更新状态
 #[tracing::instrument(skip(state))]
 async fn redeem_coupon(
     State(state): State<Arc<CouponServiceState>>,
@@ -166,7 +173,6 @@ async fn redeem_coupon(
         ));
     };
 
-    // 检查优惠券状态
     if coupon.status != CouponStatus::Active {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -176,9 +182,7 @@ async fn redeem_coupon(
         ));
     }
 
-    // 检查是否过期
     if coupon.expires_at < Utc::now() {
-        // 更新状态为已过期
         coupon.status = CouponStatus::Expired;
         state.coupons.insert(&coupon_id, coupon);
         return Err((
@@ -189,7 +193,6 @@ async fn redeem_coupon(
         ));
     }
 
-    // 检查订单金额是否满足最低消费
     if req.order_amount < coupon.min_order_amount {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -199,15 +202,12 @@ async fn redeem_coupon(
         ));
     }
 
-    // 计算折扣金额
     let discount_applied = coupon.calculate_discount(req.order_amount);
-
-    // 更新优惠券状态为已使用
     coupon.status = CouponStatus::Used;
     state.coupons.insert(&coupon_id, coupon);
 
     tracing::info!(
-        "优惠券核销成功: {}, 折扣金额: {:.2}",
+        "优惠券核销成功: {}, 折扣: {:.2}",
         coupon_id,
         discount_applied
     );
@@ -226,18 +226,12 @@ async fn list_user_coupons(
     Path(user_id): Path<String>,
     Query(query): Query<ListCouponsQuery>,
 ) -> Json<CouponListResponse> {
-    tracing::info!(
-        "获取用户优惠券列表: {}, 状态筛选: {:?}",
-        user_id,
-        query.status
-    );
+    tracing::info!("获取用户优惠券: {}, 状态: {:?}", user_id, query.status);
 
     let coupons = state.coupons.list_by(|c| {
-        // 必须匹配用户 ID
         if c.user_id != user_id {
             return false;
         }
-        // 如果指定了状态筛选，则必须匹配
         query.status.is_none_or(|s| c.status == s)
     });
 
@@ -254,7 +248,7 @@ async fn batch_issue_coupons(
     tracing::info!("批量发放优惠券给 {} 个用户", req.user_ids.len());
 
     let issue_req = IssueCouponRequest {
-        user_id: String::new(), // 占位，实际在循环中设置
+        user_id: String::new(),
         coupon_type: req.coupon_type,
         discount_value: req.discount_value,
         min_order_amount: req.min_order_amount,
@@ -282,10 +276,6 @@ async fn batch_issue_coupons(
     )
 }
 
-// ============================================================================
-// 辅助函数
-// ============================================================================
-
 /// 根据请求参数创建优惠券
 fn create_coupon(user_id: &str, req: &IssueCouponRequest) -> MockCoupon {
     let now = Utc::now();
@@ -298,327 +288,5 @@ fn create_coupon(user_id: &str, req: &IssueCouponRequest) -> MockCoupon {
         status: CouponStatus::Active,
         issued_at: now,
         expires_at: now + Duration::days(req.valid_days),
-    }
-}
-
-// ============================================================================
-// 单元测试
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{
-        body::Body,
-        http::{Request, StatusCode},
-    };
-    use tower::ServiceExt;
-
-    fn create_test_app() -> Router {
-        let state = Arc::new(CouponServiceState::default());
-        coupon_routes().with_state(state)
-    }
-
-    fn create_test_app_with_state(state: Arc<CouponServiceState>) -> Router {
-        coupon_routes().with_state(state)
-    }
-
-    #[tokio::test]
-    async fn test_issue_coupon() {
-        let app = create_test_app();
-
-        let req_body = serde_json::json!({
-            "user_id": "user-123",
-            "coupon_type": "Percentage",
-            "discount_value": 10.0,
-            "min_order_amount": 100.0,
-            "valid_days": 30
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/coupons")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::CREATED);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let resp: CouponResponse = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(resp.coupon.user_id, "user-123");
-        assert_eq!(resp.coupon.coupon_type, CouponType::Percentage);
-        assert_eq!(resp.coupon.status, CouponStatus::Active);
-    }
-
-    #[tokio::test]
-    async fn test_get_coupon() {
-        let state = Arc::new(CouponServiceState::default());
-        let coupon = MockCoupon {
-            coupon_id: "CPN-TEST-001".to_string(),
-            user_id: "user-123".to_string(),
-            coupon_type: CouponType::FixedAmount,
-            discount_value: 50.0,
-            min_order_amount: 200.0,
-            status: CouponStatus::Active,
-            issued_at: Utc::now(),
-            expires_at: Utc::now() + Duration::days(30),
-        };
-        let coupon_id = coupon.coupon_id.clone();
-        state.coupons.insert(&coupon_id, coupon);
-
-        let app = create_test_app_with_state(state);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri("/coupons/CPN-TEST-001")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let resp: CouponResponse = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(resp.coupon.coupon_id, "CPN-TEST-001");
-        assert_eq!(resp.coupon.discount_value, 50.0);
-    }
-
-    #[tokio::test]
-    async fn test_list_user_coupons() {
-        let state = Arc::new(CouponServiceState::default());
-
-        // 为同一用户添加多张优惠券
-        for i in 0..3 {
-            let coupon = MockCoupon {
-                coupon_id: format!("CPN-{}", i),
-                user_id: "user-456".to_string(),
-                coupon_type: CouponType::Percentage,
-                discount_value: 10.0,
-                min_order_amount: 100.0,
-                status: if i == 0 {
-                    CouponStatus::Used
-                } else {
-                    CouponStatus::Active
-                },
-                issued_at: Utc::now(),
-                expires_at: Utc::now() + Duration::days(30),
-            };
-            let coupon_id = coupon.coupon_id.clone();
-            state.coupons.insert(&coupon_id, coupon);
-        }
-
-        let app = create_test_app_with_state(state);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri("/users/user-456/coupons")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let resp: CouponListResponse = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(resp.total, 3);
-    }
-
-    #[tokio::test]
-    async fn test_redeem_coupon_success() {
-        let state = Arc::new(CouponServiceState::default());
-        let coupon = MockCoupon {
-            coupon_id: "CPN-REDEEM-001".to_string(),
-            user_id: "user-123".to_string(),
-            coupon_type: CouponType::Percentage,
-            discount_value: 10.0, // 10% 折扣
-            min_order_amount: 100.0,
-            status: CouponStatus::Active,
-            issued_at: Utc::now(),
-            expires_at: Utc::now() + Duration::days(30),
-        };
-        let coupon_id = coupon.coupon_id.clone();
-        state.coupons.insert(&coupon_id, coupon);
-
-        let app = create_test_app_with_state(state.clone());
-
-        let req_body = serde_json::json!({
-            "order_id": "ORDER-001",
-            "order_amount": 200.0
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/coupons/CPN-REDEEM-001/redeem")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let resp: RedeemResponse = serde_json::from_slice(&body).unwrap();
-
-        assert!(resp.success);
-        // 200 * 10% = 20
-        assert!((resp.discount_applied - 20.0).abs() < 0.01);
-
-        // 验证优惠券状态已更新为 Used
-        let updated_coupon = state.coupons.get("CPN-REDEEM-001").unwrap();
-        assert_eq!(updated_coupon.status, CouponStatus::Used);
-    }
-
-    #[tokio::test]
-    async fn test_redeem_coupon_insufficient_amount() {
-        let state = Arc::new(CouponServiceState::default());
-        let coupon = MockCoupon {
-            coupon_id: "CPN-REDEEM-002".to_string(),
-            user_id: "user-123".to_string(),
-            coupon_type: CouponType::FixedAmount,
-            discount_value: 50.0,
-            min_order_amount: 200.0, // 最低消费 200 元
-            status: CouponStatus::Active,
-            issued_at: Utc::now(),
-            expires_at: Utc::now() + Duration::days(30),
-        };
-        let coupon_id = coupon.coupon_id.clone();
-        state.coupons.insert(&coupon_id, coupon);
-
-        let app = create_test_app_with_state(state);
-
-        let req_body = serde_json::json!({
-            "order_id": "ORDER-002",
-            "order_amount": 100.0  // 未达到最低消费
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/coupons/CPN-REDEEM-002/redeem")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let resp: ErrorResponse = serde_json::from_slice(&body).unwrap();
-
-        assert!(resp.error.contains("订单金额不足"));
-    }
-
-    #[tokio::test]
-    async fn test_redeem_expired_coupon() {
-        let state = Arc::new(CouponServiceState::default());
-        let coupon = MockCoupon {
-            coupon_id: "CPN-EXPIRED-001".to_string(),
-            user_id: "user-123".to_string(),
-            coupon_type: CouponType::Percentage,
-            discount_value: 10.0,
-            min_order_amount: 100.0,
-            status: CouponStatus::Active,
-            issued_at: Utc::now() - Duration::days(60),
-            expires_at: Utc::now() - Duration::days(1), // 已过期
-        };
-        let coupon_id = coupon.coupon_id.clone();
-        state.coupons.insert(&coupon_id, coupon);
-
-        let app = create_test_app_with_state(state);
-
-        let req_body = serde_json::json!({
-            "order_id": "ORDER-003",
-            "order_amount": 200.0
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/coupons/CPN-EXPIRED-001/redeem")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let resp: ErrorResponse = serde_json::from_slice(&body).unwrap();
-
-        assert!(resp.error.contains("已过期"));
-    }
-
-    #[tokio::test]
-    async fn test_batch_issue() {
-        let app = create_test_app();
-
-        let req_body = serde_json::json!({
-            "user_ids": ["user-1", "user-2", "user-3"],
-            "coupon_type": "FreeShipping",
-            "discount_value": 15.0,
-            "min_order_amount": 50.0,
-            "valid_days": 7
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/coupons/batch")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::CREATED);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let resp: BatchIssueResponse = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(resp.issued_count, 3);
-        assert_eq!(resp.coupon_ids.len(), 3);
     }
 }

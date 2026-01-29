@@ -6,6 +6,9 @@ pub mod coupon_service;
 pub mod order_service;
 pub mod profile_service;
 
+#[cfg(test)]
+mod coupon_service_tests;
+
 pub use coupon_service::{CouponServiceState, coupon_routes};
 pub use order_service::{OrderServiceState, order_routes};
 pub use profile_service::{ProfileServiceState, profile_routes};
