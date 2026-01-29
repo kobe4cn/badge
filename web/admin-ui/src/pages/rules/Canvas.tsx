@@ -2,11 +2,11 @@
  * 规则画布页面
  *
  * 可视化规则编辑器，使用节点连线方式定义徽章发放规则。
- * 支持节点拖拽、连接验证、撤销重做、快捷键操作等交互功能。
+ * 支持节点拖拽、连接验证、撤销重做、快捷键操作、规则测试与预览等交互功能。
  */
 
-import React, { useCallback, useRef, useEffect, useMemo } from 'react';
-import { Card, message } from 'antd';
+import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
+import { Card, message, App } from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   ReactFlow,
@@ -22,14 +22,24 @@ import {
 import type { Connection, Node, Edge, NodeChange, EdgeChange, IsValidConnection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { nodeTypes, CanvasToolbar, CustomEdge } from './components';
+import {
+  nodeTypes,
+  CanvasToolbar,
+  CustomEdge,
+  TestPanel,
+  TestResult,
+  RuleInfoPanel,
+} from './components';
+import type { RuleInfo } from './components';
 import { useCanvasHistory, useCanvasHotkeys } from './hooks';
-import { isValidConnection, validateConnection, canvasToRule, serializeRule } from './utils';
+import { isValidConnection, validateConnection, canvasToRule, serializeRule, validateRule } from './utils';
 import type {
   ConditionNodeData,
   LogicNodeData,
   BadgeNodeData,
 } from '../../types/rule-canvas';
+import { useTestRuleDefinition, useCreateRule, useUpdateRule, usePublishRule } from '@/hooks';
+import type { TestContext, RuleTestResult } from '@/services/rule';
 
 /**
  * 自定义边类型
@@ -134,9 +144,36 @@ const generateNodeId = (type: string): string => {
  * 规则画布内部组件
  */
 const CanvasInner: React.FC = () => {
+  const { message: antMessage } = App.useApp();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const { zoomIn, zoomOut, fitView, getNodes, getEdges } = useReactFlow();
+
+  // 规则信息状态
+  const [ruleInfo, setRuleInfo] = useState<RuleInfo>({
+    name: '示例规则',
+    description: '当用户等级>=5且订单数>=10时，发放忠实用户徽章',
+    status: 'DRAFT',
+    version: 1,
+  });
+
+  // 测试面板状态
+  const [testPanelOpen, setTestPanelOpen] = useState(false);
+  const [testResultOpen, setTestResultOpen] = useState(false);
+  const [testResult, setTestResult] = useState<RuleTestResult | undefined>();
+
+  // 匹配高亮的节点 ID
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
+
+  // 变更追踪
+  const [hasChanges, setHasChanges] = useState(false);
+  const savedStateRef = useRef<string>('');
+
+  // API Hooks
+  const testRuleMutation = useTestRuleDefinition();
+  const createRuleMutation = useCreateRule();
+  const updateRuleMutation = useUpdateRule();
+  const publishRuleMutation = usePublishRule();
 
   // 历史记录管理
   const { canUndo, canRedo, undo, redo, pushHistory } = useCanvasHistory();
@@ -146,9 +183,19 @@ const CanvasInner: React.FC = () => {
   useEffect(() => {
     if (!isInitialized.current) {
       pushHistory(nodes, edges);
+      // 保存初始状态用于变更检测
+      savedStateRef.current = JSON.stringify({ nodes, edges });
       isInitialized.current = true;
     }
   }, [nodes, edges, pushHistory]);
+
+  /**
+   * 检测是否有未保存的变更
+   */
+  useEffect(() => {
+    const currentState = JSON.stringify({ nodes, edges });
+    setHasChanges(currentState !== savedStateRef.current);
+  }, [nodes, edges]);
 
   /**
    * 获取选中的节点
@@ -157,15 +204,68 @@ const CanvasInner: React.FC = () => {
   const hasSelection = selectedNodes.length > 0;
 
   /**
+   * 验证规则
+   */
+  const ruleValidation = useMemo(() => {
+    const currentNodes = nodes;
+    const currentEdges = edges;
+    const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id || 'new', ruleInfo.name);
+    return validateRule(rule);
+  }, [nodes, edges, ruleInfo.id, ruleInfo.name]);
+
+  /**
+   * 根据测试结果更新节点样式
+   */
+  const styledNodes = useMemo(() => {
+    if (highlightedNodeIds.size === 0) return nodes;
+
+    return nodes.map((node) => {
+      const isHighlighted = highlightedNodeIds.has(node.id);
+      return {
+        ...node,
+        style: {
+          ...node.style,
+          // 匹配的节点显示绿色边框
+          border: isHighlighted ? '2px solid #52c41a' : undefined,
+          boxShadow: isHighlighted ? '0 0 10px rgba(82, 196, 26, 0.5)' : undefined,
+          // 未匹配的节点灰显
+          opacity: highlightedNodeIds.size > 0 && !isHighlighted ? 0.5 : 1,
+        },
+      };
+    });
+  }, [nodes, highlightedNodeIds]);
+
+  /**
+   * 根据测试结果更新边样式
+   */
+  const styledEdges = useMemo(() => {
+    if (highlightedNodeIds.size === 0) return edges;
+
+    return edges.map((edge) => {
+      const isSourceHighlighted = highlightedNodeIds.has(edge.source);
+      const isTargetHighlighted = highlightedNodeIds.has(edge.target);
+      const isHighlighted = isSourceHighlighted && isTargetHighlighted;
+
+      return {
+        ...edge,
+        style: {
+          ...edge.style,
+          stroke: isHighlighted ? '#52c41a' : undefined,
+          strokeWidth: isHighlighted ? 2 : 1,
+          opacity: highlightedNodeIds.size > 0 && !isHighlighted ? 0.3 : 1,
+        },
+        animated: isHighlighted,
+      };
+    });
+  }, [edges, highlightedNodeIds]);
+
+  /**
    * 处理节点变更
-   *
-   * 在节点变更后记录历史，支持撤销
    */
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       onNodesChange(changes);
 
-      // 仅在有实质性变更时记录历史（排除选中状态变化）
       const hasSubstantialChange = changes.some(
         (change) =>
           change.type === 'remove' ||
@@ -174,7 +274,6 @@ const CanvasInner: React.FC = () => {
       );
 
       if (hasSubstantialChange) {
-        // 延迟记录以获取最新状态
         setTimeout(() => {
           pushHistory(getNodes(), getEdges());
         }, 0);
@@ -205,8 +304,6 @@ const CanvasInner: React.FC = () => {
 
   /**
    * 处理连接创建
-   *
-   * 验证连接有效性后添加边
    */
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -219,7 +316,6 @@ const CanvasInner: React.FC = () => {
 
       setEdges((eds) => addEdge({ ...connection, type: 'custom' }, eds));
 
-      // 记录历史
       setTimeout(() => {
         pushHistory(getNodes(), getEdges());
       }, 0);
@@ -228,11 +324,10 @@ const CanvasInner: React.FC = () => {
   );
 
   /**
-   * 连接有效性验证（用于拖拽时的视觉反馈）
+   * 连接有效性验证
    */
   const isValidConnectionCallback: IsValidConnection = useCallback(
     (connection) => {
-      // 将 Edge | Connection 转换为标准 Connection 格式
       const conn: Connection = {
         source: connection.source,
         target: connection.target,
@@ -246,9 +341,6 @@ const CanvasInner: React.FC = () => {
 
   // ============ 节点操作 ============
 
-  /**
-   * 添加条件节点
-   */
   const addConditionNode = useCallback(() => {
     const newNode: Node = {
       id: generateNodeId('condition'),
@@ -264,9 +356,6 @@ const CanvasInner: React.FC = () => {
     setTimeout(() => pushHistory(getNodes(), getEdges()), 0);
   }, [setNodes, pushHistory, getNodes, getEdges]);
 
-  /**
-   * 添加逻辑节点
-   */
   const addLogicNode = useCallback(() => {
     const newNode: Node = {
       id: generateNodeId('logic'),
@@ -280,9 +369,6 @@ const CanvasInner: React.FC = () => {
     setTimeout(() => pushHistory(getNodes(), getEdges()), 0);
   }, [setNodes, pushHistory, getNodes, getEdges]);
 
-  /**
-   * 添加徽章节点
-   */
   const addBadgeNode = useCallback(() => {
     const newNode: Node = {
       id: generateNodeId('badge'),
@@ -298,9 +384,6 @@ const CanvasInner: React.FC = () => {
     setTimeout(() => pushHistory(getNodes(), getEdges()), 0);
   }, [setNodes, pushHistory, getNodes, getEdges]);
 
-  /**
-   * 删除选中的节点和边
-   */
   const deleteSelected = useCallback(() => {
     const selectedNodeIds = new Set(nodes.filter((n) => n.selected).map((n) => n.id));
     const selectedEdgeIds = new Set(edges.filter((e) => e.selected).map((e) => e.id));
@@ -310,7 +393,6 @@ const CanvasInner: React.FC = () => {
       return;
     }
 
-    // 删除选中的节点及其关联的边
     setNodes((nds) => nds.filter((n) => !selectedNodeIds.has(n.id)));
     setEdges((eds) =>
       eds.filter(
@@ -327,9 +409,6 @@ const CanvasInner: React.FC = () => {
 
   // ============ 历史操作 ============
 
-  /**
-   * 撤销操作
-   */
   const handleUndo = useCallback(() => {
     const state = undo();
     if (state) {
@@ -339,9 +418,6 @@ const CanvasInner: React.FC = () => {
     }
   }, [undo, setNodes, setEdges]);
 
-  /**
-   * 重做操作
-   */
   const handleRedo = useCallback(() => {
     const state = redo();
     if (state) {
@@ -351,11 +427,8 @@ const CanvasInner: React.FC = () => {
     }
   }, [redo, setNodes, setEdges]);
 
-  // ============ 保存操作 ============
+  // ============ 规则保存 ============
 
-  /**
-   * 保存规则
-   */
   const handleSave = useCallback(() => {
     const currentNodes = getNodes();
     const currentEdges = getEdges();
@@ -377,13 +450,113 @@ const CanvasInner: React.FC = () => {
     }
 
     // 转换为规则 JSON
-    const rule = canvasToRule(currentNodes, currentEdges, 'rule-1', '自定义规则');
-    const json = serializeRule(rule);
+    const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id || 'new', ruleInfo.name);
+    const ruleJson = JSON.parse(serializeRule(rule));
 
-    // 这里可以调用 API 保存到后端
-    console.log('规则 JSON:', json);
-    message.success('规则保存成功');
-  }, [getNodes, getEdges]);
+    // 根据是否已有 ID 决定创建还是更新
+    if (ruleInfo.id) {
+      updateRuleMutation.mutate(
+        {
+          id: ruleInfo.id,
+          data: {
+            name: ruleInfo.name,
+            description: ruleInfo.description,
+            ruleJson,
+          },
+        },
+        {
+          onSuccess: () => {
+            savedStateRef.current = JSON.stringify({ nodes: currentNodes, edges: currentEdges });
+            setHasChanges(false);
+          },
+        }
+      );
+    } else {
+      createRuleMutation.mutate(
+        {
+          name: ruleInfo.name,
+          description: ruleInfo.description,
+          ruleJson,
+        },
+        {
+          onSuccess: (newRule) => {
+            setRuleInfo((prev) => ({ ...prev, id: newRule.id }));
+            savedStateRef.current = JSON.stringify({ nodes: currentNodes, edges: currentEdges });
+            setHasChanges(false);
+          },
+        }
+      );
+    }
+  }, [getNodes, getEdges, ruleInfo, createRuleMutation, updateRuleMutation]);
+
+  // ============ 规则发布 ============
+
+  const handlePublish = useCallback(() => {
+    if (!ruleInfo.id) {
+      antMessage.warning('请先保存规则');
+      return;
+    }
+    publishRuleMutation.mutate(ruleInfo.id, {
+      onSuccess: () => {
+        setRuleInfo((prev) => ({ ...prev, status: 'PUBLISHED' }));
+      },
+    });
+  }, [ruleInfo.id, publishRuleMutation, antMessage]);
+
+  // ============ 规则测试 ============
+
+  const handleOpenTest = useCallback(() => {
+    setTestPanelOpen(true);
+    // 清除之前的高亮
+    setHighlightedNodeIds(new Set());
+  }, []);
+
+  const handleRunTest = useCallback(
+    (context: TestContext) => {
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+      const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id || 'test', ruleInfo.name);
+      const ruleJson = JSON.parse(serializeRule(rule));
+
+      testRuleMutation.mutate(
+        { ruleJson, context },
+        {
+          onSuccess: (result) => {
+            setTestResult(result);
+            setTestPanelOpen(false);
+            setTestResultOpen(true);
+
+            // 设置匹配节点高亮
+            if (result.matchedNodeIds && result.matchedNodeIds.length > 0) {
+              setHighlightedNodeIds(new Set(result.matchedNodeIds));
+            } else {
+              // 如果后端没有返回匹配节点，模拟高亮逻辑
+              const matchedIds = new Set<string>();
+              result.conditionResults?.forEach((cr) => {
+                if (cr.matched) {
+                  matchedIds.add(cr.nodeId);
+                }
+              });
+              // 如果整体匹配，高亮所有节点
+              if (result.matched) {
+                currentNodes.forEach((n) => matchedIds.add(n.id));
+              }
+              setHighlightedNodeIds(matchedIds);
+            }
+
+            antMessage.success(result.matched ? '规则匹配成功!' : '规则未匹配');
+          },
+        }
+      );
+    },
+    [getNodes, getEdges, ruleInfo, testRuleMutation, antMessage]
+  );
+
+  const handleCloseTestResult = useCallback(() => {
+    setTestResultOpen(false);
+    // 清除高亮
+    setHighlightedNodeIds(new Set());
+  }, []);
 
   // ============ 键盘快捷键 ============
 
@@ -397,6 +570,9 @@ const CanvasInner: React.FC = () => {
   // ============ MiniMap 配置 ============
 
   const nodeColor = useCallback((node: Node) => {
+    if (highlightedNodeIds.has(node.id)) {
+      return '#52c41a';
+    }
     switch (node.type) {
       case 'condition':
         return '#1890ff';
@@ -407,7 +583,7 @@ const CanvasInner: React.FC = () => {
       default:
         return '#999';
     }
-  }, []);
+  }, [highlightedNodeIds]);
 
   return (
     <PageContainer title="规则画布">
@@ -428,12 +604,27 @@ const CanvasInner: React.FC = () => {
             onZoomOut={() => zoomOut()}
             onFitView={() => fitView()}
             onSave={handleSave}
+            onTest={handleOpenTest}
+            saving={createRuleMutation.isPending || updateRuleMutation.isPending}
+          />
+
+          {/* 规则信息面板 */}
+          <RuleInfoPanel
+            ruleInfo={ruleInfo}
+            onRuleInfoChange={(info) => setRuleInfo((prev) => ({ ...prev, ...info }))}
+            onSave={handleSave}
+            onPublish={handlePublish}
+            saving={createRuleMutation.isPending || updateRuleMutation.isPending}
+            publishing={publishRuleMutation.isPending}
+            isValid={ruleValidation.valid}
+            validationErrors={ruleValidation.errors}
+            hasChanges={hasChanges}
           />
 
           {/* 画布主体 */}
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={styledNodes}
+            edges={styledEdges}
             onNodesChange={handleNodesChange}
             onEdgesChange={handleEdgesChange}
             onConnect={onConnect}
@@ -443,7 +634,7 @@ const CanvasInner: React.FC = () => {
             defaultEdgeOptions={defaultEdgeOptions}
             fitView
             attributionPosition="bottom-left"
-            deleteKeyCode={null} // 禁用默认删除键，使用自定义处理
+            deleteKeyCode={null}
             multiSelectionKeyCode="Shift"
             selectionKeyCode="Shift"
             panOnScroll
@@ -462,6 +653,22 @@ const CanvasInner: React.FC = () => {
           </ReactFlow>
         </div>
       </Card>
+
+      {/* 测试数据输入面板 */}
+      <TestPanel
+        open={testPanelOpen}
+        onClose={() => setTestPanelOpen(false)}
+        onRunTest={handleRunTest}
+        loading={testRuleMutation.isPending}
+      />
+
+      {/* 测试结果展示 */}
+      <TestResult
+        open={testResultOpen}
+        onClose={handleCloseTestResult}
+        result={testResult}
+        loading={testRuleMutation.isPending}
+      />
     </PageContainer>
   );
 };

@@ -7,3 +7,4 @@
 export * from './useCategory';
 export * from './useSeries';
 export * from './useBadge';
+export * from './useRule';
