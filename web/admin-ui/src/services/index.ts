@@ -11,3 +11,4 @@ export * from './category';
 export * from './series';
 export * from './badge';
 export * from './rule';
+export * from './grant';
