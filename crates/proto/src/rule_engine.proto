@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package badge.rule_engine;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// 规则引擎服务
+service RuleEngineService {
+  // 评估规则
+  rpc Evaluate(EvaluateRequest) returns (EvaluateResponse);
+
+  // 批量评估规则
+  rpc BatchEvaluate(BatchEvaluateRequest) returns (BatchEvaluateResponse);
+
+  // 加载/更新规则
+  rpc LoadRule(LoadRuleRequest) returns (LoadRuleResponse);
+
+  // 删除规则
+  rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+
+  // 测试规则
+  rpc TestRule(TestRuleRequest) returns (TestRuleResponse);
+}
+
+// 规则定义
+message Rule {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  RuleNode root = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// 规则节点（条件或组）
+message RuleNode {
+  oneof node {
+    ConditionNode condition = 1;
+    GroupNode group = 2;
+  }
+}
+
+// 条件节点
+message ConditionNode {
+  string field = 1;
+  Operator operator = 2;
+  google.protobuf.Value value = 3;
+}
+
+// 组节点
+message GroupNode {
+  LogicalOperator operator = 1;
+  repeated RuleNode children = 2;
+}
+
+// 操作符
+enum Operator {
+  OPERATOR_UNSPECIFIED = 0;
+  EQ = 1;
+  NEQ = 2;
+  GT = 3;
+  GTE = 4;
+  LT = 5;
+  LTE = 6;
+  BETWEEN = 7;
+  IN = 8;
+  NOT_IN = 9;
+  CONTAINS = 10;
+  STARTS_WITH = 11;
+  ENDS_WITH = 12;
+  REGEX = 13;
+  IS_EMPTY = 14;
+  IS_NOT_EMPTY = 15;
+  CONTAINS_ANY = 16;
+  CONTAINS_ALL = 17;
+  BEFORE = 18;
+  AFTER = 19;
+}
+
+// 逻辑操作符
+enum LogicalOperator {
+  LOGICAL_OPERATOR_UNSPECIFIED = 0;
+  AND = 1;
+  OR = 2;
+}
+
+// 评估请求
+message EvaluateRequest {
+  string rule_id = 1;
+  google.protobuf.Struct context = 2; // 上下文数据
+}
+
+// 评估响应
+message EvaluateResponse {
+  bool matched = 1;
+  string rule_id = 2;
+  string rule_name = 3;
+  repeated string matched_conditions = 4; // 匹配的条件路径
+  int64 evaluation_time_ms = 5;
+}
+
+// 批量评估请求
+message BatchEvaluateRequest {
+  repeated string rule_ids = 1;
+  google.protobuf.Struct context = 2;
+}
+
+// 批量评估响应
+message BatchEvaluateResponse {
+  repeated EvaluateResponse results = 1;
+  int64 total_evaluation_time_ms = 2;
+}
+
+// 加载规则请求
+message LoadRuleRequest {
+  Rule rule = 1;
+}
+
+// 加载规则响应
+message LoadRuleResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// 删除规则请求
+message DeleteRuleRequest {
+  string rule_id = 1;
+}
+
+// 删除规则响应
+message DeleteRuleResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// 测试规则请求
+message TestRuleRequest {
+  Rule rule = 1; // 待测试的规则（不需要先加载）
+  google.protobuf.Struct context = 2;
+}
+
+// 测试规则响应
+message TestRuleResponse {
+  bool matched = 1;
+  repeated string matched_conditions = 2;
+  repeated string evaluation_trace = 3; // 评估过程追踪
+  int64 evaluation_time_ms = 4;
+}
