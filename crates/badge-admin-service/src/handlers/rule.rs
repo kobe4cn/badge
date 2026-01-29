@@ -4,8 +4,8 @@
 //! 规则与规则引擎配合，定义用户获取徽章的自动触发条件。
 
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -14,8 +14,7 @@ use validator::Validate;
 
 use crate::{
     dto::{
-        ApiResponse, CreateRuleRequest, PageResponse, PaginationParams, RuleDto,
-        UpdateRuleRequest,
+        ApiResponse, CreateRuleRequest, PageResponse, PaginationParams, RuleDto, UpdateRuleRequest,
     },
     error::AdminError,
     state::AppState,
@@ -93,11 +92,10 @@ pub async fn create_rule(
     req.validate()?;
 
     // 验证关联徽章存在
-    let badge_exists: (bool,) =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
-            .bind(req.badge_id)
-            .fetch_one(&state.pool)
-            .await?;
+    let badge_exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
+        .bind(req.badge_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if !badge_exists.0 {
         return Err(AdminError::BadgeNotFound(req.badge_id));
@@ -105,9 +103,7 @@ pub async fn create_rule(
 
     // 校验 rule_json 不能为空对象
     if req.rule_json.is_null() {
-        return Err(AdminError::InvalidRuleJson(
-            "规则内容不能为空".to_string(),
-        ));
+        return Err(AdminError::InvalidRuleJson("规则内容不能为空".to_string()));
     }
 
     // 新建规则默认禁用，需要单独发布
@@ -142,11 +138,10 @@ pub async fn list_rules(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM badge_rules r JOIN badges b ON b.id = r.badge_id",
-    )
-    .fetch_one(&state.pool)
-    .await?;
+    let total: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM badge_rules r JOIN badges b ON b.id = r.badge_id")
+            .fetch_one(&state.pool)
+            .await?;
 
     if total.0 == 0 {
         return Ok(Json(ApiResponse::success(PageResponse::empty(
@@ -192,11 +187,10 @@ pub async fn update_rule(
 ) -> Result<Json<ApiResponse<RuleDto>>, AdminError> {
     req.validate()?;
 
-    let exists: (bool,) =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badge_rules WHERE id = $1)")
-            .bind(id)
-            .fetch_one(&state.pool)
-            .await?;
+    let exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badge_rules WHERE id = $1)")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if !exists.0 {
         return Err(AdminError::RuleNotFound(id));
@@ -206,9 +200,7 @@ pub async fn update_rule(
     if let Some(ref rule_json) = req.rule_json
         && rule_json.is_null()
     {
-        return Err(AdminError::InvalidRuleJson(
-            "规则内容不能为空".to_string(),
-        ));
+        return Err(AdminError::InvalidRuleJson("规则内容不能为空".to_string()));
     }
 
     sqlx::query(
@@ -248,11 +240,10 @@ pub async fn delete_rule(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
-    let rule: Option<(bool,)> =
-        sqlx::query_as("SELECT enabled FROM badge_rules WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let rule: Option<(bool,)> = sqlx::query_as("SELECT enabled FROM badge_rules WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     let rule = rule.ok_or(AdminError::RuleNotFound(id))?;
 
@@ -282,18 +273,15 @@ pub async fn publish_rule(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<RuleDto>>, AdminError> {
-    let rule: Option<(bool,)> =
-        sqlx::query_as("SELECT enabled FROM badge_rules WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let rule: Option<(bool,)> = sqlx::query_as("SELECT enabled FROM badge_rules WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     let rule = rule.ok_or(AdminError::RuleNotFound(id))?;
 
     if rule.0 {
-        return Err(AdminError::Validation(
-            "规则已处于启用状态".to_string(),
-        ));
+        return Err(AdminError::Validation("规则已处于启用状态".to_string()));
     }
 
     sqlx::query("UPDATE badge_rules SET enabled = true, updated_at = NOW() WHERE id = $1")

@@ -52,7 +52,11 @@ pub struct RedemptionService {
 }
 
 impl RedemptionService {
-    pub fn new(redemption_repo: Arc<RedemptionRepository>, cache: Arc<Cache>, pool: PgPool) -> Self {
+    pub fn new(
+        redemption_repo: Arc<RedemptionRepository>,
+        cache: Arc<Cache>,
+        pool: PgPool,
+    ) -> Self {
         Self {
             redemption_repo,
             cache,
@@ -127,7 +131,10 @@ impl RedemptionService {
         limit: i64,
     ) -> Result<Vec<RedemptionHistoryDto>> {
         // 获取用户的兑换订单
-        let orders = self.redemption_repo.list_orders_by_user(user_id, limit).await?;
+        let orders = self
+            .redemption_repo
+            .list_orders_by_user(user_id, limit)
+            .await?;
 
         if orders.is_empty() {
             return Ok(Vec::new());
@@ -186,7 +193,10 @@ impl RedemptionService {
     /// 幂等检查
     ///
     /// 通过幂等键查询是否已存在兑换订单
-    async fn check_idempotency(&self, idempotency_key: &str) -> Result<Option<RedeemBadgeResponse>> {
+    async fn check_idempotency(
+        &self,
+        idempotency_key: &str,
+    ) -> Result<Option<RedeemBadgeResponse>> {
         let order = self
             .redemption_repo
             .get_order_by_idempotency_key(idempotency_key)
@@ -194,13 +204,12 @@ impl RedemptionService {
 
         if let Some(order) = order {
             // 查询权益名称
-            let benefit_name = if let Some(benefit) =
-                self.redemption_repo.get_benefit(order.benefit_id).await?
-            {
-                benefit.name
-            } else {
-                "未知权益".to_string()
-            };
+            let benefit_name =
+                if let Some(benefit) = self.redemption_repo.get_benefit(order.benefit_id).await? {
+                    benefit.name
+                } else {
+                    "未知权益".to_string()
+                };
 
             return Ok(Some(RedeemBadgeResponse::from_existing(
                 order.id,
@@ -387,8 +396,13 @@ impl RedemptionService {
         RedemptionRepository::increment_redeemed_count_in_tx(&mut tx, benefit.id, 1).await?;
 
         // 5.5 更新订单状态为 Success
-        RedemptionRepository::update_order_status_in_tx(&mut tx, order_id, OrderStatus::Success, None)
-            .await?;
+        RedemptionRepository::update_order_status_in_tx(
+            &mut tx,
+            order_id,
+            OrderStatus::Success,
+            None,
+        )
+        .await?;
 
         // 6. 提交事务
         tx.commit().await?;
@@ -426,7 +440,10 @@ impl RedemptionService {
     }
 
     /// 获取徽章名称映射
-    async fn get_badge_names(&self, badge_ids: &[i64]) -> Result<std::collections::HashMap<i64, String>> {
+    async fn get_badge_names(
+        &self,
+        badge_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, String>> {
         let mut result = std::collections::HashMap::new();
 
         if badge_ids.is_empty() {
@@ -514,8 +531,11 @@ mod tests {
 
     #[test]
     fn test_redeem_badge_response_success() {
-        let response =
-            RedeemBadgeResponse::success(100, "RD20241001120000123456".to_string(), "VIP 优惠券".to_string());
+        let response = RedeemBadgeResponse::success(
+            100,
+            "RD20241001120000123456".to_string(),
+            "VIP 优惠券".to_string(),
+        );
 
         assert!(response.success);
         assert_eq!(response.order_id, 100);

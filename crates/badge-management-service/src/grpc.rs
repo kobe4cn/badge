@@ -9,14 +9,13 @@ use tonic::{Request, Response, Status};
 use tracing::instrument;
 
 use badge_proto::badge::{
-    badge_management_service_server::BadgeManagementService,
     Badge as ProtoBadge, BadgeStatus as ProtoBadgeStatus, BadgeType as ProtoBadgeType,
     GetBadgeDetailRequest, GetBadgeDetailResponse, GetBadgeWallRequest, GetBadgeWallResponse,
     GetUserBadgesRequest, GetUserBadgesResponse, GrantBadgeRequest as ProtoGrantBadgeRequest,
     GrantBadgeResponse as ProtoGrantBadgeResponse, PinBadgeRequest, PinBadgeResponse,
     RedeemBadgeRequest as ProtoRedeemBadgeRequest, RedeemBadgeResponse as ProtoRedeemBadgeResponse,
     RevokeBadgeRequest as ProtoRevokeBadgeRequest, RevokeBadgeResponse as ProtoRevokeBadgeResponse,
-    UserBadge as ProtoUserBadge,
+    UserBadge as ProtoUserBadge, badge_management_service_server::BadgeManagementService,
 };
 
 use crate::error::BadgeError;
@@ -25,7 +24,9 @@ use crate::repository::{
     BadgeLedgerRepositoryTrait, BadgeRepositoryTrait, RedemptionRepositoryTrait,
     UserBadgeRepositoryTrait,
 };
-use crate::service::dto::{GrantBadgeRequest, RedeemBadgeRequest, RevokeBadgeRequest, UserBadgeDto};
+use crate::service::dto::{
+    GrantBadgeRequest, RedeemBadgeRequest, RevokeBadgeRequest, UserBadgeDto,
+};
 use crate::service::{BadgeQueryService, GrantService, RedemptionService, RevokeService};
 
 // ==================== 错误转换 ====================
@@ -204,11 +205,7 @@ where
         // 简单分页处理
         let total = proto_badges.len() as i32;
         let page = if req.page > 0 { req.page } else { 1 };
-        let page_size = if req.page_size > 0 {
-            req.page_size
-        } else {
-            20
-        };
+        let page_size = if req.page_size > 0 { req.page_size } else { 20 };
         let start = ((page - 1) * page_size) as usize;
         let end = (start + page_size as usize).min(proto_badges.len());
 
@@ -462,7 +459,12 @@ where
             .map_err(|_| Status::invalid_argument("redemption_rule_id 格式无效"))?;
 
         // 生成幂等键（基于用户ID和规则ID的组合，生产环境应使用客户端传入的幂等键）
-        let idempotency_key = format!("{}:{}:{}", req.user_id, rule_id, chrono::Utc::now().timestamp_millis());
+        let idempotency_key = format!(
+            "{}:{}:{}",
+            req.user_id,
+            rule_id,
+            chrono::Utc::now().timestamp_millis()
+        );
 
         // 构造内部请求
         let redeem_req = RedeemBadgeRequest::new(&req.user_id, rule_id, &idempotency_key);

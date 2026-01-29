@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use axum::{routing::get, Json, Router};
+use axum::{Json, Router, routing::get};
 use badge_admin_service::{routes, state::AppState};
 use badge_shared::{cache::Cache, config::AppConfig, database::Database};
 use tokio::net::TcpListener;
@@ -36,11 +36,14 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .nest("/api/admin", routes::api_routes())
         .route("/health", get(health_check))
-        .route("/ready", get({
-            let db_for_ready = db;
-            let cache_for_ready = cache;
-            move || readiness_check(db_for_ready.clone(), cache_for_ready.clone())
-        }))
+        .route(
+            "/ready",
+            get({
+                let db_for_ready = db;
+                let cache_for_ready = cache;
+                move || readiness_check(db_for_ready.clone(), cache_for_ready.clone())
+            }),
+        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -65,10 +68,7 @@ async fn health_check() -> Json<serde_json::Value> {
 ///
 /// K8s 就绪探针失败时会将 Pod 从 Service 端点移除，
 /// 避免将流量路由到无法正常处理请求的实例。
-async fn readiness_check(
-    db: Database,
-    cache: Arc<Cache>,
-) -> Json<serde_json::Value> {
+async fn readiness_check(db: Database, cache: Arc<Cache>) -> Json<serde_json::Value> {
     let db_ok = db.health_check().await.is_ok();
     let cache_ok = cache.health_check().await.is_ok();
     let all_ok = db_ok && cache_ok;

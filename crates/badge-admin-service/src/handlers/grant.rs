@@ -4,8 +4,8 @@
 //! 发放操作涉及多表事务：user_badges + badge_ledger + user_badge_logs。
 
 use axum::{
-    extract::{Query, State},
     Json,
+    extract::{Query, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::info;
@@ -13,13 +13,13 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    SourceType,
     dto::{
-        ApiResponse, BatchTaskDto, GrantLogDto, GrantLogFilter, ManualGrantRequest,
-        BatchGrantRequest, PageResponse, PaginationParams,
+        ApiResponse, BatchGrantRequest, BatchTaskDto, GrantLogDto, GrantLogFilter,
+        ManualGrantRequest, PageResponse, PaginationParams,
     },
     error::AdminError,
     state::AppState,
-    SourceType,
 };
 
 /// 发放记录数据库查询结果
@@ -70,12 +70,11 @@ pub async fn manual_grant(
     req.validate()?;
 
     // 检查徽章存在且状态为可发放
-    let badge: Option<(i64, String, Option<i64>, i64)> = sqlx::query_as(
-        "SELECT id, name, max_supply, issued_count FROM badges WHERE id = $1",
-    )
-    .bind(req.badge_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let badge: Option<(i64, String, Option<i64>, i64)> =
+        sqlx::query_as("SELECT id, name, max_supply, issued_count FROM badges WHERE id = $1")
+            .bind(req.badge_id)
+            .fetch_optional(&state.pool)
+            .await?;
 
     let badge = badge.ok_or(AdminError::BadgeNotFound(req.badge_id))?;
 
@@ -145,12 +144,14 @@ pub async fn manual_grant(
     .await?;
 
     // 4. 累加徽章已发放计数
-    sqlx::query("UPDATE badges SET issued_count = issued_count + $2, updated_at = $3 WHERE id = $1")
-        .bind(req.badge_id)
-        .bind(req.quantity as i64)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE badges SET issued_count = issued_count + $2, updated_at = $3 WHERE id = $1",
+    )
+    .bind(req.badge_id)
+    .bind(req.quantity as i64)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
@@ -185,11 +186,10 @@ pub async fn batch_grant(
     req.validate()?;
 
     // 验证徽章存在
-    let badge_exists: (bool,) =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
-            .bind(req.badge_id)
-            .fetch_one(&state.pool)
-            .await?;
+    let badge_exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
+        .bind(req.badge_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if !badge_exists.0 {
         return Err(AdminError::BadgeNotFound(req.badge_id));
@@ -210,7 +210,11 @@ pub async fn batch_grant(
     .fetch_one(&state.pool)
     .await?;
 
-    info!(task_id = row.0, badge_id = req.badge_id, "Batch grant task created");
+    info!(
+        task_id = row.0,
+        badge_id = req.badge_id,
+        "Batch grant task created"
+    );
 
     // TODO: 发送消息到任务队列触发异步处理
     let task_dto = BatchTaskDto {

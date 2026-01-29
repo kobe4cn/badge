@@ -24,11 +24,7 @@ impl UserBadgeRepository {
     // ==================== 查询操作 ====================
 
     /// 获取用户的某个徽章记录
-    pub async fn get_user_badge(
-        &self,
-        user_id: &str,
-        badge_id: i64,
-    ) -> Result<Option<UserBadge>> {
+    pub async fn get_user_badge(&self, user_id: &str, badge_id: i64) -> Result<Option<UserBadge>> {
         let user_badge = sqlx::query_as::<_, UserBadge>(
             r#"
             SELECT id, user_id, badge_id, status, quantity, acquired_at,
@@ -196,10 +192,7 @@ impl UserBadgeRepository {
     }
 
     /// 在事务中创建用户徽章
-    pub async fn create_user_badge_in_tx(
-        tx: &mut PgConnection,
-        badge: &UserBadge,
-    ) -> Result<i64> {
+    pub async fn create_user_badge_in_tx(tx: &mut PgConnection, badge: &UserBadge) -> Result<i64> {
         let row = sqlx::query(
             r#"
             INSERT INTO user_badges (user_id, badge_id, status, quantity, acquired_at, expires_at, created_at, updated_at)

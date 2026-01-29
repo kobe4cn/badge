@@ -4,8 +4,8 @@
 //! 取消操作涉及多表事务：user_badges 扣减 + badge_ledger + user_badge_logs。
 
 use axum::{
-    extract::{Query, State},
     Json,
+    extract::{Query, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::info;
@@ -13,13 +13,13 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    SourceType,
     dto::{
         ApiResponse, BatchRevokeRequest, BatchTaskDto, GrantLogDto, GrantLogFilter,
         ManualRevokeRequest, PageResponse, PaginationParams,
     },
     error::AdminError,
     state::AppState,
-    SourceType,
 };
 
 /// 取消记录数据库查询结果
@@ -70,26 +70,22 @@ pub async fn manual_revoke(
     req.validate()?;
 
     // 检查徽章存在
-    let badge: Option<(i64, String)> =
-        sqlx::query_as("SELECT id, name FROM badges WHERE id = $1")
-            .bind(req.badge_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let badge: Option<(i64, String)> = sqlx::query_as("SELECT id, name FROM badges WHERE id = $1")
+        .bind(req.badge_id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     let badge = badge.ok_or(AdminError::BadgeNotFound(req.badge_id))?;
 
     // 检查用户持有且数量充足
-    let user_badge: Option<(i32,)> = sqlx::query_as(
-        "SELECT quantity FROM user_badges WHERE user_id = $1 AND badge_id = $2",
-    )
-    .bind(&req.user_id)
-    .bind(req.badge_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let user_badge: Option<(i32,)> =
+        sqlx::query_as("SELECT quantity FROM user_badges WHERE user_id = $1 AND badge_id = $2")
+            .bind(&req.user_id)
+            .bind(req.badge_id)
+            .fetch_optional(&state.pool)
+            .await?;
 
-    let current_qty = user_badge
-        .map(|r| r.0)
-        .unwrap_or(0);
+    let current_qty = user_badge.map(|r| r.0).unwrap_or(0);
 
     if current_qty < req.quantity {
         return Err(AdminError::InsufficientUserBadge);
@@ -164,12 +160,14 @@ pub async fn manual_revoke(
     .await?;
 
     // 4. 扣减徽章已发放计数
-    sqlx::query("UPDATE badges SET issued_count = issued_count - $2, updated_at = $3 WHERE id = $1")
-        .bind(req.badge_id)
-        .bind(req.quantity as i64)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE badges SET issued_count = issued_count - $2, updated_at = $3 WHERE id = $1",
+    )
+    .bind(req.badge_id)
+    .bind(req.quantity as i64)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
@@ -205,11 +203,10 @@ pub async fn batch_revoke(
     req.validate()?;
 
     // 验证徽章存在
-    let badge_exists: (bool,) =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
-            .bind(req.badge_id)
-            .fetch_one(&state.pool)
-            .await?;
+    let badge_exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
+        .bind(req.badge_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if !badge_exists.0 {
         return Err(AdminError::BadgeNotFound(req.badge_id));
@@ -229,7 +226,11 @@ pub async fn batch_revoke(
     .fetch_one(&state.pool)
     .await?;
 
-    info!(task_id = row.0, badge_id = req.badge_id, "Batch revoke task created");
+    info!(
+        task_id = row.0,
+        badge_id = req.badge_id,
+        "Batch revoke task created"
+    );
 
     // TODO: 投递至任务队列异步处理
     let task_dto = BatchTaskDto {

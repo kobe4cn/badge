@@ -6,5 +6,5 @@ pub mod operation_log;
 
 // 重新导出常用类型
 pub use operation_log::{
-    actions, modules, BatchTask, BatchTaskStatus, BatchTaskType, OperationLog,
+    BatchTask, BatchTaskStatus, BatchTaskType, OperationLog, actions, modules,
 };

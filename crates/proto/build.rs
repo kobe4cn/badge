@@ -3,12 +3,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(true)
         .out_dir("src/generated")
-        .compile_protos(
-            &[
-                "src/rule_engine.proto",
-                "src/badge.proto",
-            ],
-            &["src/"],
-        )?;
+        .compile_protos(&["src/rule_engine.proto", "src/badge.proto"], &["src/"])?;
     Ok(())
 }

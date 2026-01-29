@@ -344,6 +344,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
+ "futures",
  "rdkafka",
  "redis",
  "serde",
@@ -798,10 +799,14 @@ name = "event-engagement-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "badge-proto",
  "badge-shared",
  "chrono",
+ "dashmap",
+ "futures",
  "mockall",
+ "prost-types",
  "rdkafka",
  "serde",
  "serde_json",
@@ -830,10 +835,14 @@ name = "event-transaction-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "badge-proto",
  "badge-shared",
  "chrono",
+ "dashmap",
+ "futures",
  "mockall",
+ "prost-types",
  "rdkafka",
  "serde",
  "serde_json",
@@ -1698,9 +1707,11 @@ name = "notification-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "badge-proto",
  "badge-shared",
  "chrono",
+ "futures",
  "mockall",
  "rdkafka",
  "serde",

@@ -10,11 +10,13 @@ use std::sync::Arc;
 use tokio::signal;
 use tonic::transport::Server;
 use tracing::info;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use badge_management::{
     grpc::BadgeManagementServiceImpl,
-    repository::{BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository},
+    repository::{
+        BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository,
+    },
     service::{BadgeQueryService, GrantService, RedemptionService, RevokeService},
 };
 
@@ -149,7 +151,7 @@ fn init_tracing() {
 ///
 /// 提供 /health 和 /ready 端点，用于 Kubernetes 健康探针
 async fn run_health_server(addr: SocketAddr, db: Database, cache: Arc<Cache>) {
-    use axum::{routing::get, Json, Router};
+    use axum::{Json, Router, routing::get};
     use serde::Serialize;
 
     #[derive(Serialize)]

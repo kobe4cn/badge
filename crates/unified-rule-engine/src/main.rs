@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use tokio::signal;
 use tonic::transport::Server;
 use tracing::info;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 /// 服务配置
 struct ServiceConfig {
@@ -88,7 +88,7 @@ fn init_tracing() {
 
 /// 健康检查服务器
 async fn run_health_server(addr: SocketAddr, store: RuleStore) {
-    use axum::{routing::get, Json, Router};
+    use axum::{Json, Router, routing::get};
     use serde::Serialize;
 
     #[derive(Serialize)]

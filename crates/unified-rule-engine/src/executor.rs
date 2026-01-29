@@ -120,10 +120,9 @@ impl RuleExecutor {
 
                     if !child_matched {
                         if self.trace_enabled {
-                            result.evaluation_trace.push(format!(
-                                "{}: AND 短路 - 子节点 {} 不匹配",
-                                path, i
-                            ));
+                            result
+                                .evaluation_trace
+                                .push(format!("{}: AND 短路 - 子节点 {} 不匹配", path, i));
                         }
                         return Ok(false);
                     }
@@ -144,10 +143,9 @@ impl RuleExecutor {
 
                     if child_matched {
                         if self.trace_enabled {
-                            result.evaluation_trace.push(format!(
-                                "{}: OR 短路 - 子节点 {} 匹配",
-                                path, i
-                            ));
+                            result
+                                .evaluation_trace
+                                .push(format!("{}: OR 短路 - 子节点 {} 匹配", path, i));
                         }
                         return Ok(true);
                     }

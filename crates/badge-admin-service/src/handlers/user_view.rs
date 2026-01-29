@@ -4,8 +4,8 @@
 //! 用户徽章列表、兑换记录、统计汇总、账本流水。
 
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::instrument;
@@ -50,12 +50,10 @@ pub async fn get_user_badges(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM user_badges WHERE user_id = $1",
-    )
-    .bind(&user_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM user_badges WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if total.0 == 0 {
         return Ok(Json(ApiResponse::success(PageResponse::empty(
@@ -133,12 +131,10 @@ pub async fn get_user_redemptions(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM redemption_orders WHERE user_id = $1",
-    )
-    .bind(&user_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM redemption_orders WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if total.0 == 0 {
         return Ok(Json(ApiResponse::success(PageResponse::empty(
@@ -266,12 +262,10 @@ pub async fn get_user_ledger(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM badge_ledger WHERE user_id = $1",
-    )
-    .bind(&user_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM badge_ledger WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if total.0 == 0 {
         return Ok(Json(ApiResponse::success(PageResponse::empty(

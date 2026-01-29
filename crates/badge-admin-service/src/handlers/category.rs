@@ -3,18 +3,18 @@
 //! 实现徽章分类的 CRUD 操作
 
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::info;
 use validator::Validate;
 
 use crate::{
+    CategoryStatus,
     dto::{ApiResponse, CategoryDto, CreateCategoryRequest, UpdateCategoryRequest},
     error::AdminError,
     state::AppState,
-    CategoryStatus,
 };
 
 /// 数据库查询结果行结构
@@ -188,10 +188,11 @@ pub async fn update_category(
     req.validate()?;
 
     // 先检查分类是否存在
-    let exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badge_categories WHERE id = $1)")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
+    let exists: (bool,) =
+        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badge_categories WHERE id = $1)")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await?;
 
     if !exists.0 {
         return Err(AdminError::CategoryNotFound(id));
@@ -256,10 +257,11 @@ pub async fn delete_category(
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     // 检查是否有关联的系列
-    let series_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM badge_series WHERE category_id = $1")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
+    let series_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM badge_series WHERE category_id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await?;
 
     if series_count.0 > 0 {
         return Err(AdminError::Validation(format!(

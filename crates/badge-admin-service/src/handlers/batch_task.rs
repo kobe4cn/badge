@@ -5,17 +5,15 @@
 //! 前端通过轮询 get_task 接口获取实时进度。
 
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::{info, instrument};
 use validator::Validate;
 
 use crate::{
-    dto::{
-        ApiResponse, BatchTaskDto, BatchTaskFilter, PageResponse, PaginationParams,
-    },
+    dto::{ApiResponse, BatchTaskDto, BatchTaskFilter, PageResponse, PaginationParams},
     error::AdminError,
     models::BatchTaskType,
     state::AppState,
@@ -86,10 +84,12 @@ pub async fn create_task(
     req.validate()?;
 
     // task_type 必须是已知类型，防止写入无效数据
-    let task_type = BatchTaskType::parse(&req.task_type)
-        .ok_or_else(|| AdminError::Validation(
-            format!("不支持的任务类型: {}，支持: batch_grant, batch_revoke, data_export", req.task_type),
-        ))?;
+    let task_type = BatchTaskType::parse(&req.task_type).ok_or_else(|| {
+        AdminError::Validation(format!(
+            "不支持的任务类型: {}，支持: batch_grant, batch_revoke, data_export",
+            req.task_type
+        ))
+    })?;
 
     let now = Utc::now();
 
@@ -244,7 +244,10 @@ mod tests {
         assert_eq!(dto.task_type, "batch_grant");
         assert_eq!(dto.status, "pending");
         assert_eq!(dto.progress, 0);
-        assert_eq!(dto.file_url, Some("https://oss.example.com/users.csv".to_string()));
+        assert_eq!(
+            dto.file_url,
+            Some("https://oss.example.com/users.csv".to_string())
+        );
         assert!(dto.result_file_url.is_none());
         assert!(dto.error_message.is_none());
     }

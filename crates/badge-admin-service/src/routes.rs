@@ -3,8 +3,8 @@
 //! 定义所有 REST API 端点的路由映射
 
 use axum::{
-    routing::{delete, get, post, put},
     Router,
+    routing::{delete, get, post, put},
 };
 
 use crate::{handlers, state::AppState};
@@ -19,7 +19,10 @@ pub fn badge_routes() -> Router<AppState> {
         .route("/categories", get(handlers::category::list_categories))
         .route("/categories/{id}", get(handlers::category::get_category))
         .route("/categories/{id}", put(handlers::category::update_category))
-        .route("/categories/{id}", delete(handlers::category::delete_category))
+        .route(
+            "/categories/{id}",
+            delete(handlers::category::delete_category),
+        )
         // 系列管理
         .route("/series", post(handlers::series::create_series))
         .route("/series", get(handlers::series::list_series))

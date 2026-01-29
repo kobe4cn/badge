@@ -130,7 +130,11 @@ impl RuleStore {
             warn!("批量加载部分失败: {:?}", errors);
         }
 
-        info!("批量加载完成: {} 成功, {} 失败", loaded_ids.len(), errors.len());
+        info!(
+            "批量加载完成: {} 成功, {} 失败",
+            loaded_ids.len(),
+            errors.len()
+        );
         Ok(loaded_ids)
     }
 
@@ -145,11 +149,7 @@ impl RuleStore {
     /// 获取规则统计信息
     pub fn stats(&self) -> RuleStoreStats {
         let rules_count = self.rules.len();
-        let total_fields: usize = self
-            .rules
-            .iter()
-            .map(|r| r.required_fields.len())
-            .sum();
+        let total_fields: usize = self.rules.iter().map(|r| r.required_fields.len()).sum();
 
         RuleStoreStats {
             rules_count,

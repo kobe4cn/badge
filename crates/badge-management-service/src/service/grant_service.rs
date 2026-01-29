@@ -26,9 +26,7 @@ use crate::models::{
     ValidityType,
 };
 use crate::repository::{BadgeLedgerRepository, BadgeRepositoryTrait, UserBadgeRepository};
-use crate::service::dto::{
-    BatchGrantResponse, GrantBadgeRequest, GrantBadgeResponse, GrantResult,
-};
+use crate::service::dto::{BatchGrantResponse, GrantBadgeRequest, GrantBadgeResponse, GrantResult};
 
 /// 缓存键生成
 mod cache_keys {
@@ -201,10 +199,7 @@ where
     }
 
     /// 验证徽章有效性
-    async fn validate_badge(
-        &self,
-        badge_id: i64,
-    ) -> Result<crate::models::Badge> {
+    async fn validate_badge(&self, badge_id: i64) -> Result<crate::models::Badge> {
         let badge = self
             .badge_repo
             .get_badge(badge_id)
@@ -220,11 +215,7 @@ where
     }
 
     /// 检查库存是否充足
-    async fn check_stock(
-        &self,
-        badge: &crate::models::Badge,
-        quantity: i32,
-    ) -> Result<()> {
+    async fn check_stock(&self, badge: &crate::models::Badge, quantity: i32) -> Result<()> {
         if let Some(max_supply) = badge.max_supply {
             let remaining = max_supply - badge.issued_count;
             if remaining < quantity as i64 {
@@ -235,12 +226,7 @@ where
     }
 
     /// 检查用户获取限制
-    async fn check_user_limit(
-        &self,
-        user_id: &str,
-        badge_id: i64,
-        quantity: i32,
-    ) -> Result<()> {
+    async fn check_user_limit(&self, user_id: &str, badge_id: i64, quantity: i32) -> Result<()> {
         // 获取徽章规则
         let rules = self.badge_repo.get_badge_rules(badge_id).await?;
         let now = Utc::now();
@@ -256,10 +242,7 @@ where
             // 查询用户当前持有数量
             let current = self.get_user_badge_quantity(user_id, badge_id).await?;
             if current + quantity > limit {
-                return Err(BadgeError::BadgeAcquisitionLimitReached {
-                    badge_id,
-                    limit,
-                });
+                return Err(BadgeError::BadgeAcquisitionLimitReached { badge_id, limit });
             }
         }
 
@@ -342,7 +325,10 @@ where
             change_type: ChangeType::Acquire,
             quantity: request.quantity,
             balance_after: new_quantity,
-            ref_id: request.idempotency_key.clone().or(request.source_ref_id.clone()),
+            ref_id: request
+                .idempotency_key
+                .clone()
+                .or(request.source_ref_id.clone()),
             ref_type: request.source_type,
             remark: request.reason.clone(),
             created_at: Utc::now(),

@@ -102,12 +102,10 @@ impl ConditionEvaluator {
     /// 范围比较 (between)
     /// expected 应为 [min, max] 数组
     fn between(field: &Value, expected: &Value) -> Result<bool> {
-        let arr = expected
-            .as_array()
-            .ok_or_else(|| RuleError::TypeMismatch {
-                expected: "array [min, max]".to_string(),
-                actual: Self::type_name(expected).to_string(),
-            })?;
+        let arr = expected.as_array().ok_or_else(|| RuleError::TypeMismatch {
+            expected: "array [min, max]".to_string(),
+            actual: Self::type_name(expected).to_string(),
+        })?;
 
         if arr.len() != 2 {
             return Err(RuleError::ParseError(
@@ -135,12 +133,10 @@ impl ConditionEvaluator {
 
     /// 列表包含检查 (in)
     fn in_list(field: &Value, expected: &Value) -> Result<bool> {
-        let arr = expected
-            .as_array()
-            .ok_or_else(|| RuleError::TypeMismatch {
-                expected: "array".to_string(),
-                actual: Self::type_name(expected).to_string(),
-            })?;
+        let arr = expected.as_array().ok_or_else(|| RuleError::TypeMismatch {
+            expected: "array".to_string(),
+            actual: Self::type_name(expected).to_string(),
+        })?;
 
         for item in arr {
             if Self::eq(field, item)? {
@@ -270,9 +266,8 @@ impl ConditionEvaluator {
         })?;
 
         // 编译正则表达式（生产环境应使用 LRU 缓存避免重复编译）
-        let regex = Regex::new(pattern).map_err(|e| {
-            RuleError::ParseError(format!("无效的正则表达式 '{}': {}", pattern, e))
-        })?;
+        let regex = Regex::new(pattern)
+            .map_err(|e| RuleError::ParseError(format!("无效的正则表达式 '{}': {}", pattern, e)))?;
 
         Ok(regex.is_match(s))
     }
@@ -337,36 +332,26 @@ mod tests {
 
     #[test]
     fn test_eq_numbers() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!(100)),
-            Operator::Eq,
-            &json!(100)
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(Some(&json!(100)), Operator::Eq, &json!(100)).unwrap()
+        );
 
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!(100.0)),
-            Operator::Eq,
-            &json!(100)
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(Some(&json!(100.0)), Operator::Eq, &json!(100)).unwrap()
+        );
     }
 
     #[test]
     fn test_eq_strings() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("hello")),
-            Operator::Eq,
-            &json!("hello")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(Some(&json!("hello")), Operator::Eq, &json!("hello"))
+                .unwrap()
+        );
 
-        assert!(!ConditionEvaluator::evaluate(
-            Some(&json!("hello")),
-            Operator::Eq,
-            &json!("world")
-        )
-        .unwrap());
+        assert!(
+            !ConditionEvaluator::evaluate(Some(&json!("hello")), Operator::Eq, &json!("world"))
+                .unwrap()
+        );
     }
 
     #[test]
@@ -395,103 +380,117 @@ mod tests {
 
     #[test]
     fn test_in_list() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("a")),
-            Operator::In,
-            &json!(["a", "b", "c"])
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(Some(&json!("a")), Operator::In, &json!(["a", "b", "c"]))
+                .unwrap()
+        );
 
-        assert!(!ConditionEvaluator::evaluate(
-            Some(&json!("d")),
-            Operator::In,
-            &json!(["a", "b", "c"])
-        )
-        .unwrap());
+        assert!(
+            !ConditionEvaluator::evaluate(Some(&json!("d")), Operator::In, &json!(["a", "b", "c"]))
+                .unwrap()
+        );
     }
 
     #[test]
     fn test_contains_string() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("hello world")),
-            Operator::Contains,
-            &json!("world")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!("hello world")),
+                Operator::Contains,
+                &json!("world")
+            )
+            .unwrap()
+        );
     }
 
     #[test]
     fn test_contains_array() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!(["a", "b", "c"])),
-            Operator::Contains,
-            &json!("b")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!(["a", "b", "c"])),
+                Operator::Contains,
+                &json!("b")
+            )
+            .unwrap()
+        );
     }
 
     #[test]
     fn test_contains_any() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!(["a", "b", "c"])),
-            Operator::ContainsAny,
-            &json!(["b", "d"])
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!(["a", "b", "c"])),
+                Operator::ContainsAny,
+                &json!(["b", "d"])
+            )
+            .unwrap()
+        );
 
-        assert!(!ConditionEvaluator::evaluate(
-            Some(&json!(["a", "b", "c"])),
-            Operator::ContainsAny,
-            &json!(["x", "y"])
-        )
-        .unwrap());
+        assert!(
+            !ConditionEvaluator::evaluate(
+                Some(&json!(["a", "b", "c"])),
+                Operator::ContainsAny,
+                &json!(["x", "y"])
+            )
+            .unwrap()
+        );
     }
 
     #[test]
     fn test_contains_all() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!(["a", "b", "c"])),
-            Operator::ContainsAll,
-            &json!(["a", "b"])
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!(["a", "b", "c"])),
+                Operator::ContainsAll,
+                &json!(["a", "b"])
+            )
+            .unwrap()
+        );
 
-        assert!(!ConditionEvaluator::evaluate(
-            Some(&json!(["a", "b", "c"])),
-            Operator::ContainsAll,
-            &json!(["a", "d"])
-        )
-        .unwrap());
+        assert!(
+            !ConditionEvaluator::evaluate(
+                Some(&json!(["a", "b", "c"])),
+                Operator::ContainsAll,
+                &json!(["a", "d"])
+            )
+            .unwrap()
+        );
     }
 
     #[test]
     fn test_starts_with() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("hello world")),
-            Operator::StartsWith,
-            &json!("hello")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!("hello world")),
+                Operator::StartsWith,
+                &json!("hello")
+            )
+            .unwrap()
+        );
     }
 
     #[test]
     fn test_ends_with() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("hello world")),
-            Operator::EndsWith,
-            &json!("world")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!("hello world")),
+                Operator::EndsWith,
+                &json!("world")
+            )
+            .unwrap()
+        );
     }
 
     #[test]
     fn test_regex() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("user@example.com")),
-            Operator::Regex,
-            &json!(r"^[\w.-]+@[\w.-]+\.\w+$")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!("user@example.com")),
+                Operator::Regex,
+                &json!(r"^[\w.-]+@[\w.-]+\.\w+$")
+            )
+            .unwrap()
+        );
     }
 
     #[test]
@@ -502,10 +501,12 @@ mod tests {
                 .unwrap()
         );
         assert!(
-            ConditionEvaluator::evaluate(Some(&json!("")), Operator::IsEmpty, &json!(null)).unwrap()
+            ConditionEvaluator::evaluate(Some(&json!("")), Operator::IsEmpty, &json!(null))
+                .unwrap()
         );
         assert!(
-            ConditionEvaluator::evaluate(Some(&json!([])), Operator::IsEmpty, &json!(null)).unwrap()
+            ConditionEvaluator::evaluate(Some(&json!([])), Operator::IsEmpty, &json!(null))
+                .unwrap()
         );
         assert!(
             !ConditionEvaluator::evaluate(Some(&json!("hello")), Operator::IsEmpty, &json!(null))
@@ -515,19 +516,23 @@ mod tests {
 
     #[test]
     fn test_time_comparison() {
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("2024-01-15T10:00:00Z")),
-            Operator::Before,
-            &json!("2024-01-20T10:00:00Z")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!("2024-01-15T10:00:00Z")),
+                Operator::Before,
+                &json!("2024-01-20T10:00:00Z")
+            )
+            .unwrap()
+        );
 
-        assert!(ConditionEvaluator::evaluate(
-            Some(&json!("2024-01-20T10:00:00Z")),
-            Operator::After,
-            &json!("2024-01-15T10:00:00Z")
-        )
-        .unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(
+                Some(&json!("2024-01-20T10:00:00Z")),
+                Operator::After,
+                &json!("2024-01-15T10:00:00Z")
+            )
+            .unwrap()
+        );
     }
 
     #[test]

@@ -14,7 +14,10 @@ pub enum RuleError {
     ExecutionError(String),
 
     #[error("无效的操作符: {operator} 不支持类型 {value_type}")]
-    InvalidOperator { operator: String, value_type: String },
+    InvalidOperator {
+        operator: String,
+        value_type: String,
+    },
 
     #[error("字段不存在: {0}")]
     FieldNotFound(String),

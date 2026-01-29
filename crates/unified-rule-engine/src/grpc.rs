@@ -35,9 +35,12 @@ impl RuleEngineServiceImpl {
 
     /// Proto Rule 转换为内部 Rule
     fn convert_rule(proto: &ProtoRule) -> Result<Rule, Status> {
-        let root = Self::convert_rule_node(proto.root.as_ref().ok_or_else(|| {
-            Status::invalid_argument("规则根节点不能为空")
-        })?)?;
+        let root = Self::convert_rule_node(
+            proto
+                .root
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("规则根节点不能为空"))?,
+        )?;
 
         Ok(Rule {
             id: proto.id.clone(),
@@ -95,11 +98,8 @@ impl RuleEngineServiceImpl {
     /// 转换逻辑组
     fn convert_group(proto: &GroupNode) -> Result<LogicalGroup, Status> {
         let operator = Self::convert_logical_operator(proto.operator())?;
-        let children: Result<Vec<RuleNode>, Status> = proto
-            .children
-            .iter()
-            .map(Self::convert_rule_node)
-            .collect();
+        let children: Result<Vec<RuleNode>, Status> =
+            proto.children.iter().map(Self::convert_rule_node).collect();
 
         Ok(LogicalGroup {
             operator,
@@ -138,9 +138,7 @@ impl RuleEngineServiceImpl {
         match proto {
             ProtoLogicalOperator::And => Ok(LogicalOperator::And),
             ProtoLogicalOperator::Or => Ok(LogicalOperator::Or),
-            ProtoLogicalOperator::Unspecified => {
-                Err(Status::invalid_argument("未指定逻辑操作符"))
-            }
+            ProtoLogicalOperator::Unspecified => Err(Status::invalid_argument("未指定逻辑操作符")),
         }
     }
 
@@ -345,7 +343,7 @@ impl RuleEngineService for RuleEngineServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prost_types::{value::Kind, Struct, Value as ProtoValue};
+    use prost_types::{Struct, Value as ProtoValue, value::Kind};
     use std::collections::BTreeMap;
 
     fn create_test_context() -> prost_types::Struct {

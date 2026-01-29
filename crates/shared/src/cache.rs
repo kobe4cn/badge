@@ -6,7 +6,7 @@ use crate::config::RedisConfig;
 use crate::error::{BadgeError, Result};
 use redis::aio::MultiplexedConnection;
 use redis::{AsyncCommands, Client};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::time::Duration;
 use tracing::{info, instrument};
 
@@ -50,8 +50,9 @@ impl Cache {
 
         match value {
             Some(v) => {
-                let parsed: T = serde_json::from_str(&v)
-                    .map_err(|e| BadgeError::Internal(format!("Cache deserialization error: {}", e)))?;
+                let parsed: T = serde_json::from_str(&v).map_err(|e| {
+                    BadgeError::Internal(format!("Cache deserialization error: {}", e))
+                })?;
                 Ok(Some(parsed))
             }
             None => Ok(None),
@@ -100,12 +101,7 @@ impl Cache {
 
     /// 获取或设置（缓存穿透保护）
     #[instrument(skip(self, loader))]
-    pub async fn get_or_set<T, F, Fut>(
-        &self,
-        key: &str,
-        ttl: Duration,
-        loader: F,
-    ) -> Result<T>
+    pub async fn get_or_set<T, F, Fut>(&self, key: &str, ttl: Duration, loader: F) -> Result<T>
     where
         T: Serialize + DeserializeOwned,
         F: FnOnce() -> Fut,

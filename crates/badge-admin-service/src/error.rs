@@ -145,9 +145,6 @@ mod tests {
             AdminError::Validation("test".into()).error_code(),
             "VALIDATION_ERROR"
         );
-        assert_eq!(
-            AdminError::BadgeNotFound(1).error_code(),
-            "BADGE_NOT_FOUND"
-        );
+        assert_eq!(AdminError::BadgeNotFound(1).error_code(), "BADGE_NOT_FOUND");
     }
 }

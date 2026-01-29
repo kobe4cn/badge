@@ -3,8 +3,8 @@
 //! 实现徽章的 CRUD 操作及状态管理（发布/下线）
 
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -12,13 +12,13 @@ use tracing::info;
 use validator::Validate;
 
 use crate::{
+    BadgeAssets, BadgeStatus, BadgeType,
     dto::{
         ApiResponse, BadgeAdminDto, BadgeQueryFilter, CreateBadgeRequest, PageResponse,
         PaginationParams, UpdateBadgeRequest,
     },
     error::AdminError,
     state::AppState,
-    BadgeAssets, BadgeStatus, BadgeType,
 };
 
 /// 徽章数据库查询结果（带关联分类/系列信息）
@@ -171,14 +171,18 @@ pub async fn list_badges(
     // 构建模糊搜索参数
     let keyword_pattern = filter.keyword.as_ref().map(|k| format!("%{}%", k));
     // 枚举序列化为数据库存储的小写字符串
-    let badge_type_str = filter.badge_type.map(|t| serde_json::to_value(t)
-        .ok()
-        .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
-        .unwrap_or_default());
-    let status_str = filter.status.map(|s| serde_json::to_value(s)
-        .ok()
-        .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
-        .unwrap_or_default());
+    let badge_type_str = filter.badge_type.map(|t| {
+        serde_json::to_value(t)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+            .unwrap_or_default()
+    });
+    let status_str = filter.status.map(|s| {
+        serde_json::to_value(s)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+            .unwrap_or_default()
+    });
 
     // 查询总数
     let total: (i64,) = sqlx::query_as(
@@ -286,10 +290,12 @@ pub async fn update_badge(
         .transpose()
         .map_err(|e| AdminError::Internal(format!("Failed to serialize validity_config: {}", e)))?;
 
-    let status_str = req.status.map(|s| serde_json::to_value(s)
-        .ok()
-        .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
-        .unwrap_or_default());
+    let status_str = req.status.map(|s| {
+        serde_json::to_value(s)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+            .unwrap_or_default()
+    });
 
     // 使用 COALESCE 实现部分更新，NULL 参数表示不更新该字段
     sqlx::query(
@@ -334,11 +340,10 @@ pub async fn delete_badge(
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     // 检查徽章状态
-    let badge: Option<(BadgeStatus,)> =
-        sqlx::query_as("SELECT status FROM badges WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     let badge = badge.ok_or(AdminError::BadgeNotFound(id))?;
 
@@ -367,11 +372,10 @@ pub async fn publish_badge(
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<BadgeAdminDto>>, AdminError> {
     // 只有草稿状态才能发布
-    let badge: Option<(BadgeStatus,)> =
-        sqlx::query_as("SELECT status FROM badges WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     let badge = badge.ok_or(AdminError::BadgeNotFound(id))?;
 
@@ -403,11 +407,10 @@ pub async fn offline_badge(
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<BadgeAdminDto>>, AdminError> {
     // 只有上线状态才能下线
-    let badge: Option<(BadgeStatus,)> =
-        sqlx::query_as("SELECT status FROM badges WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     let badge = badge.ok_or(AdminError::BadgeNotFound(id))?;
 

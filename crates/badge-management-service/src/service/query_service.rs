@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::{info, instrument, warn};
 
 use badge_shared::cache::Cache;
@@ -324,10 +324,8 @@ where
         let all_series = self.badge_repo.get_series_by_ids(&series_ids).await?;
 
         // 构建系列 -> 分类映射
-        let series_category_map: HashMap<i64, i64> = all_series
-            .iter()
-            .map(|s| (s.id, s.category_id))
-            .collect();
+        let series_category_map: HashMap<i64, i64> =
+            all_series.iter().map(|s| (s.id, s.category_id)).collect();
 
         // 批量获取所有涉及的分类，避免 N+1 查询
         let category_ids: Vec<i64> = all_series
@@ -337,10 +335,8 @@ where
             .into_iter()
             .collect();
         let categories = self.badge_repo.get_categories_by_ids(&category_ids).await?;
-        let category_names: HashMap<i64, String> = categories
-            .into_iter()
-            .map(|c| (c.id, c.name))
-            .collect();
+        let category_names: HashMap<i64, String> =
+            categories.into_iter().map(|c| (c.id, c.name)).collect();
 
         // 建立 badge_id -> category_id 映射
         let badge_category_map: HashMap<i64, i64> = badges
@@ -367,11 +363,13 @@ where
         let categories: Vec<BadgeWallCategoryDto> = category_badges
             .into_iter()
             .filter_map(|(cat_id, badges)| {
-                category_names.get(&cat_id).map(|name| BadgeWallCategoryDto {
-                    category_id: cat_id,
-                    category_name: name.clone(),
-                    badges,
-                })
+                category_names
+                    .get(&cat_id)
+                    .map(|name| BadgeWallCategoryDto {
+                        category_id: cat_id,
+                        category_name: name.clone(),
+                        badges,
+                    })
             })
             .collect();
 
@@ -412,10 +410,8 @@ where
             .into_iter()
             .collect();
         let all_series = self.badge_repo.get_series_by_ids(&series_ids).await?;
-        let series_map: HashMap<i64, i64> = all_series
-            .iter()
-            .map(|s| (s.id, s.category_id))
-            .collect();
+        let series_map: HashMap<i64, i64> =
+            all_series.iter().map(|s| (s.id, s.category_id)).collect();
 
         // 统计各分类下的徽章数量
         let mut badge_counts: HashMap<i64, i32> = HashMap::new();
@@ -542,10 +538,8 @@ where
             .into_iter()
             .collect();
         let all_series = self.badge_repo.get_series_by_ids(&series_ids).await?;
-        let series_map: HashMap<i64, i64> = all_series
-            .iter()
-            .map(|s| (s.id, s.category_id))
-            .collect();
+        let series_map: HashMap<i64, i64> =
+            all_series.iter().map(|s| (s.id, s.category_id)).collect();
 
         // 统计各分类的徽章数量
         let mut category_counts: HashMap<i64, i32> = HashMap::new();
@@ -559,10 +553,8 @@ where
         // 批量获取分类信息，避免 N+1 查询
         let category_ids: Vec<i64> = category_counts.keys().copied().collect();
         let categories = self.badge_repo.get_categories_by_ids(&category_ids).await?;
-        let category_map: HashMap<i64, String> = categories
-            .into_iter()
-            .map(|c| (c.id, c.name))
-            .collect();
+        let category_map: HashMap<i64, String> =
+            categories.into_iter().map(|c| (c.id, c.name)).collect();
 
         // 构建分类统计结果
         let by_category: Vec<CategoryStatsDto> = category_counts
@@ -743,7 +735,7 @@ mod tests {
         redeemed_badge.quantity = 1;
 
         // 计算预期统计
-        let badges = vec![active_badge, expired_badge, redeemed_badge];
+        let badges = [active_badge, expired_badge, redeemed_badge];
         let total: i32 = badges.iter().map(|b| b.quantity).sum();
         assert_eq!(total, 6);
     }

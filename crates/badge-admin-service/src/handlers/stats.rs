@@ -4,8 +4,8 @@
 //! 所有查询基于 badges 和 badge_ledger 表聚合计算。
 
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use chrono::NaiveDate;
 use tracing::instrument;
@@ -206,11 +206,10 @@ pub async fn get_badge_stats(
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<BadgeStatsDto>>, AdminError> {
     // 验证徽章存在
-    let badge_exists: (bool,) =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
-            .bind(id)
-            .fetch_one(&state.pool)
-            .await?;
+    let badge_exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if !badge_exists.0 {
         return Err(AdminError::BadgeNotFound(id));
@@ -338,13 +337,11 @@ mod tests {
             unique_holders: 150,
             today_issued: 10,
             today_redeemed: 3,
-            daily_trends: vec![
-                TrendDataPoint {
-                    date: "2025-01-01".to_string(),
-                    issued_count: 10,
-                    redeemed_count: 3,
-                },
-            ],
+            daily_trends: vec![TrendDataPoint {
+                date: "2025-01-01".to_string(),
+                issued_count: 10,
+                redeemed_count: 3,
+            }],
         };
 
         let json = serde_json::to_string(&dto).unwrap();

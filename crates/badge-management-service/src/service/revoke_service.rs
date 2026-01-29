@@ -278,8 +278,8 @@ mod tests {
 
     #[test]
     fn test_revoke_request_system() {
-        let request =
-            RevokeBadgeRequest::system("user-123", 1, 3, "系统自动回收").with_source_ref("task-001");
+        let request = RevokeBadgeRequest::system("user-123", 1, 3, "系统自动回收")
+            .with_source_ref("task-001");
         assert_eq!(request.source_type, SourceType::System);
         assert_eq!(request.source_ref_id, Some("task-001".to_string()));
         assert!(request.operator.is_none());

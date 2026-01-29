@@ -3,18 +3,18 @@
 //! 实现徽章系列的 CRUD 操作
 
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::info;
 use validator::Validate;
 
 use crate::{
+    CategoryStatus,
     dto::{ApiResponse, CreateSeriesRequest, SeriesDto, UpdateSeriesRequest},
     error::AdminError,
     state::AppState,
-    CategoryStatus,
 };
 
 /// 系列数据库查询结果行
@@ -112,8 +112,7 @@ pub async fn create_series(
             .fetch_optional(&state.pool)
             .await?;
 
-    let category =
-        category.ok_or(AdminError::CategoryNotFound(req.category_id))?;
+    let category = category.ok_or(AdminError::CategoryNotFound(req.category_id))?;
 
     let row = sqlx::query_as::<_, SeriesRow>(
         r#"
@@ -159,7 +158,10 @@ pub async fn create_series(
 pub async fn list_series(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<SeriesDto>>>, AdminError> {
-    let sql = format!("{} ORDER BY s.sort_order ASC, s.id ASC", SERIES_WITH_INFO_SQL);
+    let sql = format!(
+        "{} ORDER BY s.sort_order ASC, s.id ASC",
+        SERIES_WITH_INFO_SQL
+    );
 
     let rows = sqlx::query_as::<_, SeriesWithInfo>(&sql)
         .fetch_all(&state.pool)

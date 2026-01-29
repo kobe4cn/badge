@@ -92,10 +92,7 @@ impl RuleCompiler {
             }
             RuleNode::Group(group) => {
                 if group.children.is_empty() {
-                    return Err(RuleError::ParseError(format!(
-                        "逻辑组 '{}' 不能为空",
-                        path
-                    )));
+                    return Err(RuleError::ParseError(format!("逻辑组 '{}' 不能为空", path)));
                 }
 
                 for (i, child) in group.children.iter().enumerate() {
@@ -154,10 +151,7 @@ impl RuleCompiler {
                 if let Some(pattern) = cond.value.as_str() {
                     // 预验证正则表达式
                     regex::Regex::new(pattern).map_err(|e| {
-                        RuleError::ParseError(format!(
-                            "条件 '{}' 的正则表达式无效: {}",
-                            path, e
-                        ))
+                        RuleError::ParseError(format!("条件 '{}' 的正则表达式无效: {}", path, e))
                     })?;
                 } else {
                     return Err(RuleError::ParseError(format!(

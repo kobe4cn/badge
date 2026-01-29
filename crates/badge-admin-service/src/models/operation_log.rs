@@ -64,21 +64,33 @@ impl OperationLog {
     }
 
     /// 设置操作目标
-    pub fn with_target(mut self, target_type: impl Into<String>, target_id: impl Into<String>) -> Self {
+    pub fn with_target(
+        mut self,
+        target_type: impl Into<String>,
+        target_id: impl Into<String>,
+    ) -> Self {
         self.target_type = Some(target_type.into());
         self.target_id = Some(target_id.into());
         self
     }
 
     /// 设置变更数据
-    pub fn with_data(mut self, before: Option<serde_json::Value>, after: Option<serde_json::Value>) -> Self {
+    pub fn with_data(
+        mut self,
+        before: Option<serde_json::Value>,
+        after: Option<serde_json::Value>,
+    ) -> Self {
         self.before_data = before;
         self.after_data = after;
         self
     }
 
     /// 设置客户端信息
-    pub fn with_client_info(mut self, ip_address: Option<String>, user_agent: Option<String>) -> Self {
+    pub fn with_client_info(
+        mut self,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Self {
         self.ip_address = ip_address;
         self.user_agent = user_agent;
         self

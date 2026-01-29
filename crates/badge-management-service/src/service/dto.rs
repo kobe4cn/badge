@@ -5,7 +5,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::models::{BadgeAssets, BadgeType, BenefitType, SourceType, UserBadgeStatus, ValidityConfig};
+use crate::models::{
+    BadgeAssets, BadgeType, BenefitType, SourceType, UserBadgeStatus, ValidityConfig,
+};
 
 /// 用户徽章 DTO
 ///
