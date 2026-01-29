@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use axum::Router;
+use axum::{Json, Router, routing::get};
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
@@ -87,7 +87,10 @@ impl CommandRunner {
         }
 
         // 合并所有服务路由到一个应用
+        // 健康检查端点独立于业务服务，便于运维监控
         let app = Router::new()
+            .route("/health", get(health_check))
+            .route("/ready", get(readiness_check))
             .merge(order_routes().with_state(order_state))
             .merge(profile_routes().with_state(profile_state))
             .merge(coupon_routes().with_state(coupon_state));
@@ -97,6 +100,8 @@ impl CommandRunner {
 
         info!("Mock 服务已启动: http://{}", addr);
         info!("可用端点:");
+        info!("  GET /health - 健康检查");
+        info!("  GET /ready - 就绪检查");
         info!("  GET/POST /orders - 订单管理");
         info!("  GET/POST /users - 用户管理");
         info!("  GET/POST /coupons - 优惠券管理");
@@ -452,6 +457,40 @@ fn create_share_event(user_id: &str) -> EventPayload {
     )
 }
 
+// ============================================================================
+// 健康检查端点
+// ============================================================================
+
+/// 健康检查响应
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+}
+
+/// 就绪检查响应
+#[derive(Serialize)]
+struct ReadinessResponse {
+    status: &'static str,
+    services: Vec<&'static str>,
+}
+
+/// 健康检查端点
+///
+/// 返回服务的基本存活状态，用于 K8s liveness probe
+async fn health_check() -> Json<HealthResponse> {
+    Json(HealthResponse { status: "healthy" })
+}
+
+/// 就绪检查端点
+///
+/// 返回服务的就绪状态及可用的模拟服务列表，用于 K8s readiness probe
+async fn readiness_check() -> Json<ReadinessResponse> {
+    Json(ReadinessResponse {
+        status: "ready",
+        services: vec!["order", "profile", "coupon"],
+    })
+}
+
 /// 数据填充输出结构
 #[derive(Serialize)]
 struct PopulateOutput {
@@ -529,5 +568,21 @@ mod tests {
 
         let result = runner.generate_events("invalid_type", "user-001", 1, None);
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_health_check() {
+        let response = health_check().await;
+        assert_eq!(response.status, "healthy");
+    }
+
+    #[tokio::test]
+    async fn test_readiness_check() {
+        let response = readiness_check().await;
+        assert_eq!(response.status, "ready");
+        assert_eq!(response.services.len(), 3);
+        assert!(response.services.contains(&"order"));
+        assert!(response.services.contains(&"profile"));
+        assert!(response.services.contains(&"coupon"));
     }
 }
