@@ -7,12 +7,13 @@
 
 import React, { Suspense, useState, useMemo } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Spin } from 'antd';
 import ProLayout from '@ant-design/pro-layout';
 import type { ProLayoutProps, MenuDataItem } from '@ant-design/pro-layout';
 import { TrophyOutlined } from '@ant-design/icons';
 
-import { routes, flattenRoutes, type RouteConfig } from '@/config/routes';
+import { routes, flattenRoutes, NotFoundPage, type RouteConfig } from '@/config/routes';
+import { PageLoading } from '@/components/Loading';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import AvatarDropdown from './AvatarDropdown';
 import PageTransition from './PageTransition';
 
@@ -29,23 +30,6 @@ function convertToMenuData(routeList: RouteConfig[]): MenuDataItem[] {
   }));
 }
 
-/**
- * 页面加载状态组件
- *
- * 懒加载页面时显示的占位状态
- */
-const PageLoading: React.FC = () => (
-  <div
-    style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      minHeight: 400,
-    }}
-  >
-    <Spin size="large" tip="页面加载中..." />
-  </div>
-);
 
 /**
  * 主布局组件
@@ -121,27 +105,30 @@ const AdminLayout: React.FC = () => {
       route={{ routes: menuData }}
       menuDataRender={() => menuData}
     >
-      {/* 页面切换动画 */}
-      <PageTransition>
-        {/* Suspense 处理懒加载组件 */}
-        <Suspense fallback={<PageLoading />}>
-          <Routes>
-            {/* 根路径重定向到数据看板 */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      {/* 错误边界包裹页面内容 */}
+      <ErrorBoundary>
+        {/* 页面切换动画 */}
+        <PageTransition>
+          {/* Suspense 处理懒加载组件 */}
+          <Suspense fallback={<PageLoading tip="页面加载中..." />}>
+            <Routes>
+              {/* 根路径重定向到数据看板 */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-            {/* 动态渲染所有路由 */}
-            {flatRoutes.map((route) => {
-              const Component = route.component;
-              return Component ? (
-                <Route key={route.path} path={route.path} element={<Component />} />
-              ) : null;
-            })}
+              {/* 动态渲染所有路由 */}
+              {flatRoutes.map((route) => {
+                const Component = route.component;
+                return Component ? (
+                  <Route key={route.path} path={route.path} element={<Component />} />
+                ) : null;
+              })}
 
-            {/* 404 回退路由 */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </Suspense>
-      </PageTransition>
+              {/* 404 回退路由 */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
+        </PageTransition>
+      </ErrorBoundary>
     </ProLayout>
   );
 };

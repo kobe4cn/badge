@@ -22,5 +22,12 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
+  },
+  // 配置文件需要导出组件和函数，忽略 fast refresh 警告
+  {
+    files: ['**/config/routes.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
   }
 );

@@ -343,22 +343,22 @@ const ManualGrantPage: React.FC = () => {
         />
 
         <Card title="发放汇总" style={{ marginBottom: 24 }}>
-          <Row gutter={24}>
-            <Col span={8}>
+          <Row gutter={[24, 16]}>
+            <Col xs={24} sm={8}>
               <Statistic
                 title="发放用户数"
                 value={formData.users.length}
                 suffix="人"
               />
             </Col>
-            <Col span={8}>
+            <Col xs={12} sm={8}>
               <Statistic
                 title="每人发放数量"
                 value={formData.quantity}
                 suffix="个"
               />
             </Col>
-            <Col span={8}>
+            <Col xs={12} sm={8}>
               <Statistic
                 title="发放总数"
                 value={totalQuantity}

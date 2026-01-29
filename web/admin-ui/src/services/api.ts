@@ -15,6 +15,31 @@ import { env } from '@/config';
 import type { ApiResponse, PaginatedResponse, PaginationParams } from '@/types';
 
 /**
+ * 统一错误类型
+ *
+ * 用于业务层统一处理错误
+ */
+export interface ApiError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * 常见错误码映射
+ */
+const ERROR_MESSAGES: Record<string, string> = {
+  NETWORK_ERROR: '网络连接失败，请检查网络',
+  TIMEOUT_ERROR: '请求超时，请稍后重试',
+  UNAUTHORIZED: '登录已过期，请重新登录',
+  FORBIDDEN: '没有权限执行此操作',
+  NOT_FOUND: '请求的资源不存在',
+  VALIDATION_ERROR: '参数校验失败',
+  INTERNAL_ERROR: '服务器内部错误，请稍后重试',
+  RATE_LIMITED: '请求过于频繁，请稍后重试',
+};
+
+/**
  * 创建 axios 实例
  *
  * 配置基础 URL、超时时间和默认请求头
@@ -34,6 +59,29 @@ const apiClient: AxiosInstance = axios.create({
  */
 function getAuthToken(): string | null {
   return localStorage.getItem('auth_token');
+}
+
+/**
+ * 清除认证信息并跳转登录页
+ */
+function clearAuthAndRedirect(): void {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('user_info');
+
+  // 避免在登录页重复跳转
+  if (!window.location.pathname.includes('/login')) {
+    const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/login?returnUrl=${returnUrl}`;
+  }
+}
+
+/**
+ * 格式化错误消息
+ *
+ * 将 API 错误转换为用户友好的消息
+ */
+function formatErrorMessage(error: ApiError): string {
+  return ERROR_MESSAGES[error.code] || error.message || '请求失败，请稍后重试';
 }
 
 /**
@@ -70,43 +118,87 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error: AxiosError<ApiResponse<unknown>>) => {
-    // HTTP 层面的错误处理
-    const status = error.response?.status;
-    const apiError = error.response?.data?.error;
+    // 构建标准化错误对象
+    const apiError: ApiError = {
+      code: 'UNKNOWN_ERROR',
+      message: '请求失败',
+    };
 
-    // 根据 HTTP 状态码进行统一提示
+    // 网络错误（无响应）
+    if (!error.response) {
+      if (error.code === 'ECONNABORTED') {
+        apiError.code = 'TIMEOUT_ERROR';
+        apiError.message = '请求超时';
+      } else {
+        apiError.code = 'NETWORK_ERROR';
+        apiError.message = '网络连接失败';
+      }
+      message.error(formatErrorMessage(apiError));
+      return Promise.reject(apiError);
+    }
+
+    // HTTP 层面的错误处理
+    const status = error.response.status;
+    const serverError = error.response.data?.error;
+
+    // 合并服务端返回的错误信息
+    if (serverError) {
+      apiError.code = serverError.code || apiError.code;
+      apiError.message = serverError.message || apiError.message;
+      apiError.details = serverError.details;
+    }
+
+    // 根据 HTTP 状态码进行统一处理
     switch (status) {
       case 401:
-        message.error('登录已过期，请重新登录');
-        // 可在此触发登出逻辑或跳转登录页
-        localStorage.removeItem('auth_token');
-        window.location.href = '/login';
+        apiError.code = 'UNAUTHORIZED';
+        apiError.message = '登录已过期，请重新登录';
+        message.error(apiError.message);
+        clearAuthAndRedirect();
         break;
+
       case 403:
-        message.error('没有权限执行此操作');
+        apiError.code = 'FORBIDDEN';
+        apiError.message = serverError?.message || '没有权限执行此操作';
+        message.error(apiError.message);
         break;
+
       case 404:
-        // 404 可能是正常的业务场景，不统一提示
+        apiError.code = 'NOT_FOUND';
+        // 404 可能是正常的业务场景，不统一提示，由业务层决定
         break;
+
       case 422:
-        // 参数校验错误，由业务层处理具体提示
+        apiError.code = 'VALIDATION_ERROR';
+        // 参数校验错误，显示具体的校验消息
+        if (serverError?.message) {
+          message.error(serverError.message);
+        }
         break;
+
+      case 429:
+        apiError.code = 'RATE_LIMITED';
+        apiError.message = '请求过于频繁，请稍后重试';
+        message.error(apiError.message);
+        break;
+
       case 500:
-        message.error('服务器内部错误，请稍后重试');
+      case 502:
+      case 503:
+      case 504:
+        apiError.code = 'INTERNAL_ERROR';
+        apiError.message = '服务器内部错误，请稍后重试';
+        message.error(apiError.message);
         break;
+
       default:
-        if (!error.response) {
-          message.error('网络连接失败，请检查网络');
+        // 其他错误
+        if (serverError?.message) {
+          message.error(serverError.message);
         }
     }
 
-    // 返回标准化的错误对象
-    return Promise.reject(
-      apiError || {
-        code: 'NETWORK_ERROR',
-        message: error.message || '请求失败',
-      }
-    );
+    return Promise.reject(apiError);
   }
 );
 

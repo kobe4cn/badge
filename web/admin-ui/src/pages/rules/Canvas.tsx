@@ -587,7 +587,8 @@ const CanvasInner: React.FC = () => {
 
   return (
     <PageContainer title="规则画布">
-      <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 220px)', minHeight: 500 }}>
+      {/* 响应式高度：桌面端使用 calc，移动端使用 minHeight */}
+      <Card bodyStyle={{ padding: 0, height: 'calc(100vh - 220px)', minHeight: 400 }}>
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
           {/* 工具栏 */}
           <CanvasToolbar

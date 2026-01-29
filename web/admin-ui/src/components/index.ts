@@ -18,7 +18,10 @@ export type {
 } from './Charts';
 
 // Loading 组件
-// export { default as Loading } from './Loading';
+export { PageLoading } from './Loading';
 
 // ErrorBoundary 组件
-// export { default as ErrorBoundary } from './ErrorBoundary';
+export { default as ErrorBoundary } from './ErrorBoundary';
+
+// Auth 组件
+export { AuthGuard, isAuthenticated, hasPermission, getUserRoles } from './Auth';

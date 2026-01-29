@@ -43,7 +43,7 @@ import {
   useRevokeBadge,
 } from '@/hooks/useMember';
 import { getMembershipConfig } from '@/types/user';
-import type { User, UserBadgeDetail, UserBadgeStatus } from '@/types';
+import type { User, UserBadgeDetail, UserBadgeStatus, MembershipLevel } from '@/types';
 import BadgeDetailModal from './components/BadgeDetailModal';
 import RevokeBadgeModal from './components/RevokeBadgeModal';
 import dayjs from 'dayjs';
@@ -324,7 +324,7 @@ const MemberSearchPage: React.FC = () => {
   const renderUserInfo = () => {
     if (!memberDetail) return null;
 
-    const memberConfig = getMembershipConfig(memberDetail.membershipLevel as any);
+    const memberConfig = getMembershipConfig(memberDetail.membershipLevel as MembershipLevel);
 
     return (
       <Card style={{ marginBottom: 24 }}>
