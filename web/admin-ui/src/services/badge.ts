@@ -155,3 +155,30 @@ export function updateBadgeSortOrder(
 ): Promise<void> {
   return patch<void>(`/api/v1/badges/${id}/sort`, { sortOrder });
 }
+
+/**
+ * 获取所有徽章（不分页）
+ *
+ * 用于下拉选择等场景，返回所有可用徽章
+ */
+export function getAllBadges(): Promise<PaginatedResponse<BadgeListItem>> {
+  return getList<BadgeListItem>('/api/v1/badges', { page: 1, pageSize: 1000 });
+}
+
+/**
+ * 徽章服务对象
+ *
+ * 提供面向对象风格的 API 调用方式
+ */
+export const badgeService = {
+  getList: getBadges,
+  get: getBadge,
+  create: createBadge,
+  update: updateBadge,
+  delete: deleteBadge,
+  publish: publishBadge,
+  unpublish: unpublishBadge,
+  archive: archiveBadge,
+  updateSortOrder: updateBadgeSortOrder,
+  getAll: getAllBadges,
+};

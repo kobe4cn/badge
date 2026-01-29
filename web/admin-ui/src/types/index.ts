@@ -7,5 +7,6 @@
 export * from './api';
 export * from './badge';
 export * from './rule';
+export * from './rule-canvas';
 export * from './user';
 export * from './grant';
