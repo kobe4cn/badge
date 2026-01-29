@@ -30,6 +30,7 @@
 //! generator.populate_stores(&users, &orders, &coupons);
 //! ```
 
+pub mod cli;
 pub mod event_generator;
 pub mod generators;
 pub mod models;
