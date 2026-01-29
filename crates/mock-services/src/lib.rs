@@ -33,5 +33,6 @@
 pub mod event_generator;
 pub mod generators;
 pub mod models;
+pub mod scenarios;
 pub mod services;
 pub mod store;
