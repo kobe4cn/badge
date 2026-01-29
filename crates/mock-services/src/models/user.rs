@@ -113,6 +113,32 @@ impl MembershipLevel {
             Self::Diamond => "Diamond",
         }
     }
+
+    /// 获取下一个会员等级
+    ///
+    /// Diamond 已是最高等级，返回 None
+    pub fn next_level(&self) -> Option<Self> {
+        match self {
+            Self::Bronze => Some(Self::Silver),
+            Self::Silver => Some(Self::Gold),
+            Self::Gold => Some(Self::Platinum),
+            Self::Platinum => Some(Self::Diamond),
+            Self::Diamond => None,
+        }
+    }
+
+    /// 获取下一等级所需的消费金额门槛
+    ///
+    /// 返回达到下一等级需要的最低消费金额，Diamond 返回 None
+    pub fn next_level_threshold(&self) -> Option<f64> {
+        match self {
+            Self::Bronze => Some(1000.0),
+            Self::Silver => Some(5000.0),
+            Self::Gold => Some(20000.0),
+            Self::Platinum => Some(50000.0),
+            Self::Diamond => None,
+        }
+    }
 }
 
 #[cfg(test)]

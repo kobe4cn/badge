@@ -1761,6 +1761,7 @@ name = "mock-services"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.8",
  "badge-proto",
  "badge-shared",
  "chrono",
@@ -1776,6 +1777,8 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tonic",
+ "tower 0.5.3",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "uuid",
