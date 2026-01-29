@@ -76,3 +76,30 @@ validator = { version = "0.18", features = ["derive"] }
 mockall = "0.13"
 tokio-test = "0.4"
 fake = { version = "3.0", features = ["derive", "chrono", "uuid"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# 根目录包（用于运行基准测试）
+[package]
+name = "badge-workspace"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rule_engine = { path = "crates/unified-rule-engine", package = "unified-rule-engine" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+# 基准测试配置
+[[bench]]
+name = "rule_engine_bench"
+harness = false
+
+[[bench]]
+name = "load_test"
+harness = false
+
+[profile.bench]
+debug = true

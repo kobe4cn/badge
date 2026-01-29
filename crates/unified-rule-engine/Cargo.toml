@@ -38,3 +38,8 @@ regex = "1.10"
 [dev-dependencies]
 mockall = { workspace = true }
 tokio-test = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "evaluator_bench"
+harness = false
