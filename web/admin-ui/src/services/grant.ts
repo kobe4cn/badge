@@ -4,7 +4,7 @@
  * 封装手动发放、批量发放和发放日志查询等接口
  */
 
-import { get, getList, post } from './api';
+import { get, getList, post, upload, apiClient } from './api';
 import type {
   ManualGrantRequest,
   BatchGrantRequest,
@@ -13,6 +13,11 @@ import type {
   GrantLogQueryParams,
   BatchTask,
   BatchTaskQueryParams,
+  BatchTaskFailure,
+  CreateBatchTaskRequest,
+  CsvParseResult,
+  UserFilterCondition,
+  UserFilterPreview,
   User,
   PaginatedResponse,
   ListParams,
@@ -153,6 +158,69 @@ export function getBatchTask(id: number): Promise<BatchTask> {
 }
 
 /**
+ * 创建批量任务
+ *
+ * @param data - 创建请求数据
+ */
+export function createBatchTask(data: CreateBatchTaskRequest): Promise<BatchTask> {
+  return post<BatchTask>('/api/v1/grants/batch-tasks', data);
+}
+
+/**
+ * 取消批量任务
+ *
+ * @param id - 任务 ID
+ */
+export function cancelBatchTask(id: number): Promise<void> {
+  return post<void>(`/api/v1/grants/batch-tasks/${id}/cancel`);
+}
+
+/**
+ * 获取批量任务失败明细
+ *
+ * @param id - 任务 ID
+ */
+export function getBatchTaskFailures(
+  id: number,
+  params?: ListParams
+): Promise<PaginatedResponse<BatchTaskFailure>> {
+  return getList<BatchTaskFailure>(
+    `/api/v1/grants/batch-tasks/${id}/failures`,
+    params as Record<string, unknown>
+  );
+}
+
+/**
+ * 下载批量任务结果
+ *
+ * @param id - 任务 ID
+ */
+export async function downloadBatchResult(id: number): Promise<Blob> {
+  const response = await apiClient.get(`/api/v1/grants/batch-tasks/${id}/result`, {
+    responseType: 'blob',
+  });
+  return response.data;
+}
+
+/**
+ * 上传用户 CSV 文件
+ *
+ * @param file - CSV 文件
+ */
+export function uploadUserCsv(file: File): Promise<CsvParseResult> {
+  return upload<CsvParseResult>('/api/v1/grants/upload-csv', file);
+}
+
+/**
+ * 预览用户筛选结果
+ *
+ * @param filter - 筛选条件
+ */
+export function previewUserFilter(filter: UserFilterCondition): Promise<UserFilterPreview> {
+  return post<UserFilterPreview>('/api/v1/grants/preview-filter', filter);
+}
+
+/**
  * 发放服务对象
  *
  * 提供面向对象风格的 API 调用方式
@@ -165,4 +233,10 @@ export const grantService = {
   searchUsers,
   getBatchTasks,
   getBatchTask,
+  createBatchTask,
+  cancelBatchTask,
+  getBatchTaskFailures,
+  downloadBatchResult,
+  uploadUserCsv,
+  previewUserFilter,
 };

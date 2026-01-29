@@ -22,6 +22,15 @@ export function formatDate(
 }
 
 /**
+ * 日期时间格式化（formatDate 的别名）
+ *
+ * @param date - ISO 8601 日期字符串或 Date 对象
+ */
+export function formatDateTime(date: string | Date | undefined | null): string {
+  return formatDate(date, 'YYYY-MM-DD HH:mm:ss');
+}
+
+/**
  * 相对时间格式化
  *
  * 显示如"3分钟前"、"2小时前"等相对时间

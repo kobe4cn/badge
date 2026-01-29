@@ -82,7 +82,7 @@ export type BatchTaskType = 'batch_grant' | 'batch_revoke' | 'data_export';
 /**
  * 批量任务状态
  */
-export type BatchTaskStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type BatchTaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 /**
  * 批量任务
@@ -91,8 +91,16 @@ export type BatchTaskStatus = 'pending' | 'processing' | 'completed' | 'failed';
  */
 export interface BatchTask {
   id: number;
+  /** 任务名称 */
+  name?: string;
   /** 任务类型 */
   taskType: BatchTaskType;
+  /** 关联的徽章 ID */
+  badgeId?: number;
+  /** 关联的徽章名称 */
+  badgeName?: string;
+  /** 每人发放数量 */
+  quantity?: number;
   /** 输入文件地址 */
   fileUrl?: string;
   /** 总处理条数 */
@@ -111,8 +119,81 @@ export interface BatchTask {
   errorMessage?: string;
   /** 创建人 ID */
   createdBy: string;
+  /** 完成时间 */
+  completedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * 批量任务失败明细
+ */
+export interface BatchTaskFailure {
+  /** 用户 ID */
+  userId: string;
+  /** 用户名 */
+  username?: string;
+  /** 失败原因 */
+  reason: string;
+}
+
+/**
+ * 创建批量任务请求
+ */
+export interface CreateBatchTaskRequest {
+  /** 任务名称 */
+  name: string;
+  /** 徽章 ID */
+  badgeId: number;
+  /** 每人发放数量 */
+  quantity: number;
+  /** 发放原因 */
+  reason?: string;
+  /** 用户 ID 列表（CSV 上传模式） */
+  userIds?: string[];
+  /** 用户筛选条件（条件筛选模式） */
+  userFilter?: UserFilterCondition;
+}
+
+/**
+ * 用户筛选条件
+ */
+export interface UserFilterCondition {
+  /** 会员等级列表 */
+  membershipLevels?: string[];
+  /** 注册时间起始 */
+  registeredAfter?: string;
+  /** 注册时间结束 */
+  registeredBefore?: string;
+  /** 最低消费金额 */
+  minTotalSpent?: number;
+  /** 最低订单数 */
+  minOrderCount?: number;
+}
+
+/**
+ * CSV 解析结果
+ */
+export interface CsvParseResult {
+  /** 有效用户 ID 列表 */
+  userIds: string[];
+  /** 无效行号列表 */
+  invalidRows: number[];
+  /** 总行数 */
+  totalRows: number;
+}
+
+/**
+ * 用户筛选预览结果
+ */
+export interface UserFilterPreview {
+  /** 符合条件的用户数量 */
+  count: number;
+  /** 预览用户列表（前 10 条） */
+  users: Array<{
+    userId: string;
+    username: string;
+  }>;
 }
 
 /**

@@ -14,6 +14,11 @@ import {
   searchUsers,
   getBatchTasks,
   getBatchTask,
+  createBatchTask,
+  cancelBatchTask,
+  getBatchTaskFailures,
+  uploadUserCsv,
+  previewUserFilter,
   type GrantLogParams,
   type GrantRecordParams,
   type GrantResult,
@@ -23,6 +28,9 @@ import type {
   ManualGrantRequest,
   BatchGrantRequest,
   BatchTaskQueryParams,
+  CreateBatchTaskRequest,
+  UserFilterCondition,
+  BatchTask,
   ListParams,
 } from '@/types';
 
@@ -182,6 +190,93 @@ export function useBatchTaskDetail(id: number, enabled = true) {
         return 3000;
       }
       return false;
+    },
+  });
+}
+
+/**
+ * 创建批量任务
+ *
+ * 返回 mutation 用于触发创建操作
+ */
+export function useCreateBatchTask() {
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (data: CreateBatchTaskRequest) => createBatchTask(data),
+    onSuccess: (result: BatchTask) => {
+      message.success(`批量任务已创建，任务 ID: ${result.id}`);
+      queryClient.invalidateQueries({ queryKey: GRANT_QUERY_KEYS.batchTasks() });
+    },
+    onError: (error: { message?: string }) => {
+      message.error(error.message || '创建批量任务失败');
+    },
+  });
+}
+
+/**
+ * 取消批量任务
+ */
+export function useCancelBatchTask() {
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (id: number) => cancelBatchTask(id),
+    onSuccess: () => {
+      message.success('任务已取消');
+      queryClient.invalidateQueries({ queryKey: GRANT_QUERY_KEYS.batchTasks() });
+    },
+    onError: (error: { message?: string }) => {
+      message.error(error.message || '取消任务失败');
+    },
+  });
+}
+
+/**
+ * 查询批量任务失败明细
+ *
+ * @param id - 任务 ID
+ * @param params - 分页参数
+ * @param enabled - 是否启用查询
+ */
+export function useBatchTaskFailures(
+  id: number,
+  params: ListParams = {},
+  enabled = true
+) {
+  return useQuery({
+    queryKey: [...GRANT_QUERY_KEYS.batchTask(id), 'failures', params] as const,
+    queryFn: () => getBatchTaskFailures(id, params),
+    enabled: enabled && id > 0,
+  });
+}
+
+/**
+ * 上传用户 CSV
+ */
+export function useUploadUserCsv() {
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (file: File) => uploadUserCsv(file),
+    onError: (error: { message?: string }) => {
+      message.error(error.message || 'CSV 文件上传失败');
+    },
+  });
+}
+
+/**
+ * 预览用户筛选结果
+ */
+export function usePreviewUserFilter() {
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (filter: UserFilterCondition) => previewUserFilter(filter),
+    onError: (error: { message?: string }) => {
+      message.error(error.message || '获取预览失败');
     },
   });
 }
