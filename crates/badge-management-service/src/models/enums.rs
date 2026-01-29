@@ -119,6 +119,8 @@ pub enum SourceType {
     Manual,
     /// 兑换 - 兑换流程产生
     Redemption,
+    /// 级联触发 - 依赖关系自动触发的徽章授予
+    Cascade,
     /// 系统操作 - 系统自动处理
     #[default]
     System,

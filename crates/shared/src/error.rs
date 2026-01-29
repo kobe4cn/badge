@@ -48,6 +48,22 @@ pub enum BadgeError {
     #[error("徽章不可用: {reason}")]
     BadgeUnavailable { reason: String },
 
+    // ==================== 级联触发与竞争兑换错误 ====================
+    #[error("锁冲突: {resource}")]
+    LockConflict { resource: String },
+
+    #[error("检测到循环依赖: {path:?}")]
+    CycleDetected { path: Vec<i64> },
+
+    #[error("互斥冲突: 徽章 {target} 与 {conflicting} 互斥")]
+    ExclusiveConflict { target: i64, conflicting: i64 },
+
+    #[error("级联深度超限: 当前深度 {current}, 最大深度 {max}")]
+    CascadeDepthExceeded { current: u32, max: u32 },
+
+    #[error("级联超时: 已执行 {elapsed_ms}ms, 超时限制 {timeout_ms}ms")]
+    CascadeTimeout { elapsed_ms: u64, timeout_ms: u64 },
+
     // ==================== 规则引擎错误 ====================
     #[error("规则解析失败: {0}")]
     RuleParseFailed(String),
@@ -105,6 +121,11 @@ impl BadgeError {
             Self::RedemptionConditionNotMet { .. } => "REDEMPTION_CONDITION_NOT_MET",
             Self::RateLimitExceeded { .. } => "RATE_LIMIT_EXCEEDED",
             Self::BadgeUnavailable { .. } => "BADGE_UNAVAILABLE",
+            Self::LockConflict { .. } => "LOCK_CONFLICT",
+            Self::CycleDetected { .. } => "CYCLE_DETECTED",
+            Self::ExclusiveConflict { .. } => "EXCLUSIVE_CONFLICT",
+            Self::CascadeDepthExceeded { .. } => "CASCADE_DEPTH_EXCEEDED",
+            Self::CascadeTimeout { .. } => "CASCADE_TIMEOUT",
             Self::RuleParseFailed(_) => "RULE_PARSE_FAILED",
             Self::RuleExecutionFailed(_) => "RULE_EXECUTION_FAILED",
             Self::RuleNotFound { .. } => "RULE_NOT_FOUND",
@@ -127,6 +148,7 @@ impl BadgeError {
                 | Self::Redis(_)
                 | Self::Kafka(_)
                 | Self::ExternalServiceTimeout { .. }
+                | Self::LockConflict { .. }
         )
     }
 
@@ -143,7 +165,13 @@ impl BadgeError {
             Self::Unauthorized => (Code::Unauthenticated, self.to_string()),
             Self::Forbidden { .. } => (Code::PermissionDenied, self.to_string()),
             Self::RateLimitExceeded { .. } => (Code::ResourceExhausted, self.to_string()),
-            Self::ExternalServiceTimeout { .. } => (Code::DeadlineExceeded, self.to_string()),
+            Self::ExternalServiceTimeout { .. } | Self::CascadeTimeout { .. } => {
+                (Code::DeadlineExceeded, self.to_string())
+            }
+            Self::LockConflict { .. } => (Code::Aborted, self.to_string()),
+            Self::CycleDetected { .. }
+            | Self::ExclusiveConflict { .. }
+            | Self::CascadeDepthExceeded { .. } => (Code::FailedPrecondition, self.to_string()),
             _ => (Code::Internal, self.to_string()),
         };
 
