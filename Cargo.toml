@@ -9,6 +9,7 @@ members = [
     "crates/event-engagement-service",
     "crates/event-transaction-service",
     "crates/notification-worker",
+    "crates/mock-services",
 ]
 
 [workspace.package]
