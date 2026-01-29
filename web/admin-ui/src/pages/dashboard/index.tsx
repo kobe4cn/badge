@@ -5,11 +5,30 @@
  * - 今日统计卡片（发放、新增持有者、兑换）
  * - 总量统计卡片（总发放、活跃徽章、持有用户、覆盖率）
  * - 徽章发放排行榜 Top 5
+ * - 发放趋势折线图（支持时间范围切换）
+ * - 徽章类型分布饼图
+ * - 热门徽章排行榜 Top 10
+ * - 用户活跃度趋势
  * 支持自动刷新（5分钟）和手动刷新
  */
 
-import React, { useCallback, useMemo } from 'react';
-import { Card, Row, Col, Statistic, Table, Button, Tooltip, Spin, Avatar, Space, Typography } from 'antd';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  Card,
+  Row,
+  Col,
+  Statistic,
+  Table,
+  Button,
+  Tooltip,
+  Spin,
+  Avatar,
+  Space,
+  Typography,
+  Segmented,
+  DatePicker,
+  Empty,
+} from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   TrophyOutlined,
@@ -22,16 +41,27 @@ import {
   CrownOutlined,
   TeamOutlined,
   PercentageOutlined,
+  LineChartOutlined,
+  PieChartOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs from 'dayjs';
 import {
   useDashboardStats,
   useTodayStats,
   useBadgeRanking,
   useRefreshDashboard,
+  useGrantTrend,
+  useBadgeTypeDistribution,
+  useUserActivityTrend,
+  useTopBadges,
 } from '@/hooks/useDashboard';
 import { formatCount, formatRelativeTime } from '@/utils/format';
-import type { BadgeRanking } from '@/types/dashboard';
+import { LineChart, PieChart, BarChart } from '@/components';
+import type { BadgeRanking, TimeRangePreset } from '@/types/dashboard';
+
+const { RangePicker } = DatePicker;
 
 const { Text } = Typography;
 
@@ -166,9 +196,71 @@ const SummaryCard: React.FC<SummaryCardProps> = ({
 };
 
 /**
+ * 时间范围预设选项配置
+ */
+const TIME_RANGE_OPTIONS = [
+  { label: '7天', value: '7d' },
+  { label: '30天', value: '30d' },
+  { label: '90天', value: '90d' },
+  { label: '自定义', value: 'custom' },
+];
+
+/**
+ * 根据预设选项计算日期范围
+ */
+function getDateRangeByPreset(preset: TimeRangePreset): { startDate: string; endDate: string } {
+  const endDate = dayjs().format('YYYY-MM-DD');
+  let startDate: string;
+
+  switch (preset) {
+    case '7d':
+      startDate = dayjs().subtract(6, 'day').format('YYYY-MM-DD');
+      break;
+    case '30d':
+      startDate = dayjs().subtract(29, 'day').format('YYYY-MM-DD');
+      break;
+    case '90d':
+      startDate = dayjs().subtract(89, 'day').format('YYYY-MM-DD');
+      break;
+    default:
+      startDate = dayjs().subtract(6, 'day').format('YYYY-MM-DD');
+  }
+
+  return { startDate, endDate };
+}
+
+/**
  * 数据看板页面主组件
  */
 const DashboardPage: React.FC = () => {
+  // 时间范围状态
+  const [trendTimeRange, setTrendTimeRange] = useState<TimeRangePreset>('7d');
+  const [customDateRange, setCustomDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  const [activityTimeRange, setActivityTimeRange] = useState<TimeRangePreset>('7d');
+  const [activityCustomRange, setActivityCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+
+  // 计算趋势图的日期参数
+  const trendParams = useMemo(() => {
+    if (trendTimeRange === 'custom' && customDateRange) {
+      return {
+        startDate: customDateRange[0].format('YYYY-MM-DD'),
+        endDate: customDateRange[1].format('YYYY-MM-DD'),
+      };
+    }
+    return getDateRangeByPreset(trendTimeRange);
+  }, [trendTimeRange, customDateRange]);
+
+  // 计算活跃度图的日期参数
+  const activityParams = useMemo(() => {
+    if (activityTimeRange === 'custom' && activityCustomRange) {
+      return {
+        startDate: activityCustomRange[0].format('YYYY-MM-DD'),
+        endDate: activityCustomRange[1].format('YYYY-MM-DD'),
+      };
+    }
+    return getDateRangeByPreset(activityTimeRange);
+  }, [activityTimeRange, activityCustomRange]);
+
   // 获取统计数据
   const {
     data: stats,
@@ -188,9 +280,30 @@ const DashboardPage: React.FC = () => {
     dataUpdatedAt: rankingUpdatedAt,
   } = useBadgeRanking({ type: 'grant', limit: 5 });
 
+  // 获取趋势图表数据
+  const {
+    data: grantTrendData,
+    isLoading: grantTrendLoading,
+  } = useGrantTrend(trendParams);
+
+  const {
+    data: typeDistributionData,
+    isLoading: typeDistributionLoading,
+  } = useBadgeTypeDistribution();
+
+  const {
+    data: topBadgesData,
+    isLoading: topBadgesLoading,
+  } = useTopBadges(10);
+
+  const {
+    data: activityTrendData,
+    isLoading: activityTrendLoading,
+  } = useUserActivityTrend(activityParams);
+
   const { refresh } = useRefreshDashboard();
 
-  // 计算最后更新时间（取三个查询中最新的时间）
+  // 计算最后更新时间（取所有查询中最新的时间）
   const lastUpdatedAt = useMemo(() => {
     const times = [statsUpdatedAt, todayUpdatedAt, rankingUpdatedAt].filter(Boolean);
     if (times.length === 0) return null;
@@ -201,6 +314,40 @@ const DashboardPage: React.FC = () => {
   const handleRefresh = useCallback(() => {
     refresh();
   }, [refresh]);
+
+  // 处理趋势图时间范围变化
+  const handleTrendTimeRangeChange = useCallback((value: string | number) => {
+    setTrendTimeRange(value as TimeRangePreset);
+    if (value !== 'custom') {
+      setCustomDateRange(null);
+    }
+  }, []);
+
+  // 处理活跃度图时间范围变化
+  const handleActivityTimeRangeChange = useCallback((value: string | number) => {
+    setActivityTimeRange(value as TimeRangePreset);
+    if (value !== 'custom') {
+      setActivityCustomRange(null);
+    }
+  }, []);
+
+  // 转换饼图数据格式
+  const pieChartData = useMemo(() => {
+    if (!typeDistributionData) return [];
+    return typeDistributionData.map((item) => ({
+      name: item.typeName,
+      value: item.count,
+    }));
+  }, [typeDistributionData]);
+
+  // 转换柱状图数据格式
+  const barChartData = useMemo(() => {
+    if (!topBadgesData) return [];
+    return topBadgesData.map((item) => ({
+      name: item.badgeName,
+      value: item.grantCount,
+    }));
+  }, [topBadgesData]);
 
   // 排行榜表格列定义
   const rankingColumns: ColumnsType<BadgeRanking> = [
@@ -259,6 +406,8 @@ const DashboardPage: React.FC = () => {
     },
   ];
 
+  const isAnyLoading = statsLoading || todayLoading || rankingLoading;
+
   return (
     <PageContainer
       title="数据看板"
@@ -273,7 +422,7 @@ const DashboardPage: React.FC = () => {
             <Button
               icon={<ReloadOutlined />}
               onClick={handleRefresh}
-              loading={statsLoading || todayLoading || rankingLoading}
+              loading={isAnyLoading}
             >
               刷新
             </Button>
@@ -383,6 +532,150 @@ const DashboardPage: React.FC = () => {
           }}
         />
       </Card>
+
+      {/* 第四行：趋势图表（2列） */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        {/* 左侧：发放趋势折线图 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <LineChartOutlined style={{ color: '#1677ff' }} />
+                发放趋势
+              </Space>
+            }
+            extra={
+              <Space>
+                <Segmented
+                  options={TIME_RANGE_OPTIONS}
+                  value={trendTimeRange}
+                  onChange={handleTrendTimeRangeChange}
+                  size="small"
+                />
+                {trendTimeRange === 'custom' && (
+                  <RangePicker
+                    size="small"
+                    value={customDateRange}
+                    onChange={(dates) => setCustomDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+                    allowClear={false}
+                  />
+                )}
+              </Space>
+            }
+          >
+            {grantTrendData && grantTrendData.length > 0 ? (
+              <LineChart
+                data={grantTrendData}
+                height={320}
+                loading={grantTrendLoading}
+                color="#1677ff"
+              />
+            ) : (
+              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {grantTrendLoading ? <Spin /> : <Empty description="暂无数据" />}
+              </div>
+            )}
+          </Card>
+        </Col>
+
+        {/* 右侧：徽章类型分布饼图 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <PieChartOutlined style={{ color: '#52c41a' }} />
+                徽章类型分布
+              </Space>
+            }
+          >
+            {pieChartData.length > 0 ? (
+              <PieChart
+                data={pieChartData}
+                height={320}
+                loading={typeDistributionLoading}
+                donut
+              />
+            ) : (
+              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {typeDistributionLoading ? <Spin /> : <Empty description="暂无数据" />}
+              </div>
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 第五行：排行榜和活跃度（2列） */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        {/* 左侧：热门徽章排行（横向柱状图 Top 10） */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <BarChartOutlined style={{ color: '#fa8c16' }} />
+                热门徽章 Top 10
+              </Space>
+            }
+          >
+            {barChartData.length > 0 ? (
+              <BarChart
+                data={barChartData}
+                height={320}
+                loading={topBadgesLoading}
+                horizontal
+                color="#fa8c16"
+                gradient
+              />
+            ) : (
+              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {topBadgesLoading ? <Spin /> : <Empty description="暂无数据" />}
+              </div>
+            )}
+          </Card>
+        </Col>
+
+        {/* 右侧：用户活跃度趋势 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <LineChartOutlined style={{ color: '#722ed1' }} />
+                用户活跃度趋势
+              </Space>
+            }
+            extra={
+              <Space>
+                <Segmented
+                  options={TIME_RANGE_OPTIONS}
+                  value={activityTimeRange}
+                  onChange={handleActivityTimeRangeChange}
+                  size="small"
+                />
+                {activityTimeRange === 'custom' && (
+                  <RangePicker
+                    size="small"
+                    value={activityCustomRange}
+                    onChange={(dates) => setActivityCustomRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+                    allowClear={false}
+                  />
+                )}
+              </Space>
+            }
+          >
+            {activityTrendData && activityTrendData.length > 0 ? (
+              <LineChart
+                data={activityTrendData}
+                height={320}
+                loading={activityTrendLoading}
+                color="#722ed1"
+              />
+            ) : (
+              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {activityTrendLoading ? <Spin /> : <Empty description="暂无数据" />}
+              </div>
+            )}
+          </Card>
+        </Col>
+      </Row>
     </PageContainer>
   );
 };

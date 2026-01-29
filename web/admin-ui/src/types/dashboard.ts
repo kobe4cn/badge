@@ -79,3 +79,52 @@ export interface BadgeRanking {
   /** 排名 */
   rank: number;
 }
+
+/**
+ * 趋势数据查询参数
+ *
+ * 支持按时间范围和粒度查询趋势数据
+ */
+export interface TrendParams {
+  /** 开始日期 (YYYY-MM-DD) */
+  startDate: string;
+  /** 结束日期 (YYYY-MM-DD) */
+  endDate: string;
+  /** 数据粒度：天/周/月 */
+  granularity?: 'day' | 'week' | 'month';
+}
+
+/**
+ * 趋势数据点
+ *
+ * 单个时间点的统计数据
+ */
+export interface TrendData {
+  /** 日期 (YYYY-MM-DD) */
+  date: string;
+  /** 数值 */
+  value: number;
+  /** 可选分类标签，用于多系列数据 */
+  category?: string;
+}
+
+/**
+ * 徽章类型分布数据
+ *
+ * 用于饼图展示各类型徽章的发放占比
+ */
+export interface TypeDistribution {
+  /** 徽章类型标识 */
+  type: string;
+  /** 类型显示名称 */
+  typeName: string;
+  /** 该类型的发放数量 */
+  count: number;
+  /** 占比百分比 (0-100) */
+  percentage: number;
+}
+
+/**
+ * 时间范围预设选项
+ */
+export type TimeRangePreset = '7d' | '30d' | '90d' | 'custom';

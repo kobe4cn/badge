@@ -7,6 +7,16 @@
 // Layout 组件
 export { default as AdminLayout, AvatarDropdown, PageTransition } from './Layout';
 
+// Charts 组件
+export { LineChart, PieChart, BarChart } from './Charts';
+export type {
+  LineChartProps,
+  PieChartProps,
+  PieChartDataItem,
+  BarChartProps,
+  BarChartDataItem,
+} from './Charts';
+
 // Loading 组件
 // export { default as Loading } from './Loading';
 
