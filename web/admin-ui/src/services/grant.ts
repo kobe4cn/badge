@@ -10,6 +10,7 @@ import type {
   BatchGrantRequest,
   GrantRecord,
   GrantLog,
+  GrantLogDetail,
   GrantLogQueryParams,
   BatchTask,
   BatchTaskQueryParams,
@@ -113,6 +114,32 @@ export function getGrantLogs(
   params: GrantLogParams
 ): Promise<PaginatedResponse<GrantLog>> {
   return getList<GrantLog>('/api/v1/grants/logs', params as Record<string, unknown>);
+}
+
+/**
+ * 获取发放日志详情
+ *
+ * @param id - 日志 ID
+ */
+export function getGrantLogDetail(id: number): Promise<GrantLogDetail> {
+  return get<GrantLogDetail>(`/api/v1/grants/logs/${id}`);
+}
+
+/**
+ * 导出发放日志
+ *
+ * 根据筛选条件导出日志为 CSV 文件
+ *
+ * @param params - 查询参数（不含分页）
+ */
+export async function exportGrantLogs(
+  params: Omit<GrantLogParams, 'page' | 'pageSize'>
+): Promise<Blob> {
+  const response = await apiClient.get('/api/v1/grants/logs/export', {
+    params,
+    responseType: 'blob',
+  });
+  return response.data;
 }
 
 /**
@@ -229,6 +256,8 @@ export const grantService = {
   manualGrant,
   batchGrant,
   getGrantLogs,
+  getGrantLogDetail,
+  exportGrantLogs,
   getGrantRecords,
   searchUsers,
   getBatchTasks,

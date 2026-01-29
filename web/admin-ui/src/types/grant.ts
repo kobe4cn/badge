@@ -48,7 +48,7 @@ export interface GrantRecord {
 /**
  * 发放日志
  *
- * 用于审计追踪的操作日志
+ * 用于审计追踪的操作日志，包含完整的用户和徽章信息
  */
 export interface GrantLog {
   id: number;
@@ -56,14 +56,24 @@ export interface GrantLog {
   userBadgeId: number;
   /** 用户 ID */
   userId: string;
+  /** 用户名（冗余存储，便于展示） */
+  userName?: string;
+  /** 用户头像 */
+  userAvatar?: string;
   /** 徽章 ID */
   badgeId: number;
+  /** 徽章名称（冗余存储，便于展示） */
+  badgeName?: string;
+  /** 徽章图标 */
+  badgeIcon?: string;
   /** 操作动作 */
   action: LogAction;
   /** 操作原因 */
   reason?: string;
-  /** 操作人 */
-  operator?: string;
+  /** 操作人 ID */
+  operatorId?: string;
+  /** 操作人名称 */
+  operatorName?: string;
   /** 操作数量 */
   quantity: number;
   /** 来源类型 */
@@ -72,6 +82,22 @@ export interface GrantLog {
   sourceRefId?: string;
   /** 操作时间 */
   createdAt: string;
+}
+
+/**
+ * 发放日志详情
+ *
+ * 包含关联实体的完整信息
+ */
+export interface GrantLogDetail extends GrantLog {
+  /** 用户会员等级 */
+  userMembershipLevel?: string;
+  /** 徽章类型 */
+  badgeType?: string;
+  /** 关联的批量任务名称 */
+  batchTaskName?: string;
+  /** 关联的规则名称 */
+  ruleName?: string;
 }
 
 /**
@@ -279,12 +305,18 @@ export interface RevokeRequest {
 export interface GrantLogQueryParams {
   /** 用户 ID */
   userId?: string;
+  /** 用户名（模糊搜索） */
+  userName?: string;
   /** 徽章 ID */
   badgeId?: number;
+  /** 徽章名称（模糊搜索） */
+  badgeName?: string;
   /** 操作动作 */
   action?: LogAction;
   /** 来源类型 */
   sourceType?: SourceType;
+  /** 操作人 ID */
+  operatorId?: string;
   /** 开始时间 */
   startTime?: string;
   /** 结束时间 */

@@ -10,6 +10,8 @@ import {
   manualGrant,
   batchGrant,
   getGrantLogs,
+  getGrantLogDetail,
+  exportGrantLogs,
   getGrantRecords,
   searchUsers,
   getBatchTasks,
@@ -119,6 +121,50 @@ export function useGrantLogs(params: GrantLogParams, enabled = true) {
     queryKey: GRANT_QUERY_KEYS.logList(params),
     queryFn: () => getGrantLogs(params),
     enabled,
+  });
+}
+
+/**
+ * 查询发放日志详情
+ *
+ * @param id - 日志 ID
+ * @param enabled - 是否启用查询
+ */
+export function useGrantLogDetail(id: number, enabled = true) {
+  return useQuery({
+    queryKey: [...GRANT_QUERY_KEYS.logs(), id] as const,
+    queryFn: () => getGrantLogDetail(id),
+    enabled: enabled && id > 0,
+  });
+}
+
+/**
+ * 导出发放日志
+ *
+ * 返回 mutation 用于触发导出操作
+ */
+export function useExportGrantLogs() {
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (params: Omit<GrantLogParams, 'page' | 'pageSize'>) =>
+      exportGrantLogs(params),
+    onSuccess: (blob) => {
+      // 创建下载链接
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const timestamp = new Date().toISOString().slice(0, 10);
+      link.download = `grant-logs-${timestamp}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      message.success('导出成功');
+    },
+    onError: (error: { message?: string }) => {
+      message.error(error.message || '导出失败');
+    },
   });
 }
 
