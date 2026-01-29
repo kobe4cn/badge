@@ -61,6 +61,12 @@ impl From<BadgeError> for Status {
             BadgeError::Redis(_) => Status::internal(err.to_string()),
             BadgeError::Internal(_) => Status::internal(err.to_string()),
             BadgeError::ConcurrencyConflict => Status::aborted(err.to_string()),
+            // 级联评估相关错误
+            BadgeError::CascadeDepthExceeded { .. } => {
+                Status::resource_exhausted(err.to_string())
+            }
+            BadgeError::CascadeTimeout { .. } => Status::deadline_exceeded(err.to_string()),
+            BadgeError::CascadeGrantServiceNotSet => Status::internal(err.to_string()),
         }
     }
 }

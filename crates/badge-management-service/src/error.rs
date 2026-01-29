@@ -64,6 +64,16 @@ pub enum BadgeError {
     #[error("重复的兑换请求: idempotency_key={0}")]
     DuplicateRedemption(String),
 
+    // === 级联评估相关错误 ===
+    #[error("级联评估深度超出限制: 当前深度={current}, 最大深度={max}")]
+    CascadeDepthExceeded { current: u32, max: u32 },
+
+    #[error("级联评估超时: 已用时={elapsed_ms}ms, 超时限制={timeout_ms}ms")]
+    CascadeTimeout { elapsed_ms: u64, timeout_ms: u64 },
+
+    #[error("级联评估发放服务未设置")]
+    CascadeGrantServiceNotSet,
+
     // === 系统错误 ===
     #[error("数据库错误: {0}")]
     Database(#[from] sqlx::Error),
@@ -128,6 +138,9 @@ impl BadgeError {
             Self::OrderNotFound(_) => "ORDER_NOT_FOUND",
             Self::InvalidOrderStatus { .. } => "INVALID_ORDER_STATUS",
             Self::DuplicateRedemption(_) => "DUPLICATE_REDEMPTION",
+            Self::CascadeDepthExceeded { .. } => "CASCADE_DEPTH_EXCEEDED",
+            Self::CascadeTimeout { .. } => "CASCADE_TIMEOUT",
+            Self::CascadeGrantServiceNotSet => "CASCADE_GRANT_SERVICE_NOT_SET",
             Self::Database(_) => "DATABASE_ERROR",
             Self::Serialization(_) => "SERIALIZATION_ERROR",
             Self::Redis(_) => "REDIS_ERROR",
