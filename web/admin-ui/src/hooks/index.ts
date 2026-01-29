@@ -10,3 +10,4 @@ export * from './useBadge';
 export * from './useRule';
 export * from './useGrant';
 export * from './useDashboard';
+export * from './useMember';

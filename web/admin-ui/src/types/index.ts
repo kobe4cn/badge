@@ -11,3 +11,4 @@ export * from './rule-canvas';
 export * from './user';
 export * from './grant';
 export * from './dashboard';
+export * from './member';

@@ -13,3 +13,4 @@ export * from './badge';
 export * from './rule';
 export * from './grant';
 export * from './dashboard';
+export * from './member';
