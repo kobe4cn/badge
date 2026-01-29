@@ -45,10 +45,13 @@ pub fn test_user_id() -> String {
 }
 
 /// 生成唯一的测试徽章 ID
+///
+/// 使用原子计数器确保并行测试时的唯一性
 pub fn test_badge_id() -> i64 {
-    // 使用时间戳和随机数生成唯一 ID（测试环境下避免冲突）
-    let timestamp = Utc::now().timestamp_micros();
-    (timestamp % 1_000_000_000) as i64
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static COUNTER: AtomicI64 = AtomicI64::new(0);
+    let base = Utc::now().timestamp_micros() % 1_000_000_000;
+    base + COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
 // ==================== Mock 规则引擎 ====================

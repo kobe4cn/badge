@@ -131,12 +131,18 @@ impl MockBadgeStore {
         quantity: i32,
         idempotency_key: Option<String>,
     ) -> Result<GrantResult, GrantError> {
-        // 幂等检查
+        // 幂等检查：如果幂等键已存在，返回已存在的 user_badge 信息
         if let Some(ref key) = idempotency_key {
             let ledger = self.ledger.read().await;
             if let Some(entry) = ledger.iter().find(|e| e.ref_id.as_ref() == Some(key)) {
+                let user_badges = self.user_badges.read().await;
+                let user_badge_id = user_badges
+                    .get(&entry.user_id)
+                    .and_then(|ubs| ubs.iter().find(|ub| ub.badge_id == entry.badge_id))
+                    .map(|ub| ub.id)
+                    .unwrap_or(0);
                 return Ok(GrantResult {
-                    user_badge_id: entry.id,
+                    user_badge_id,
                     new_quantity: entry.balance_after,
                     is_duplicate: true,
                 });
@@ -261,6 +267,13 @@ impl MockBadgeStore {
         }
 
         drop(user_badges);
+
+        // 同步减少徽章的 issued_count
+        let mut badges = self.badges.write().await;
+        if let Some(badge) = badges.get_mut(&badge_id) {
+            badge.issued_count -= quantity as i64;
+        }
+        drop(badges);
 
         // 写入账本
         let mut ledger = self.ledger.write().await;
