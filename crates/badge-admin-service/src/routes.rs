@@ -159,9 +159,9 @@ fn task_routes() -> Router<AppState> {
 
 /// 构建完整的 API 路由
 ///
-/// 包含所有管理后台 API，挂载在 /api/admin 前缀下
+/// 返回所有管理后台 API 路由（不含前缀，由调用方在 main.rs 中挂载）
 pub fn api_routes() -> Router<AppState> {
-    let admin_routes = Router::new()
+    Router::new()
         .merge(badge_routes())
         .merge(rule_routes())
         .merge(grant_routes())
@@ -170,9 +170,7 @@ pub fn api_routes() -> Router<AppState> {
         .merge(user_view_routes())
         .merge(log_routes())
         .merge(task_routes())
-        .merge(cache_routes());
-
-    Router::new().nest("/api/admin", admin_routes)
+        .merge(cache_routes())
 }
 
 #[cfg(test)]
