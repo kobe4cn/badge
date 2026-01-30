@@ -93,21 +93,33 @@ docker exec -i badge-postgres psql -U badge -d badge_db < migrations/20250128_00
 # 构建 Release 版本
 cargo build --workspace --release
 
-# 启动规则引擎
-./target/release/rule-engine &
+# 启动所有服务（推荐使用 Makefile）
+make dev-backend
 
-# 启动徽章管理服务
-./target/release/badge-management &
+# 或者手动启动各服务：
 
-# 启动管理后台 API
-./target/release/badge-admin &
+# 核心服务（必需）
+./target/release/rule-engine &          # gRPC 规则引擎 :50051
+./target/release/badge-management &     # gRPC 徽章管理 :50052
+./target/release/badge-admin &          # HTTP 管理后台 :8080
 
-# 启动事件处理服务
-./target/release/event-engagement &
-./target/release/event-transaction &
+# 事件处理服务（Kafka 消费者）
+./target/release/event-engagement &     # 行为事件处理 :50053
+./target/release/event-transaction &    # 交易事件处理 :50054
+./target/release/notification-worker &  # 通知推送服务 :50055
+```
 
-# 启动通知 Worker
-./target/release/notification-worker &
+### 5. 开发环境使用 Mock 服务
+
+```bash
+# 启动 Mock HTTP 服务器（生成测试数据）
+make mock-server
+
+# 生成模拟事件到 Kafka
+make mock-generate TYPE=purchase USER=test_user COUNT=10
+
+# 运行预定义场景
+make mock-scenario NAME=first_purchase USER=test_user
 ```
 
 ---
