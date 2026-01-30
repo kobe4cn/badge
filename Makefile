@@ -86,55 +86,55 @@ mock-scenario:
 
 # 基础设施管理
 infra-up:
-	docker compose -f docker/docker-compose.infra.yml up -d
+	podman compose -f docker/docker-compose.infra.yml up -d
 
 infra-down:
-	docker compose -f docker/docker-compose.infra.yml down
+	podman compose -f docker/docker-compose.infra.yml down
 
 infra-logs:
-	docker compose -f docker/docker-compose.infra.yml logs -f
+	podman compose -f docker/docker-compose.infra.yml logs -f
 
 infra-restart:
-	docker compose -f docker/docker-compose.infra.yml restart
+	podman compose -f docker/docker-compose.infra.yml restart
 
 # Kafka topic 初始化（服务启动前必须执行）
 kafka-init:
 	@echo "Creating Kafka topics..."
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.engagement.events --partitions 3 --replication-factor 1
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.transaction.events --partitions 3 --replication-factor 1
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.notifications --partitions 3 --replication-factor 1
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.dlq --partitions 1 --replication-factor 1
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.engagement.events --partitions 3 --replication-factor 1
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.transaction.events --partitions 3 --replication-factor 1
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.notifications --partitions 3 --replication-factor 1
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.dlq --partitions 1 --replication-factor 1
 	@echo "Kafka topics created successfully"
 	@$(MAKE) kafka-topics
 
 kafka-topics:
 	@echo "Listing Kafka topics:"
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --list | grep -E "^badge\." || echo "No badge topics found"
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --list | grep -E "^badge\." || echo "No badge topics found"
 
 kafka-describe:
 	@echo "=== badge.engagement.events ==="
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.engagement.events
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.engagement.events
 	@echo ""
 	@echo "=== badge.transaction.events ==="
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.transaction.events
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.transaction.events
 	@echo ""
 	@echo "=== badge.notifications ==="
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.notifications
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.notifications
 	@echo ""
 	@echo "=== badge.dlq ==="
-	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.dlq
+	@podman exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.dlq
 
 # 数据库迁移（按顺序执行所有迁移文件）
 db-migrate:
 	@echo "Running database migrations..."
-	docker exec -i badge-postgres psql -U badge -d badge_db < migrations/20250128_001_init_schema.sql
-	docker exec -i badge-postgres psql -U badge -d badge_db < migrations/20250130_001_badge_dependency.sql
-	docker exec -i badge-postgres psql -U badge -d badge_db < migrations/20250131_001_cascade_log.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250128_001_init_schema.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250130_001_badge_dependency.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250131_001_cascade_log.sql
 	@echo "All migrations completed"
 
 db-reset:
 	@echo "Resetting database..."
-	docker exec -i badge-postgres psql -U badge -d badge_db -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+	podman exec -i badge-postgres psql -U badge -d badge_db -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 	$(MAKE) db-migrate
 
 # 代码检查
@@ -175,7 +175,7 @@ help:
 	@echo "  mock-scenario    - Run predefined scenario (NAME=<name> [USER=<id>])"
 	@echo ""
 	@echo "Infrastructure:"
-	@echo "  infra-up         - Start infrastructure (Docker)"
+	@echo "  infra-up         - Start infrastructure (Podman)"
 	@echo "  infra-down       - Stop infrastructure"
 	@echo "  infra-logs       - View infrastructure logs"
 	@echo "  infra-restart    - Restart infrastructure"
