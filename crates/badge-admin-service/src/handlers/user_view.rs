@@ -10,6 +10,8 @@ use axum::{
 use chrono::{DateTime, Utc};
 use tracing::instrument;
 
+use serde::Deserialize;
+
 use crate::{
     dto::{
         ApiResponse, PageResponse, PaginationParams, UserBadgeAdminDto, UserLedgerDto,
@@ -18,6 +20,130 @@ use crate::{
     error::AdminError,
     state::AppState,
 };
+
+/// 用户搜索查询参数
+#[derive(Debug, Deserialize)]
+pub struct UserSearchParams {
+    /// 搜索关键词（用户 ID 模糊匹配）
+    pub keyword: String,
+}
+
+/// 用户简要信息 DTO
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserDto {
+    pub user_id: String,
+    pub nickname: Option<String>,
+    pub phone: Option<String>,
+    pub badge_count: i64,
+}
+
+// ---------------------------------------------------------------------------
+// 用户搜索
+// ---------------------------------------------------------------------------
+
+/// 用户搜索结果行
+#[derive(sqlx::FromRow)]
+struct UserSearchRow {
+    user_id: String,
+    badge_count: i64,
+}
+
+/// 搜索用户
+///
+/// GET /api/admin/users/search
+///
+/// 在 user_badges 表中搜索用户 ID，返回匹配的用户列表
+/// 注：完整用户信息（昵称、手机号等）需从用户中心服务获取
+#[instrument(skip(state))]
+pub async fn search_users(
+    State(state): State<AppState>,
+    Query(params): Query<UserSearchParams>,
+) -> Result<Json<ApiResponse<Vec<UserDto>>>, AdminError> {
+    let keyword = format!("%{}%", params.keyword);
+
+    let rows = sqlx::query_as::<_, UserSearchRow>(
+        r#"
+        SELECT
+            user_id,
+            COUNT(*) as badge_count
+        FROM user_badges
+        WHERE user_id ILIKE $1
+        GROUP BY user_id
+        ORDER BY badge_count DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(&keyword)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let users: Vec<UserDto> = rows
+        .into_iter()
+        .map(|row| UserDto {
+            user_id: row.user_id,
+            // 昵称和手机号需从用户中心服务获取，此处暂时返回空
+            nickname: None,
+            phone: None,
+            badge_count: row.badge_count,
+        })
+        .collect();
+
+    Ok(Json(ApiResponse::success(users)))
+}
+
+/// 用户详情 DTO
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserDetailDto {
+    pub user_id: String,
+    pub nickname: Option<String>,
+    pub phone: Option<String>,
+    pub total_badges: i64,
+    pub active_badges: i64,
+    pub total_redeemed: i64,
+}
+
+/// 获取用户详情
+///
+/// GET /api/admin/users/:id
+///
+/// 返回用户基本信息和徽章统计
+#[instrument(skip(state))]
+pub async fn get_user_detail(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<ApiResponse<UserDetailDto>>, AdminError> {
+    let stats: Option<(i64, i64, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) as total_badges,
+            COUNT(*) FILTER (WHERE status = 'active') as active_badges,
+            COALESCE((
+                SELECT COUNT(*) FROM redemption_orders WHERE user_id = $1
+            ), 0) as total_redeemed
+        FROM user_badges
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(&user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (total_badges, active_badges, total_redeemed) = stats.unwrap_or((0, 0, 0));
+
+    let dto = UserDetailDto {
+        user_id,
+        // 昵称和手机号需从用户中心服务获取
+        nickname: None,
+        phone: None,
+        total_badges,
+        active_badges,
+        total_redeemed,
+    };
+
+    Ok(Json(ApiResponse::success(dto)))
+}
 
 // ---------------------------------------------------------------------------
 // 用户徽章列表

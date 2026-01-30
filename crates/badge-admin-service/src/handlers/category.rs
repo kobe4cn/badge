@@ -4,7 +4,7 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::info;
@@ -12,7 +12,7 @@ use validator::Validate;
 
 use crate::{
     CategoryStatus,
-    dto::{ApiResponse, CategoryDto, CreateCategoryRequest, UpdateCategoryRequest},
+    dto::{ApiResponse, CategoryDto, CreateCategoryRequest, PageResponse, PaginationParams, UpdateCategoryRequest},
     error::AdminError,
     state::AppState,
 };
@@ -82,12 +82,28 @@ pub async fn create_category(
     Ok(Json(ApiResponse::success(dto)))
 }
 
-/// 获取分类列表
+/// 获取分类列表（分页）
 ///
 /// GET /api/admin/categories
 pub async fn list_categories(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<Vec<CategoryDto>>>, AdminError> {
+    Query(pagination): Query<PaginationParams>,
+) -> Result<Json<ApiResponse<PageResponse<CategoryDto>>>, AdminError> {
+    let offset = pagination.offset();
+    let limit = pagination.limit();
+
+    // 查询总数
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM badge_categories")
+        .fetch_one(&state.pool)
+        .await?;
+
+    if total.0 == 0 {
+        return Ok(Json(ApiResponse::success(PageResponse::empty(
+            pagination.page,
+            pagination.page_size,
+        ))));
+    }
+
     // 查询分类并统计每个分类下的徽章数量
     let rows = sqlx::query_as::<_, CategoryWithCount>(
         r#"
@@ -107,6 +123,60 @@ pub async fn list_categories(
             LEFT JOIN badges b ON b.series_id = s.id
             GROUP BY s.category_id
         ) badge_counts ON badge_counts.category_id = c.id
+        ORDER BY c.sort_order ASC, c.id ASC
+        LIMIT $1 OFFSET $2
+        "#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let categories: Vec<CategoryDto> = rows
+        .into_iter()
+        .map(|row| CategoryDto {
+            id: row.id,
+            name: row.name,
+            icon_url: row.icon_url,
+            sort_order: row.sort_order,
+            status: row.status,
+            badge_count: row.badge_count,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
+        .collect();
+
+    let response = PageResponse::new(categories, total.0, pagination.page, pagination.page_size);
+    Ok(Json(ApiResponse::success(response)))
+}
+
+/// 获取全部分类（不分页）
+///
+/// GET /api/admin/categories/all
+///
+/// 用于下拉选择等场景
+pub async fn list_all_categories(
+    State(state): State<AppState>,
+) -> Result<Json<ApiResponse<Vec<CategoryDto>>>, AdminError> {
+    let rows = sqlx::query_as::<_, CategoryWithCount>(
+        r#"
+        SELECT
+            c.id,
+            c.name,
+            c.icon_url,
+            c.sort_order,
+            c.status,
+            c.created_at,
+            c.updated_at,
+            COALESCE(badge_counts.count, 0) as badge_count
+        FROM badge_categories c
+        LEFT JOIN (
+            SELECT s.category_id, COUNT(b.id) as count
+            FROM badge_series s
+            LEFT JOIN badges b ON b.series_id = s.id
+            GROUP BY s.category_id
+        ) badge_counts ON badge_counts.category_id = c.id
+        WHERE c.status = 'active'
         ORDER BY c.sort_order ASC, c.id ASC
         "#,
     )

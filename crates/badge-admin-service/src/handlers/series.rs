@@ -4,7 +4,7 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Utc};
 use tracing::info;
@@ -12,7 +12,7 @@ use validator::Validate;
 
 use crate::{
     CategoryStatus,
-    dto::{ApiResponse, CreateSeriesRequest, SeriesDto, UpdateSeriesRequest},
+    dto::{ApiResponse, CreateSeriesRequest, PageResponse, PaginationParams, SeriesDto, UpdateSeriesRequest},
     error::AdminError,
     state::AppState,
 };
@@ -152,14 +152,54 @@ pub async fn create_series(
     Ok(Json(ApiResponse::success(dto)))
 }
 
-/// 获取系列列表
+/// 获取系列列表（分页）
 ///
 /// GET /api/admin/series
 pub async fn list_series(
     State(state): State<AppState>,
+    Query(pagination): Query<PaginationParams>,
+) -> Result<Json<ApiResponse<PageResponse<SeriesDto>>>, AdminError> {
+    let offset = pagination.offset();
+    let limit = pagination.limit();
+
+    // 查询总数
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM badge_series")
+        .fetch_one(&state.pool)
+        .await?;
+
+    if total.0 == 0 {
+        return Ok(Json(ApiResponse::success(PageResponse::empty(
+            pagination.page,
+            pagination.page_size,
+        ))));
+    }
+
+    let sql = format!(
+        "{} ORDER BY s.sort_order ASC, s.id ASC LIMIT $1 OFFSET $2",
+        SERIES_WITH_INFO_SQL
+    );
+
+    let rows = sqlx::query_as::<_, SeriesWithInfo>(&sql)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.pool)
+        .await?;
+
+    let series: Vec<SeriesDto> = rows.into_iter().map(Into::into).collect();
+    let response = PageResponse::new(series, total.0, pagination.page, pagination.page_size);
+    Ok(Json(ApiResponse::success(response)))
+}
+
+/// 获取全部系列（不分页）
+///
+/// GET /api/admin/series/all
+///
+/// 用于下拉选择等场景
+pub async fn list_all_series(
+    State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<SeriesDto>>>, AdminError> {
     let sql = format!(
-        "{} ORDER BY s.sort_order ASC, s.id ASC",
+        "{} WHERE s.status = 'active' ORDER BY s.sort_order ASC, s.id ASC",
         SERIES_WITH_INFO_SQL
     );
 
@@ -168,7 +208,6 @@ pub async fn list_series(
         .await?;
 
     let series: Vec<SeriesDto> = rows.into_iter().map(Into::into).collect();
-
     Ok(Json(ApiResponse::success(series)))
 }
 

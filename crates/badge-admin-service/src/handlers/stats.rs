@@ -19,6 +19,34 @@ use crate::{
     state::AppState,
 };
 
+/// 今日统计响应 DTO
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodayStatsDto {
+    /// 今日发放数量
+    pub today_issued: i64,
+    /// 今日兑换数量
+    pub today_redeemed: i64,
+    /// 今日新增持有用户数
+    pub today_new_holders: i64,
+    /// 发放环比变化（百分比）
+    pub issued_change_rate: f64,
+    /// 兑换环比变化（百分比）
+    pub redeemed_change_rate: f64,
+}
+
+/// 徽章类型分布 DTO
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeDistributionDto {
+    /// 类型名称
+    pub badge_type: String,
+    /// 数量
+    pub count: i64,
+    /// 百分比
+    pub percentage: f64,
+}
+
 /// 统计总览
 ///
 /// GET /api/admin/stats/overview
@@ -274,6 +302,123 @@ pub async fn get_badge_stats(
     };
 
     Ok(Json(ApiResponse::success(dto)))
+}
+
+/// 今日统计数据
+///
+/// GET /api/admin/stats/today
+///
+/// 返回当日运营数据及环比变化
+#[instrument(skip(state))]
+pub async fn get_today_stats(
+    State(state): State<AppState>,
+) -> Result<Json<ApiResponse<TodayStatsDto>>, AdminError> {
+    // 今日数据
+    let today_stats: (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM(quantity) FILTER (WHERE change_type = 'acquire'), 0),
+            COALESCE(SUM(ABS(quantity)) FILTER (WHERE change_type = 'redeem_out'), 0)
+        FROM badge_ledger
+        WHERE DATE(created_at) = CURRENT_DATE
+        "#,
+    )
+    .fetch_one(&state.pool)
+    .await?;
+
+    // 昨日数据（用于计算环比）
+    let yesterday_stats: (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM(quantity) FILTER (WHERE change_type = 'acquire'), 0),
+            COALESCE(SUM(ABS(quantity)) FILTER (WHERE change_type = 'redeem_out'), 0)
+        FROM badge_ledger
+        WHERE DATE(created_at) = CURRENT_DATE - INTERVAL '1 day'
+        "#,
+    )
+    .fetch_one(&state.pool)
+    .await?;
+
+    // 今日新增持有用户数
+    let today_new_holders: (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(DISTINCT user_id)
+        FROM user_badges
+        WHERE DATE(first_acquired_at) = CURRENT_DATE
+        "#,
+    )
+    .fetch_one(&state.pool)
+    .await?;
+
+    // 计算环比变化率
+    let issued_change_rate = if yesterday_stats.0 > 0 {
+        ((today_stats.0 - yesterday_stats.0) as f64 / yesterday_stats.0 as f64) * 100.0
+    } else if today_stats.0 > 0 {
+        100.0
+    } else {
+        0.0
+    };
+
+    let redeemed_change_rate = if yesterday_stats.1 > 0 {
+        ((today_stats.1 - yesterday_stats.1) as f64 / yesterday_stats.1 as f64) * 100.0
+    } else if today_stats.1 > 0 {
+        100.0
+    } else {
+        0.0
+    };
+
+    let dto = TodayStatsDto {
+        today_issued: today_stats.0,
+        today_redeemed: today_stats.1,
+        today_new_holders: today_new_holders.0,
+        issued_change_rate,
+        redeemed_change_rate,
+    };
+
+    Ok(Json(ApiResponse::success(dto)))
+}
+
+/// 徽章类型分布
+///
+/// GET /api/admin/stats/distribution/types
+///
+/// 用于饼图展示各类型徽章的发放占比
+#[instrument(skip(state))]
+pub async fn get_type_distribution(
+    State(state): State<AppState>,
+) -> Result<Json<ApiResponse<Vec<TypeDistributionDto>>>, AdminError> {
+    // 按类型统计发放数量
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            b.badge_type::text as badge_type,
+            COALESCE(SUM(bl.quantity) FILTER (WHERE bl.change_type = 'acquire'), 0) as count
+        FROM badges b
+        LEFT JOIN badge_ledger bl ON b.id = bl.badge_id
+        GROUP BY b.badge_type
+        ORDER BY count DESC
+        "#,
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    // 计算总数以得出百分比
+    let total: i64 = rows.iter().map(|(_, c)| c).sum();
+
+    let distributions: Vec<TypeDistributionDto> = rows
+        .into_iter()
+        .map(|(badge_type, count)| TypeDistributionDto {
+            badge_type,
+            count,
+            percentage: if total > 0 {
+                (count as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            },
+        })
+        .collect();
+
+    Ok(Json(ApiResponse::success(distributions)))
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@ pub fn badge_routes() -> Router<AppState> {
         // 分类管理
         .route("/categories", post(handlers::category::create_category))
         .route("/categories", get(handlers::category::list_categories))
+        .route("/categories/all", get(handlers::category::list_all_categories))
         .route("/categories/{id}", get(handlers::category::get_category))
         .route("/categories/{id}", put(handlers::category::update_category))
         .route(
@@ -26,6 +27,7 @@ pub fn badge_routes() -> Router<AppState> {
         // 系列管理
         .route("/series", post(handlers::series::create_series))
         .route("/series", get(handlers::series::list_series))
+        .route("/series/all", get(handlers::series::list_all_series))
         .route("/series/{id}", get(handlers::series::get_series))
         .route("/series/{id}", put(handlers::series::update_series))
         .route("/series/{id}", delete(handlers::series::delete_series))
@@ -98,20 +100,30 @@ fn revoke_routes() -> Router<AppState> {
 
 /// 构建统计报表路由
 ///
-/// 包含总览、趋势、排行和单徽章统计
+/// 包含总览、今日统计、趋势、排行、类型分布和单徽章统计
 fn stats_routes() -> Router<AppState> {
     Router::new()
         .route("/stats/overview", get(handlers::stats::get_overview))
+        .route("/stats/today", get(handlers::stats::get_today_stats))
         .route("/stats/trends", get(handlers::stats::get_trends))
         .route("/stats/ranking", get(handlers::stats::get_ranking))
+        .route(
+            "/stats/distribution/types",
+            get(handlers::stats::get_type_distribution),
+        )
         .route("/stats/badges/{id}", get(handlers::stats::get_badge_stats))
 }
 
 /// 构建会员视图路由
 ///
-/// 包含用户徽章、兑换记录、统计和账本流水
+/// 包含用户搜索、详情、徽章、兑换记录、统计和账本流水
 fn user_view_routes() -> Router<AppState> {
     Router::new()
+        .route("/users/search", get(handlers::user_view::search_users))
+        .route(
+            "/users/{user_id}",
+            get(handlers::user_view::get_user_detail),
+        )
         .route(
             "/users/{user_id}/badges",
             get(handlers::user_view::get_user_badges),
