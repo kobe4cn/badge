@@ -80,12 +80,32 @@ docker compose -f docker/docker-compose.infra.yml ps
 docker compose -f docker/docker-compose.infra.yml logs -f
 ```
 
-### 3. 运行数据库迁移
+### 3. 初始化数据库和 Kafka
 
 ```bash
-# 等待 PostgreSQL 就绪后执行迁移
-docker exec -i badge-postgres psql -U badge -d badge_db < migrations/20250128_001_init_schema.sql
+# 运行所有数据库迁移
+make db-migrate
+
+# 创建 Kafka topics（必须在启动事件服务前执行）
+make kafka-init
+
+# 验证 topic 创建成功
+make kafka-topics
+# 输出：
+# badge.engagement.events
+# badge.transaction.events
+# badge.notifications
+# badge.dlq
 ```
+
+**Kafka Topics 说明：**
+
+| Topic | 分区数 | 用途 |
+|-------|--------|------|
+| `badge.engagement.events` | 3 | 行为事件（签到、浏览、分享） |
+| `badge.transaction.events` | 3 | 交易事件（购买、退款、取消） |
+| `badge.notifications` | 3 | 徽章发放通知 |
+| `badge.dlq` | 1 | 死信队列（处理失败的消息） |
 
 ### 4. 构建与运行应用
 

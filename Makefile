@@ -1,4 +1,4 @@
-.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate
+.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate kafka-init kafka-topics
 
 # 默认目标
 all: build
@@ -37,20 +37,20 @@ dev-backend:
 	@echo "  - event-engagement (Kafka consumer :50053)"
 	@echo "  - event-transaction (Kafka consumer :50054)"
 	@echo "  - notification-worker (Kafka consumer :50055)"
-	cargo run --bin rule-engine &
-	cargo run --bin badge-management &
-	cargo run --bin badge-admin &
-	cargo run --bin event-engagement &
-	cargo run --bin event-transaction &
-	cargo run --bin notification-worker &
+	cargo run -p unified-rule-engine --bin rule-engine &
+	cargo run -p badge-management-service --bin badge-management &
+	cargo run -p badge-admin-service --bin badge-admin &
+	cargo run -p event-engagement-service --bin event-engagement &
+	cargo run -p event-transaction-service --bin event-transaction &
+	cargo run -p notification-worker --bin notification-worker &
 	@echo "All backend services started"
 
 # 仅启动核心服务（不含 Kafka 事件消费者）
 dev-backend-core:
 	@echo "Starting core backend services only..."
-	cargo run --bin rule-engine &
-	cargo run --bin badge-management &
-	cargo run --bin badge-admin &
+	cargo run -p unified-rule-engine --bin rule-engine &
+	cargo run -p badge-management-service --bin badge-management &
+	cargo run -p badge-admin-service --bin badge-admin &
 	@echo "Core backend services started"
 
 # 启动前端开发服务
@@ -96,6 +96,33 @@ infra-logs:
 
 infra-restart:
 	docker compose -f docker/docker-compose.infra.yml restart
+
+# Kafka topic 初始化（服务启动前必须执行）
+kafka-init:
+	@echo "Creating Kafka topics..."
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.engagement.events --partitions 3 --replication-factor 1
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.transaction.events --partitions 3 --replication-factor 1
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.notifications --partitions 3 --replication-factor 1
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic badge.dlq --partitions 1 --replication-factor 1
+	@echo "Kafka topics created successfully"
+	@$(MAKE) kafka-topics
+
+kafka-topics:
+	@echo "Listing Kafka topics:"
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --list | grep -E "^badge\." || echo "No badge topics found"
+
+kafka-describe:
+	@echo "=== badge.engagement.events ==="
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.engagement.events
+	@echo ""
+	@echo "=== badge.transaction.events ==="
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.transaction.events
+	@echo ""
+	@echo "=== badge.notifications ==="
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.notifications
+	@echo ""
+	@echo "=== badge.dlq ==="
+	@docker exec badge-kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic badge.dlq
 
 # 数据库迁移（按顺序执行所有迁移文件）
 db-migrate:
@@ -152,6 +179,11 @@ help:
 	@echo "  infra-down       - Stop infrastructure"
 	@echo "  infra-logs       - View infrastructure logs"
 	@echo "  infra-restart    - Restart infrastructure"
+	@echo ""
+	@echo "Kafka:"
+	@echo "  kafka-init       - Create all required Kafka topics (run after infra-up)"
+	@echo "  kafka-topics     - List all badge.* topics"
+	@echo "  kafka-describe   - Show topic details (partitions, replicas)"
 	@echo ""
 	@echo "Database:"
 	@echo "  db-migrate       - Run all database migrations"
