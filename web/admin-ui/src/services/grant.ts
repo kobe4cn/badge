@@ -91,7 +91,7 @@ export interface GrantRecordParams extends ListParams {
  * @param data - 发放请求数据，包含用户列表、徽章 ID、数量和原因
  */
 export function manualGrant(data: ManualGrantRequest): Promise<GrantResult> {
-  return post<GrantResult>('/api/v1/grants/manual', data);
+  return post<GrantResult>('/admin/grants/manual', data);
 }
 
 /**
@@ -102,7 +102,7 @@ export function manualGrant(data: ManualGrantRequest): Promise<GrantResult> {
  * @param data - 批量发放请求，包含文件 URL 和徽章 ID
  */
 export function batchGrant(data: BatchGrantRequest): Promise<BatchGrantResult> {
-  return post<BatchGrantResult>('/api/v1/grants/batch', data);
+  return post<BatchGrantResult>('/admin/grants/batch', data);
 }
 
 /**
@@ -113,7 +113,7 @@ export function batchGrant(data: BatchGrantRequest): Promise<BatchGrantResult> {
 export function getGrantLogs(
   params: GrantLogParams
 ): Promise<PaginatedResponse<GrantLog>> {
-  return getList<GrantLog>('/api/v1/grants/logs', params as Record<string, unknown>);
+  return getList<GrantLog>('/admin/grants/logs', params as Record<string, unknown>);
 }
 
 /**
@@ -122,7 +122,7 @@ export function getGrantLogs(
  * @param id - 日志 ID
  */
 export function getGrantLogDetail(id: number): Promise<GrantLogDetail> {
-  return get<GrantLogDetail>(`/api/v1/grants/logs/${id}`);
+  return get<GrantLogDetail>(`/admin/grants/logs/${id}`);
 }
 
 /**
@@ -135,7 +135,7 @@ export function getGrantLogDetail(id: number): Promise<GrantLogDetail> {
 export async function exportGrantLogs(
   params: Omit<GrantLogParams, 'page' | 'pageSize'>
 ): Promise<Blob> {
-  const response = await apiClient.get('/api/v1/grants/logs/export', {
+  const response = await apiClient.get('/admin/grants/logs/export', {
     params,
     responseType: 'blob',
   });
@@ -150,7 +150,7 @@ export async function exportGrantLogs(
 export function getGrantRecords(
   params: GrantRecordParams
 ): Promise<PaginatedResponse<GrantRecord>> {
-  return getList<GrantRecord>('/api/v1/grants/records', params as Record<string, unknown>);
+  return getList<GrantRecord>('/admin/grants/records', params as Record<string, unknown>);
 }
 
 /**
@@ -161,7 +161,7 @@ export function getGrantRecords(
  * @param keyword - 搜索关键词
  */
 export function searchUsers(keyword: string): Promise<User[]> {
-  return get<User[]>('/api/v1/users/search', { keyword });
+  return get<User[]>('/admin/users/search', { keyword });
 }
 
 /**
@@ -172,7 +172,7 @@ export function searchUsers(keyword: string): Promise<User[]> {
 export function getBatchTasks(
   params: BatchTaskQueryParams & ListParams
 ): Promise<PaginatedResponse<BatchTask>> {
-  return getList<BatchTask>('/api/v1/grants/batch-tasks', params as Record<string, unknown>);
+  return getList<BatchTask>('/admin/tasks', params as Record<string, unknown>);
 }
 
 /**
@@ -181,7 +181,7 @@ export function getBatchTasks(
  * @param id - 任务 ID
  */
 export function getBatchTask(id: number): Promise<BatchTask> {
-  return get<BatchTask>(`/api/v1/grants/batch-tasks/${id}`);
+  return get<BatchTask>(`/admin/tasks/${id}`);
 }
 
 /**
@@ -190,7 +190,7 @@ export function getBatchTask(id: number): Promise<BatchTask> {
  * @param data - 创建请求数据
  */
 export function createBatchTask(data: CreateBatchTaskRequest): Promise<BatchTask> {
-  return post<BatchTask>('/api/v1/grants/batch-tasks', data);
+  return post<BatchTask>('/admin/tasks', data);
 }
 
 /**
@@ -199,7 +199,7 @@ export function createBatchTask(data: CreateBatchTaskRequest): Promise<BatchTask
  * @param id - 任务 ID
  */
 export function cancelBatchTask(id: number): Promise<void> {
-  return post<void>(`/api/v1/grants/batch-tasks/${id}/cancel`);
+  return post<void>(`/admin/tasks/${id}/cancel`);
 }
 
 /**
@@ -212,7 +212,7 @@ export function getBatchTaskFailures(
   params?: ListParams
 ): Promise<PaginatedResponse<BatchTaskFailure>> {
   return getList<BatchTaskFailure>(
-    `/api/v1/grants/batch-tasks/${id}/failures`,
+    `/admin/tasks/${id}/failures`,
     params as Record<string, unknown>
   );
 }
@@ -223,7 +223,7 @@ export function getBatchTaskFailures(
  * @param id - 任务 ID
  */
 export async function downloadBatchResult(id: number): Promise<Blob> {
-  const response = await apiClient.get(`/api/v1/grants/batch-tasks/${id}/result`, {
+  const response = await apiClient.get(`/admin/tasks/${id}/result`, {
     responseType: 'blob',
   });
   return response.data;
@@ -235,7 +235,7 @@ export async function downloadBatchResult(id: number): Promise<Blob> {
  * @param file - CSV 文件
  */
 export function uploadUserCsv(file: File): Promise<CsvParseResult> {
-  return upload<CsvParseResult>('/api/v1/grants/upload-csv', file);
+  return upload<CsvParseResult>('/admin/grants/upload-csv', file);
 }
 
 /**
@@ -244,7 +244,7 @@ export function uploadUserCsv(file: File): Promise<CsvParseResult> {
  * @param filter - 筛选条件
  */
 export function previewUserFilter(filter: UserFilterCondition): Promise<UserFilterPreview> {
-  return post<UserFilterPreview>('/api/v1/grants/preview-filter', filter);
+  return post<UserFilterPreview>('/admin/grants/preview-filter', filter);
 }
 
 /**

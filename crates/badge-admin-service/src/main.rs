@@ -13,10 +13,11 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::info;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    init_tracing();
 
     let config = AppConfig::load("badge-admin-service").unwrap_or_default();
     info!("Starting badge-admin-service on {}", config.server_addr());
@@ -81,4 +82,15 @@ async fn readiness_check(db: Database, cache: Arc<Cache>) -> Json<serde_json::Va
             "redis": if cache_ok { "ok" } else { "fail" }
         }
     }))
+}
+
+/// 初始化 tracing 日志
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,badge_admin=debug"));
+
+    tracing_subscriber::registry()
+        .with(fmt::layer().with_target(true).with_level(true))
+        .with(filter)
+        .init();
 }

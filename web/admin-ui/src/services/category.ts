@@ -42,7 +42,7 @@ export interface CategoryListItem extends BadgeCategory {
 export function getCategories(
   params: CategoryListParams
 ): Promise<PaginatedResponse<CategoryListItem>> {
-  return getList<CategoryListItem>('/api/v1/categories', params as Record<string, unknown>);
+  return getList<CategoryListItem>('/admin/categories', params as Record<string, unknown>);
 }
 
 /**
@@ -51,7 +51,7 @@ export function getCategories(
  * @param id - 分类 ID
  */
 export function getCategory(id: number): Promise<BadgeCategory> {
-  return get<BadgeCategory>(`/api/v1/categories/${id}`);
+  return get<BadgeCategory>(`/admin/categories/${id}`);
 }
 
 /**
@@ -60,7 +60,7 @@ export function getCategory(id: number): Promise<BadgeCategory> {
  * @param data - 创建请求数据
  */
 export function createCategory(data: CreateCategoryRequest): Promise<BadgeCategory> {
-  return post<BadgeCategory>('/api/v1/categories', data);
+  return post<BadgeCategory>('/admin/categories', data);
 }
 
 /**
@@ -73,7 +73,7 @@ export function updateCategory(
   id: number,
   data: UpdateCategoryRequest
 ): Promise<BadgeCategory> {
-  return put<BadgeCategory>(`/api/v1/categories/${id}`, data);
+  return put<BadgeCategory>(`/admin/categories/${id}`, data);
 }
 
 /**
@@ -84,7 +84,7 @@ export function updateCategory(
  * @param id - 分类 ID
  */
 export function deleteCategory(id: number): Promise<void> {
-  return del<void>(`/api/v1/categories/${id}`);
+  return del<void>(`/admin/categories/${id}`);
 }
 
 /**
@@ -99,7 +99,7 @@ export function toggleCategoryStatus(
   id: number,
   status: CategoryStatus
 ): Promise<void> {
-  return patch<void>(`/api/v1/categories/${id}/status`, { status });
+  return patch<void>(`/admin/categories/${id}/status`, { status });
 }
 
 /**
@@ -112,7 +112,7 @@ export function updateCategorySortOrder(
   id: number,
   sortOrder: number
 ): Promise<void> {
-  return patch<void>(`/api/v1/categories/${id}/sort`, { sortOrder });
+  return patch<void>(`/admin/categories/${id}/sort`, { sortOrder });
 }
 
 /**
@@ -121,5 +121,5 @@ export function updateCategorySortOrder(
  * 用于下拉选择等场景
  */
 export function getAllCategories(): Promise<CategoryListItem[]> {
-  return get<CategoryListItem[]>('/api/v1/categories/all');
+  return get<CategoryListItem[]>('/admin/categories/all');
 }

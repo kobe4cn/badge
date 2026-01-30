@@ -65,7 +65,7 @@ export interface BadgeDetail extends Badge {
 export function getBadges(
   params: BadgeListParams
 ): Promise<PaginatedResponse<BadgeListItem>> {
-  return getList<BadgeListItem>('/api/v1/badges', params as Record<string, unknown>);
+  return getList<BadgeListItem>('/admin/badges', params as Record<string, unknown>);
 }
 
 /**
@@ -74,7 +74,7 @@ export function getBadges(
  * @param id - 徽章 ID
  */
 export function getBadge(id: number): Promise<BadgeDetail> {
-  return get<BadgeDetail>(`/api/v1/badges/${id}`);
+  return get<BadgeDetail>(`/admin/badges/${id}`);
 }
 
 /**
@@ -83,7 +83,7 @@ export function getBadge(id: number): Promise<BadgeDetail> {
  * @param data - 创建请求数据
  */
 export function createBadge(data: CreateBadgeRequest): Promise<Badge> {
-  return post<Badge>('/api/v1/badges', data);
+  return post<Badge>('/admin/badges', data);
 }
 
 /**
@@ -96,7 +96,7 @@ export function updateBadge(
   id: number,
   data: UpdateBadgeRequest
 ): Promise<Badge> {
-  return put<Badge>(`/api/v1/badges/${id}`, data);
+  return put<Badge>(`/admin/badges/${id}`, data);
 }
 
 /**
@@ -107,7 +107,7 @@ export function updateBadge(
  * @param id - 徽章 ID
  */
 export function deleteBadge(id: number): Promise<void> {
-  return del<void>(`/api/v1/badges/${id}`);
+  return del<void>(`/admin/badges/${id}`);
 }
 
 /**
@@ -118,7 +118,7 @@ export function deleteBadge(id: number): Promise<void> {
  * @param id - 徽章 ID
  */
 export function publishBadge(id: number): Promise<void> {
-  return patch<void>(`/api/v1/badges/${id}/publish`);
+  return patch<void>(`/admin/badges/${id}/publish`);
 }
 
 /**
@@ -129,7 +129,7 @@ export function publishBadge(id: number): Promise<void> {
  * @param id - 徽章 ID
  */
 export function unpublishBadge(id: number): Promise<void> {
-  return patch<void>(`/api/v1/badges/${id}/unpublish`);
+  return patch<void>(`/admin/badges/${id}/unpublish`);
 }
 
 /**
@@ -140,7 +140,7 @@ export function unpublishBadge(id: number): Promise<void> {
  * @param id - 徽章 ID
  */
 export function archiveBadge(id: number): Promise<void> {
-  return patch<void>(`/api/v1/badges/${id}/archive`);
+  return patch<void>(`/admin/badges/${id}/archive`);
 }
 
 /**
@@ -153,7 +153,7 @@ export function updateBadgeSortOrder(
   id: number,
   sortOrder: number
 ): Promise<void> {
-  return patch<void>(`/api/v1/badges/${id}/sort`, { sortOrder });
+  return patch<void>(`/admin/badges/${id}/sort`, { sortOrder });
 }
 
 /**
@@ -162,7 +162,7 @@ export function updateBadgeSortOrder(
  * 用于下拉选择等场景，返回所有可用徽章
  */
 export function getAllBadges(): Promise<PaginatedResponse<BadgeListItem>> {
-  return getList<BadgeListItem>('/api/v1/badges', { page: 1, pageSize: 1000 });
+  return getList<BadgeListItem>('/admin/badges', { page: 1, pageSize: 1000 });
 }
 
 /**

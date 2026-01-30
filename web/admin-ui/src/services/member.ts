@@ -21,7 +21,7 @@ import type {
  * @param keyword - 搜索关键词
  */
 export function searchMembers(keyword: string): Promise<User[]> {
-  return get<User[]>('/api/v1/users/search', { keyword });
+  return get<User[]>('/admin/users/search', { keyword });
 }
 
 /**
@@ -30,7 +30,7 @@ export function searchMembers(keyword: string): Promise<User[]> {
  * @param userId - 用户 ID
  */
 export function getMemberDetail(userId: string): Promise<MemberDetail> {
-  return get<MemberDetail>(`/api/v1/users/${userId}`);
+  return get<MemberDetail>(`/admin/users/${userId}`);
 }
 
 /**
@@ -39,7 +39,7 @@ export function getMemberDetail(userId: string): Promise<MemberDetail> {
  * @param userId - 用户 ID
  */
 export function getMemberBadges(userId: string): Promise<UserBadgeDetail[]> {
-  return get<UserBadgeDetail[]>(`/api/v1/users/${userId}/badges`);
+  return get<UserBadgeDetail[]>(`/admin/users/${userId}/badges`);
 }
 
 /**
@@ -48,7 +48,7 @@ export function getMemberBadges(userId: string): Promise<UserBadgeDetail[]> {
  * @param userId - 用户 ID
  */
 export function getMemberBadgeStats(userId: string): Promise<MemberBadgeStats> {
-  return get<MemberBadgeStats>(`/api/v1/users/${userId}/badge-stats`);
+  return get<MemberBadgeStats>(`/admin/users/${userId}/stats`);
 }
 
 /**
@@ -57,7 +57,8 @@ export function getMemberBadgeStats(userId: string): Promise<MemberBadgeStats> {
  * @param request - 撤销请求，包含用户徽章 ID 和撤销原因
  */
 export function revokeBadge(request: RevokeBadgeRequest): Promise<void> {
-  return post<void>(`/api/v1/user-badges/${request.userBadgeId}/revoke`, {
+  return post<void>('/admin/revokes/manual', {
+    userBadgeId: request.userBadgeId,
     reason: request.reason,
   });
 }

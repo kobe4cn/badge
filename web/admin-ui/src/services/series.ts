@@ -45,7 +45,7 @@ export interface SeriesListItem extends BadgeSeries {
 export function getSeriesList(
   params: SeriesListParams
 ): Promise<PaginatedResponse<SeriesListItem>> {
-  return getList<SeriesListItem>('/api/v1/series', params as Record<string, unknown>);
+  return getList<SeriesListItem>('/admin/series', params as Record<string, unknown>);
 }
 
 /**
@@ -54,7 +54,7 @@ export function getSeriesList(
  * @param id - 系列 ID
  */
 export function getSeries(id: number): Promise<BadgeSeries> {
-  return get<BadgeSeries>(`/api/v1/series/${id}`);
+  return get<BadgeSeries>(`/admin/series/${id}`);
 }
 
 /**
@@ -63,7 +63,7 @@ export function getSeries(id: number): Promise<BadgeSeries> {
  * @param data - 创建请求数据
  */
 export function createSeries(data: CreateSeriesRequest): Promise<BadgeSeries> {
-  return post<BadgeSeries>('/api/v1/series', data);
+  return post<BadgeSeries>('/admin/series', data);
 }
 
 /**
@@ -76,7 +76,7 @@ export function updateSeries(
   id: number,
   data: UpdateSeriesRequest
 ): Promise<BadgeSeries> {
-  return put<BadgeSeries>(`/api/v1/series/${id}`, data);
+  return put<BadgeSeries>(`/admin/series/${id}`, data);
 }
 
 /**
@@ -87,7 +87,7 @@ export function updateSeries(
  * @param id - 系列 ID
  */
 export function deleteSeries(id: number): Promise<void> {
-  return del<void>(`/api/v1/series/${id}`);
+  return del<void>(`/admin/series/${id}`);
 }
 
 /**
@@ -102,7 +102,7 @@ export function toggleSeriesStatus(
   id: number,
   status: CategoryStatus
 ): Promise<void> {
-  return patch<void>(`/api/v1/series/${id}/status`, { status });
+  return patch<void>(`/admin/series/${id}/status`, { status });
 }
 
 /**
@@ -115,7 +115,7 @@ export function updateSeriesSortOrder(
   id: number,
   sortOrder: number
 ): Promise<void> {
-  return patch<void>(`/api/v1/series/${id}/sort`, { sortOrder });
+  return patch<void>(`/admin/series/${id}/sort`, { sortOrder });
 }
 
 /**
@@ -124,7 +124,7 @@ export function updateSeriesSortOrder(
  * @param seriesId - 系列 ID
  */
 export function getSeriesBadges(seriesId: number): Promise<Badge[]> {
-  return get<Badge[]>(`/api/v1/series/${seriesId}/badges`);
+  return get<Badge[]>(`/admin/series/${seriesId}/badges`);
 }
 
 /**
@@ -136,5 +136,5 @@ export function getSeriesBadges(seriesId: number): Promise<Badge[]> {
  */
 export function getAllSeries(categoryId?: number): Promise<SeriesListItem[]> {
   const params = categoryId ? { categoryId } : {};
-  return get<SeriesListItem[]>('/api/v1/series/all', params);
+  return get<SeriesListItem[]>('/admin/series/all', params);
 }

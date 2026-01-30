@@ -52,7 +52,7 @@ export interface CreateDependencyRequest {
  * @param badgeId - 徽章 ID
  */
 export function getDependencies(badgeId: string): Promise<BadgeDependency[]> {
-  return get<BadgeDependency[]>(`/api/admin/badges/${badgeId}/dependencies`);
+  return get<BadgeDependency[]>(`/admin/badges/${badgeId}/dependencies`);
 }
 
 /**
@@ -65,7 +65,7 @@ export function createDependency(
   badgeId: string,
   data: CreateDependencyRequest
 ): Promise<BadgeDependency> {
-  return post<BadgeDependency>(`/api/admin/badges/${badgeId}/dependencies`, data);
+  return post<BadgeDependency>(`/admin/badges/${badgeId}/dependencies`, data);
 }
 
 /**
@@ -74,7 +74,7 @@ export function createDependency(
  * @param id - 依赖关系 ID
  */
 export function deleteDependency(id: string): Promise<void> {
-  return del<void>(`/api/admin/dependencies/${id}`);
+  return del<void>(`/admin/dependencies/${id}`);
 }
 
 /**
@@ -83,7 +83,7 @@ export function deleteDependency(id: string): Promise<void> {
  * 用于管理员手动刷新服务端的依赖关系缓存
  */
 export function refreshDependencyCache(): Promise<void> {
-  return post<void>('/api/admin/cache/dependencies/refresh');
+  return post<void>('/admin/cache/dependencies/refresh');
 }
 
 /**

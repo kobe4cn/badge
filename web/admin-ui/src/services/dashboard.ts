@@ -21,7 +21,7 @@ import type {
  * 返回徽章系统的整体指标
  */
 export function getDashboardStats(): Promise<DashboardStats> {
-  return get<DashboardStats>('/api/v1/dashboard/stats');
+  return get<DashboardStats>('/admin/stats/overview');
 }
 
 /**
@@ -30,7 +30,7 @@ export function getDashboardStats(): Promise<DashboardStats> {
  * 返回当日运营数据及环比变化
  */
 export function getTodayStats(): Promise<TodayStats> {
-  return get<TodayStats>('/api/v1/dashboard/today');
+  return get<TodayStats>('/admin/stats/today');
 }
 
 /**
@@ -39,7 +39,7 @@ export function getTodayStats(): Promise<TodayStats> {
  * @param params - 排行榜查询参数
  */
 export function getBadgeRanking(params?: RankingParams): Promise<BadgeRanking[]> {
-  return get<BadgeRanking[]>('/api/v1/dashboard/ranking', params as Record<string, unknown>);
+  return get<BadgeRanking[]>('/admin/stats/ranking', params as Record<string, unknown>);
 }
 
 /**
@@ -49,7 +49,7 @@ export function getBadgeRanking(params?: RankingParams): Promise<BadgeRanking[]>
  * @returns 按时间排序的趋势数据数组
  */
 export function getGrantTrend(params: TrendParams): Promise<TrendData[]> {
-  return get<TrendData[]>('/api/v1/dashboard/trend/grants', params as unknown as Record<string, unknown>);
+  return get<TrendData[]>('/admin/stats/trends', params as unknown as Record<string, unknown>);
 }
 
 /**
@@ -58,7 +58,7 @@ export function getGrantTrend(params: TrendParams): Promise<TrendData[]> {
  * 用于饼图展示各类型徽章的发放占比
  */
 export function getBadgeTypeDistribution(): Promise<TypeDistribution[]> {
-  return get<TypeDistribution[]>('/api/v1/dashboard/distribution/types');
+  return get<TypeDistribution[]>('/admin/stats/distribution/types');
 }
 
 /**
@@ -68,7 +68,7 @@ export function getBadgeTypeDistribution(): Promise<TypeDistribution[]> {
  * @returns 按时间排序的用户活跃度趋势
  */
 export function getUserActivityTrend(params: TrendParams): Promise<TrendData[]> {
-  return get<TrendData[]>('/api/v1/dashboard/trend/activity', params as unknown as Record<string, unknown>);
+  return get<TrendData[]>('/admin/stats/trend/activity', params as unknown as Record<string, unknown>);
 }
 
 /**
@@ -78,7 +78,7 @@ export function getUserActivityTrend(params: TrendParams): Promise<TrendData[]> 
  * @returns 按发放量排序的热门徽章列表
  */
 export function getTopBadges(limit: number = 10): Promise<BadgeRanking[]> {
-  return get<BadgeRanking[]>('/api/v1/dashboard/ranking', { type: 'grant', limit });
+  return get<BadgeRanking[]>('/admin/stats/ranking', { type: 'grant', limit });
 }
 
 /**

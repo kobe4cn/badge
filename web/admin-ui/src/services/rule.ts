@@ -138,28 +138,28 @@ export interface RuleTestResult {
  * 获取规则分页列表
  */
 export function getRules(params: RuleListParams): Promise<PaginatedResponse<Rule>> {
-  return getList<Rule>('/api/v1/rules', params as Record<string, unknown>);
+  return getList<Rule>('/admin/rules', params as Record<string, unknown>);
 }
 
 /**
  * 获取规则详情
  */
 export function getRule(id: string): Promise<Rule> {
-  return get<Rule>(`/api/v1/rules/${id}`);
+  return get<Rule>(`/admin/rules/${id}`);
 }
 
 /**
  * 创建规则
  */
 export function createRule(data: CreateRuleRequest): Promise<Rule> {
-  return post<Rule>('/api/v1/rules', data);
+  return post<Rule>('/admin/rules', data);
 }
 
 /**
  * 更新规则
  */
 export function updateRule(id: string, data: UpdateRuleRequest): Promise<Rule> {
-  return put<Rule>(`/api/v1/rules/${id}`, data);
+  return put<Rule>(`/admin/rules/${id}`, data);
 }
 
 /**
@@ -168,7 +168,7 @@ export function updateRule(id: string, data: UpdateRuleRequest): Promise<Rule> {
  * 仅允许删除草稿状态的规则
  */
 export function deleteRule(id: string): Promise<void> {
-  return del<void>(`/api/v1/rules/${id}`);
+  return del<void>(`/admin/rules/${id}`);
 }
 
 /**
@@ -177,7 +177,7 @@ export function deleteRule(id: string): Promise<void> {
  * 使用提供的上下文数据评估规则，返回详细的评估结果
  */
 export function testRule(ruleId: string, context: TestContext): Promise<RuleTestResult> {
-  return post<RuleTestResult>(`/api/v1/rules/${ruleId}/test`, context);
+  return post<RuleTestResult>(`/admin/rules/${ruleId}/test`, context);
 }
 
 /**
@@ -189,7 +189,7 @@ export function testRuleDefinition(
   ruleJson: Record<string, unknown>,
   context: TestContext
 ): Promise<RuleTestResult> {
-  return post<RuleTestResult>('/api/v1/rules/test', { ruleJson, context });
+  return post<RuleTestResult>('/admin/rules/test', { ruleJson, context });
 }
 
 /**
@@ -198,7 +198,7 @@ export function testRuleDefinition(
  * 将规则状态从 DRAFT 变更为 PUBLISHED
  */
 export function publishRule(id: string): Promise<void> {
-  return patch<void>(`/api/v1/rules/${id}/publish`);
+  return patch<void>(`/admin/rules/${id}/publish`);
 }
 
 /**
@@ -207,7 +207,7 @@ export function publishRule(id: string): Promise<void> {
  * 将规则状态变更为 DISABLED
  */
 export function disableRule(id: string): Promise<void> {
-  return patch<void>(`/api/v1/rules/${id}/disable`);
+  return patch<void>(`/admin/rules/${id}/disable`);
 }
 
 /**
