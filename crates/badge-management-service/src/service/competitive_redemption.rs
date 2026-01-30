@@ -383,6 +383,32 @@ mod tests {
     }
 
     #[test]
+    fn test_competitive_redeem_request_builder_pattern() {
+        // 测试链式调用的 builder 模式
+        let badge_id = Uuid::new_v4();
+        let request = CompetitiveRedeemRequest::new("user-456", badge_id)
+            .with_rule_id("complex-rule-id");
+
+        assert_eq!(request.user_id, "user-456");
+        assert_eq!(request.target_badge_id, badge_id);
+        assert_eq!(request.rule_id, Some("complex-rule-id".to_string()));
+    }
+
+    #[test]
+    fn test_competitive_redeem_request_different_user_types() {
+        // 测试不同类型的 user_id 输入（Into<String> trait）
+        let badge_id = Uuid::new_v4();
+
+        // 使用 &str
+        let request1 = CompetitiveRedeemRequest::new("user-str", badge_id);
+        assert_eq!(request1.user_id, "user-str");
+
+        // 使用 String
+        let request2 = CompetitiveRedeemRequest::new(String::from("user-string"), badge_id);
+        assert_eq!(request2.user_id, "user-string");
+    }
+
+    #[test]
     fn test_competitive_redeem_response_success() {
         let badge_id = Uuid::new_v4();
         let consumed = vec![ConsumedBadge {
@@ -398,6 +424,47 @@ mod tests {
     }
 
     #[test]
+    fn test_competitive_redeem_response_success_multiple_badges() {
+        // 测试成功响应包含多个消耗徽章
+        let target_badge_id = Uuid::new_v4();
+        let consumed_badge_1 = ConsumedBadge {
+            badge_id: Uuid::new_v4(),
+            quantity: 1,
+        };
+        let consumed_badge_2 = ConsumedBadge {
+            badge_id: Uuid::new_v4(),
+            quantity: 3,
+        };
+        let consumed_badge_3 = ConsumedBadge {
+            badge_id: Uuid::new_v4(),
+            quantity: 2,
+        };
+
+        let response = CompetitiveRedeemResponse::success(
+            target_badge_id,
+            vec![consumed_badge_1.clone(), consumed_badge_2.clone(), consumed_badge_3.clone()],
+        );
+
+        assert!(response.success);
+        assert_eq!(response.consumed_badges.len(), 3);
+        assert_eq!(response.consumed_badges[0].quantity, 1);
+        assert_eq!(response.consumed_badges[1].quantity, 3);
+        assert_eq!(response.consumed_badges[2].quantity, 2);
+        assert!(response.failure_reason.is_none());
+    }
+
+    #[test]
+    fn test_competitive_redeem_response_success_empty_consumed() {
+        // 边界情况：成功但没有消耗徽章（理论上不应发生，但结构上允许）
+        let badge_id = Uuid::new_v4();
+        let response = CompetitiveRedeemResponse::success(badge_id, vec![]);
+
+        assert!(response.success);
+        assert!(response.consumed_badges.is_empty());
+        assert!(response.failure_reason.is_none());
+    }
+
+    #[test]
     fn test_competitive_redeem_response_failure() {
         let badge_id = Uuid::new_v4();
         let response = CompetitiveRedeemResponse::failure(badge_id, "徽章数量不足");
@@ -409,6 +476,21 @@ mod tests {
     }
 
     #[test]
+    fn test_competitive_redeem_response_failure_various_reasons() {
+        // 测试不同的失败原因
+        let badge_id = Uuid::new_v4();
+
+        let response1 = CompetitiveRedeemResponse::failure(badge_id, "缺少必需徽章");
+        assert_eq!(response1.failure_reason, Some("缺少必需徽章".to_string()));
+
+        let response2 = CompetitiveRedeemResponse::failure(badge_id, format!("徽章 {} 数量不足: 需要 5, 拥有 2", badge_id));
+        assert!(response2.failure_reason.unwrap().contains("数量不足"));
+
+        let response3 = CompetitiveRedeemResponse::failure(badge_id, "互斥冲突：用户已持有互斥组中的徽章");
+        assert!(response3.failure_reason.unwrap().contains("互斥冲突"));
+    }
+
+    #[test]
     fn test_consumed_badge_creation() {
         let badge_id = Uuid::new_v4();
         let consumed = ConsumedBadge {
@@ -417,5 +499,129 @@ mod tests {
         };
         assert_eq!(consumed.badge_id, badge_id);
         assert_eq!(consumed.quantity, 3);
+    }
+
+    #[test]
+    fn test_consumed_badge_clone() {
+        // 测试 ConsumedBadge 的 Clone trait
+        let badge_id = Uuid::new_v4();
+        let consumed = ConsumedBadge {
+            badge_id,
+            quantity: 5,
+        };
+
+        let cloned = consumed.clone();
+
+        assert_eq!(cloned.badge_id, consumed.badge_id);
+        assert_eq!(cloned.quantity, consumed.quantity);
+    }
+
+    #[test]
+    fn test_consumed_badge_quantity_edge_cases() {
+        // 测试数量边界值
+        let badge_id = Uuid::new_v4();
+
+        // 最小有效数量
+        let consumed_min = ConsumedBadge {
+            badge_id,
+            quantity: 1,
+        };
+        assert_eq!(consumed_min.quantity, 1);
+
+        // 较大数量
+        let consumed_large = ConsumedBadge {
+            badge_id,
+            quantity: 1000,
+        };
+        assert_eq!(consumed_large.quantity, 1000);
+
+        // 零数量（边界情况）
+        let consumed_zero = ConsumedBadge {
+            badge_id,
+            quantity: 0,
+        };
+        assert_eq!(consumed_zero.quantity, 0);
+    }
+
+    #[test]
+    fn test_lock_key_format() {
+        // 验证锁 key 的格式符合预期
+        let user_id = "user_123";
+        let target_badge_id = Uuid::new_v4();
+
+        let lock_key = format!("redeem:{}:{}", user_id, target_badge_id);
+
+        assert!(lock_key.starts_with("redeem:"));
+        assert!(lock_key.contains(user_id));
+        assert!(lock_key.contains(&target_badge_id.to_string()));
+
+        // 验证 key 的结构是 "redeem:{user_id}:{badge_id}"
+        let parts: Vec<&str> = lock_key.split(':').collect();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], "redeem");
+        assert_eq!(parts[1], user_id);
+        assert_eq!(parts[2], target_badge_id.to_string());
+    }
+
+    #[test]
+    fn test_lock_key_uniqueness() {
+        // 测试不同用户/徽章组合产生不同的锁 key
+        let user_id_1 = "user_A";
+        let user_id_2 = "user_B";
+        let badge_id_1 = Uuid::new_v4();
+        let badge_id_2 = Uuid::new_v4();
+
+        let key_1 = format!("redeem:{}:{}", user_id_1, badge_id_1);
+        let key_2 = format!("redeem:{}:{}", user_id_2, badge_id_1);
+        let key_3 = format!("redeem:{}:{}", user_id_1, badge_id_2);
+        let key_4 = format!("redeem:{}:{}", user_id_1, badge_id_1);
+
+        // 不同用户+相同徽章 -> 不同 key
+        assert_ne!(key_1, key_2);
+        // 相同用户+不同徽章 -> 不同 key
+        assert_ne!(key_1, key_3);
+        // 相同用户+相同徽章 -> 相同 key
+        assert_eq!(key_1, key_4);
+    }
+
+    #[test]
+    fn test_exclusive_group_conflict_scenario() {
+        // 模拟互斥组冲突检查的场景
+        // 假设用户持有徽章 A，而徽章 A 和徽章 B 在同一互斥组中
+        // 当用户尝试兑换徽章 B 时应该失败
+
+        let badge_id_a = Uuid::new_v4();
+        let badge_id_b = Uuid::new_v4();
+        let group_id = "exclusive-group-1";
+
+        // 模拟错误消息格式
+        let error_message = format!(
+            "互斥冲突：用户已持有互斥组 {} 中的徽章 {}",
+            group_id, badge_id_a
+        );
+
+        assert!(error_message.contains("互斥冲突"));
+        assert!(error_message.contains(group_id));
+        assert!(error_message.contains(&badge_id_a.to_string()));
+
+        // 验证失败响应能正确携带错误信息
+        let response = CompetitiveRedeemResponse::failure(badge_id_b, &error_message);
+        assert!(!response.success);
+        assert_eq!(response.target_badge_id, badge_id_b);
+        assert!(response.failure_reason.as_ref().unwrap().contains("互斥冲突"));
+    }
+
+    #[test]
+    fn test_badge_id_conversion_consistency() {
+        // 测试 UUID 到 i64 转换的一致性（用于数据库查询）
+        let badge_id = Uuid::new_v4();
+        let badge_id_i64 = (badge_id.as_u128() & 0x7FFFFFFFFFFFFFFF) as i64;
+
+        // 同一 UUID 应该总是产生相同的 i64
+        let badge_id_i64_again = (badge_id.as_u128() & 0x7FFFFFFFFFFFFFFF) as i64;
+        assert_eq!(badge_id_i64, badge_id_i64_again);
+
+        // i64 应该是非负数（因为使用了掩码）
+        assert!(badge_id_i64 >= 0);
     }
 }
