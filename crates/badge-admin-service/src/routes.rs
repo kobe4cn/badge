@@ -106,6 +106,10 @@ fn stats_routes() -> Router<AppState> {
         .route("/stats/overview", get(handlers::stats::get_overview))
         .route("/stats/today", get(handlers::stats::get_today_stats))
         .route("/stats/trends", get(handlers::stats::get_trends))
+        .route(
+            "/stats/trend/activity",
+            get(handlers::stats::get_activity_trend),
+        )
         .route("/stats/ranking", get(handlers::stats::get_ranking))
         .route(
             "/stats/distribution/types",

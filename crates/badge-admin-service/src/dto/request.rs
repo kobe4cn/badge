@@ -239,8 +239,28 @@ pub struct BatchTaskFilter {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeRangeParams {
-    pub start_time: DateTime<Utc>,
-    pub end_time: DateTime<Utc>,
+    /// 开始日期（格式：YYYY-MM-DD）
+    pub start_date: chrono::NaiveDate,
+    /// 结束日期（格式：YYYY-MM-DD）
+    pub end_date: chrono::NaiveDate,
+}
+
+impl TimeRangeParams {
+    /// 转换为 UTC 时间戳（开始日期 00:00:00）
+    pub fn start_time(&self) -> DateTime<Utc> {
+        self.start_date
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+    }
+
+    /// 转换为 UTC 时间戳（结束日期 23:59:59）
+    pub fn end_time(&self) -> DateTime<Utc> {
+        self.end_date
+            .and_hms_opt(23, 59, 59)
+            .unwrap()
+            .and_utc()
+    }
 }
 
 #[cfg(test)]

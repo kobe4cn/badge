@@ -134,8 +134,8 @@ pub async fn get_trends(
         ORDER BY date
         "#,
     )
-    .bind(params.start_time)
-    .bind(params.end_time)
+    .bind(params.start_time())
+    .bind(params.end_time())
     .fetch_all(&state.pool)
     .await?;
 
@@ -419,6 +419,58 @@ pub async fn get_type_distribution(
         .collect();
 
     Ok(Json(ApiResponse::success(distributions)))
+}
+
+/// 用户活跃度趋势数据
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityTrendPoint {
+    pub date: String,
+    pub value: i64,
+}
+
+/// 活跃度行
+#[derive(sqlx::FromRow)]
+struct ActivityRow {
+    date: NaiveDate,
+    active_users: i64,
+}
+
+/// 用户活跃度趋势
+///
+/// GET /api/admin/stats/trend/activity
+///
+/// 按日期聚合指定时间范围内的活跃用户数（有徽章变动的用户）
+#[instrument(skip(state))]
+pub async fn get_activity_trend(
+    State(state): State<AppState>,
+    Query(params): Query<TimeRangeParams>,
+) -> Result<Json<ApiResponse<Vec<ActivityTrendPoint>>>, AdminError> {
+    let rows = sqlx::query_as::<_, ActivityRow>(
+        r#"
+        SELECT
+            DATE(created_at) as date,
+            COUNT(DISTINCT user_id) as active_users
+        FROM badge_ledger
+        WHERE created_at >= $1 AND created_at <= $2
+        GROUP BY DATE(created_at)
+        ORDER BY date
+        "#,
+    )
+    .bind(params.start_time())
+    .bind(params.end_time())
+    .fetch_all(&state.pool)
+    .await?;
+
+    let data_points: Vec<ActivityTrendPoint> = rows
+        .into_iter()
+        .map(|row| ActivityTrendPoint {
+            date: row.date.format("%Y-%m-%d").to_string(),
+            value: row.active_users,
+        })
+        .collect();
+
+    Ok(Json(ApiResponse::success(data_points)))
 }
 
 #[cfg(test)]
