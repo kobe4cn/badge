@@ -1,6 +1,15 @@
 //! 配置管理模块
 //!
 //! 支持多格式配置文件加载，环境变量覆盖，以及类型安全的配置访问。
+//!
+//! ## 配置加载顺序
+//!
+//! 1. `.env` 文件（通过 dotenvy 加载到环境变量）
+//! 2. `config/default.toml`（默认配置）
+//! 3. `config/{environment}.toml`（环境特定配置）
+//! 4. `config/{service_name}.toml`（服务特定配置）
+//! 5. `BADGE_*` 环境变量
+//! 6. 服务特定端口环境变量（如 `BADGE_ADMIN_PORT`）
 
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
@@ -121,12 +130,16 @@ impl AppConfig {
     /// 从配置文件和环境变量加载配置
     ///
     /// 加载顺序（后加载的会覆盖先加载的同名配置项）：
-    /// 1. config/default.toml（默认配置）
-    /// 2. config/{environment}.toml（环境特定配置）
-    /// 3. config/{service_name}.toml（服务特定配置）
-    /// 4. 环境变量（BADGE_ 前缀，如 BADGE_DATABASE_URL -> database.url）
-    /// 5. 服务特定端口环境变量（如 BADGE_ADMIN_PORT, BADGE_MANAGEMENT_PORT）
+    /// 1. `.env` 文件（加载到环境变量）
+    /// 2. `config/default.toml`（默认配置）
+    /// 3. `config/{environment}.toml`（环境特定配置）
+    /// 4. `config/{service_name}.toml`（服务特定配置）
+    /// 5. 环境变量（BADGE_ 前缀，如 BADGE_DATABASE_URL -> database.url）
+    /// 6. 服务特定端口环境变量（如 BADGE_ADMIN_PORT, BADGE_MANAGEMENT_PORT）
     pub fn load(service_name: &str) -> Result<Self, ConfigError> {
+        // 首先加载 .env 文件到环境变量
+        Self::load_dotenv();
+
         let env = std::env::var("BADGE_ENV").unwrap_or_else(|_| "development".to_string());
 
         let config_dir = std::env::var("CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
@@ -211,6 +224,23 @@ impl AppConfig {
     /// 是否为生产环境
     pub fn is_production(&self) -> bool {
         self.environment == "production"
+    }
+
+    /// 加载 .env 文件到环境变量
+    ///
+    /// 按优先级尝试加载：
+    /// 1. 当前目录的 `.env`
+    /// 2. `docker/.env`（项目根目录下的 docker 子目录）
+    ///
+    /// 如果文件不存在则静默忽略，不影响后续配置加载
+    fn load_dotenv() {
+        // 优先加载当前目录的 .env
+        if dotenvy::dotenv().is_ok() {
+            return;
+        }
+
+        // 回退到 docker/.env
+        let _ = dotenvy::from_filename("docker/.env");
     }
 }
 

@@ -394,6 +394,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
+ "dotenvy",
  "futures",
  "rdkafka",
  "redis",

@@ -9,7 +9,7 @@ use serde_json::json;
 /// B端管理后台错误类型
 #[derive(Debug, thiserror::Error)]
 pub enum AdminError {
-    // 验证错误
+    // 验证错误 
     #[error("参数验证失败: {0}")]
     Validation(String),
 
