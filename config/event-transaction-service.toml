@@ -1,0 +1,8 @@
+# Event Transaction Service 配置
+# 交易事件处理服务 - gRPC
+
+[server]
+port = 50054
+
+[kafka]
+consumer_group = "event-transaction-service"

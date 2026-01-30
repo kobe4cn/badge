@@ -1,0 +1,8 @@
+# Badge Admin Service 配置
+# B端管理后台服务 - HTTP REST API
+
+[server]
+port = 8080
+
+[kafka]
+consumer_group = "badge-admin-service"

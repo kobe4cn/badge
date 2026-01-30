@@ -1,0 +1,17 @@
+# 生产环境配置
+# 会覆盖 default.toml 中的同名配置项
+
+[database]
+max_connections = 50
+min_connections = 10
+connect_timeout_seconds = 10
+idle_timeout_seconds = 300
+
+[redis]
+pool_size = 50
+
+[observability]
+log_level = "info"
+log_format = "json"
+metrics_enabled = true
+tracing_enabled = true

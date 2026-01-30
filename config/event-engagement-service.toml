@@ -1,0 +1,8 @@
+# Event Engagement Service 配置
+# 互动事件处理服务 - gRPC
+
+[server]
+port = 50053
+
+[kafka]
+consumer_group = "event-engagement-service"

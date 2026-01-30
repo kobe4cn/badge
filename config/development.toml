@@ -1,0 +1,7 @@
+# 开发环境配置
+# 会覆盖 default.toml 中的同名配置项
+
+[observability]
+log_level = "debug"
+log_format = "pretty"
+tracing_enabled = false

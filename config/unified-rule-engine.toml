@@ -1,0 +1,8 @@
+# Unified Rule Engine 配置
+# 统一规则引擎服务 - gRPC
+
+[server]
+port = 50051
+
+[kafka]
+consumer_group = "unified-rule-engine"

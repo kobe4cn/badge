@@ -1,0 +1,8 @@
+# Badge Management Service 配置
+# 徽章管理核心服务 - gRPC
+
+[server]
+port = 50052
+
+[kafka]
+consumer_group = "badge-management-service"

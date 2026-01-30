@@ -1,0 +1,8 @@
+# Notification Worker 配置
+# 通知工作服务
+
+[server]
+port = 50055
+
+[kafka]
+consumer_group = "notification-worker"
