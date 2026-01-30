@@ -5,6 +5,7 @@
 pub mod badge;
 pub mod batch_task;
 pub mod category;
+pub mod dependency;
 pub mod grant;
 pub mod operation_log;
 pub mod revoke;

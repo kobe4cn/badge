@@ -74,6 +74,10 @@ pub enum BadgeError {
     #[error("级联评估发放服务未设置")]
     CascadeGrantServiceNotSet,
 
+    // === 锁相关错误 ===
+    #[error("锁冲突，资源已被占用: {resource}")]
+    LockConflict { resource: String },
+
     // === 系统错误 ===
     #[error("数据库错误: {0}")]
     Database(#[from] sqlx::Error),
@@ -102,7 +106,10 @@ impl BadgeError {
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
-            Self::Database(_) | Self::Redis(_) | Self::ConcurrencyConflict
+            Self::Database(_)
+                | Self::Redis(_)
+                | Self::ConcurrencyConflict
+                | Self::LockConflict { .. }
         )
     }
 
@@ -116,6 +123,13 @@ impl BadgeError {
                 | Self::Internal(_)
                 | Self::ConcurrencyConflict
         )
+    }
+
+    /// 检查是否为重复发放错误（用于级联发放的跳过判断）
+    ///
+    /// 当用户已持有徽章且已达到获取上限时，级联发放应视为"跳过"而非"失败"
+    pub fn is_duplicate_grant(&self) -> bool {
+        matches!(self, Self::BadgeAcquisitionLimitReached { .. })
     }
 
     /// 获取错误码（用于 API 响应）
@@ -141,6 +155,7 @@ impl BadgeError {
             Self::CascadeDepthExceeded { .. } => "CASCADE_DEPTH_EXCEEDED",
             Self::CascadeTimeout { .. } => "CASCADE_TIMEOUT",
             Self::CascadeGrantServiceNotSet => "CASCADE_GRANT_SERVICE_NOT_SET",
+            Self::LockConflict { .. } => "LOCK_CONFLICT",
             Self::Database(_) => "DATABASE_ERROR",
             Self::Serialization(_) => "SERIALIZATION_ERROR",
             Self::Redis(_) => "REDIS_ERROR",
@@ -215,5 +230,28 @@ mod tests {
         };
         assert!(err.to_string().contains("5"));
         assert!(err.to_string().contains("3"));
+    }
+
+    #[test]
+    fn test_error_is_duplicate_grant() {
+        // 已达上限的错误应被视为重复发放
+        assert!(
+            BadgeError::BadgeAcquisitionLimitReached {
+                badge_id: 1,
+                limit: 5
+            }
+            .is_duplicate_grant()
+        );
+
+        // 其他错误不应被视为重复发放
+        assert!(!BadgeError::BadgeNotFound(1).is_duplicate_grant());
+        assert!(
+            !BadgeError::InsufficientBadges {
+                required: 5,
+                available: 3
+            }
+            .is_duplicate_grant()
+        );
+        assert!(!BadgeError::BadgeOutOfStock(1).is_duplicate_grant());
     }
 }

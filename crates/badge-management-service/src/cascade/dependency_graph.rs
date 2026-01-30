@@ -98,7 +98,7 @@ impl BadgeDependency {
             id: row.id,
             badge_id: row.badge_id,
             depends_on_badge_id: row.depends_on_badge_id,
-            dependency_type: super::dto::DependencyType::from_str(&row.dependency_type)
+            dependency_type: row.dependency_type.parse()
                 .unwrap_or(super::dto::DependencyType::Prerequisite),
             required_quantity: row.required_quantity,
             exclusive_group_id: row.exclusive_group_id,

@@ -21,6 +21,7 @@ const DashboardPage = React.lazy(() => import('@/pages/dashboard'));
 const CategoriesPage = React.lazy(() => import('@/pages/badges/Categories'));
 const SeriesPage = React.lazy(() => import('@/pages/badges/Series'));
 const DefinitionsPage = React.lazy(() => import('@/pages/badges/Definitions'));
+const DependenciesPage = React.lazy(() => import('@/pages/badges/Dependencies'));
 const CanvasPage = React.lazy(() => import('@/pages/rules/Canvas'));
 const ManualGrantPage = React.lazy(() => import('@/pages/grants/Manual'));
 const BatchGrantPage = React.lazy(() => import('@/pages/grants/Batch'));
@@ -63,6 +64,12 @@ export const routes: RouteConfig[] = [
         path: '/badges/definitions',
         name: '徽章定义',
         component: DefinitionsPage,
+      },
+      {
+        path: '/badges/:badgeId/dependencies',
+        name: '依赖配置',
+        component: DependenciesPage,
+        hideInMenu: true,
       },
     ],
   },

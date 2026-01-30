@@ -67,6 +67,8 @@ impl From<BadgeError> for Status {
             }
             BadgeError::CascadeTimeout { .. } => Status::deadline_exceeded(err.to_string()),
             BadgeError::CascadeGrantServiceNotSet => Status::internal(err.to_string()),
+            // 锁相关错误
+            BadgeError::LockConflict { .. } => Status::aborted(err.to_string()),
         }
     }
 }

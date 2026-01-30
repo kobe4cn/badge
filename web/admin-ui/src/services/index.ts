@@ -10,6 +10,7 @@ export { default as apiClient } from './api';
 export * from './category';
 export * from './series';
 export * from './badge';
+export * from './dependency';
 export * from './rule';
 export * from './grant';
 export * from './dashboard';

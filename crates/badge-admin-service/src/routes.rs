@@ -37,6 +37,29 @@ pub fn badge_routes() -> Router<AppState> {
         .route("/badges/{id}", delete(handlers::badge::delete_badge))
         .route("/badges/{id}/publish", post(handlers::badge::publish_badge))
         .route("/badges/{id}/offline", post(handlers::badge::offline_badge))
+        // 依赖关系管理
+        .route(
+            "/badges/{badge_id}/dependencies",
+            post(handlers::dependency::create_dependency),
+        )
+        .route(
+            "/badges/{badge_id}/dependencies",
+            get(handlers::dependency::list_dependencies),
+        )
+        .route(
+            "/dependencies/{id}",
+            delete(handlers::dependency::delete_dependency),
+        )
+}
+
+/// 构建缓存管理路由
+///
+/// 包含缓存刷新等运维操作
+fn cache_routes() -> Router<AppState> {
+    Router::new().route(
+        "/cache/dependencies/refresh",
+        post(handlers::dependency::refresh_dependency_cache),
+    )
 }
 
 /// 构建规则管理路由
@@ -134,7 +157,8 @@ pub fn api_routes() -> Router<AppState> {
         .merge(stats_routes())
         .merge(user_view_routes())
         .merge(log_routes())
-        .merge(task_routes());
+        .merge(task_routes())
+        .merge(cache_routes());
 
     Router::new().nest("/api/admin", admin_routes)
 }
@@ -153,6 +177,7 @@ mod tests {
         let _user_view = user_view_routes();
         let _log = log_routes();
         let _task = task_routes();
+        let _cache = cache_routes();
         let _api = api_routes();
     }
 }

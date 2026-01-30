@@ -7,6 +7,7 @@
 export * from './useCategory';
 export * from './useSeries';
 export * from './useBadge';
+export * from './useDependency';
 export * from './useRule';
 export * from './useGrant';
 export * from './useDashboard';

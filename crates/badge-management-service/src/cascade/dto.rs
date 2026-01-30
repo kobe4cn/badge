@@ -13,14 +13,23 @@ pub enum DependencyType {
     Exclusive,
 }
 
-impl DependencyType {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for DependencyType {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "prerequisite" => Some(Self::Prerequisite),
-            "consume" => Some(Self::Consume),
-            "exclusive" => Some(Self::Exclusive),
-            _ => None,
+            "prerequisite" => Ok(Self::Prerequisite),
+            "consume" => Ok(Self::Consume),
+            "exclusive" => Ok(Self::Exclusive),
+            _ => Err(format!("unknown dependency type: {}", s)),
         }
+    }
+}
+
+impl DependencyType {
+    /// 从字符串解析依赖类型（可选）
+    pub fn parse(s: &str) -> Option<Self> {
+        s.parse().ok()
     }
 }
 

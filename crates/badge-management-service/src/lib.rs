@@ -18,16 +18,19 @@
 //! - `service`: 业务服务层
 //! - `grpc`: gRPC 服务端实现
 //! - `cascade`: 级联触发模块
+//! - `lock`: 分布式锁模块
 
 pub mod cascade;
 pub mod error;
 pub mod grpc;
+pub mod lock;
 pub mod models;
 pub mod repository;
 pub mod service;
 
 pub use error::{BadgeError, Result};
 pub use grpc::BadgeManagementServiceImpl;
+pub use lock::{LockConfig, LockGuard, LockManager};
 pub use models::*;
 pub use repository::{
     BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository,

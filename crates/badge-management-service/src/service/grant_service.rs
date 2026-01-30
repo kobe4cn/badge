@@ -6,24 +6,29 @@
 //! - 用户获取上限检查
 //! - 事务性写入（用户徽章、账本流水）
 //! - 幂等处理
+//! - 级联触发（发放后自动评估依赖此徽章的其他徽章）
 //!
 //! ## 发放流程
 //!
 //! 1. 幂等检查 -> 2. 徽章有效性 -> 3. 库存检查 -> 4. 用户限制检查
-//!    -> 5. 事务写入 -> 6. 缓存失效
+//!    -> 5. 事务写入 -> 6. 缓存失效 -> 7. 级联评估（异步，失败不影响主流程）
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use sqlx::{PgPool, Row};
+use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
+use uuid::Uuid;
 
 use badge_shared::cache::Cache;
 
+use crate::cascade::{BadgeGranter, CascadeEvaluator};
 use crate::error::{BadgeError, Result};
 use crate::models::{
-    BadgeLedger, BadgeStatus, ChangeType, LogAction, UserBadge, UserBadgeStatus, ValidityConfig,
-    ValidityType,
+    BadgeLedger, BadgeStatus, ChangeType, LogAction, SourceType, UserBadge, UserBadgeStatus,
+    ValidityConfig, ValidityType,
 };
 use crate::repository::{BadgeLedgerRepository, BadgeRepositoryTrait, UserBadgeRepository};
 use crate::service::dto::{BatchGrantResponse, GrantBadgeRequest, GrantBadgeResponse, GrantResult};
@@ -41,7 +46,13 @@ mod cache_keys {
 
 /// 徽章发放服务
 ///
-/// 负责徽章发放的完整流程，包括验证、事务处理和缓存管理
+/// 负责徽章发放的完整流程，包括验证、事务处理、缓存管理和级联触发。
+///
+/// ## 级联触发
+///
+/// 当徽章发放成功且来源类型不是 `SourceType::Cascade` 时，会自动触发级联评估。
+/// 级联评估器会检查是否有其他徽章依赖此徽章，并在条件满足时自动发放。
+/// 级联评估失败不影响主发放流程，仅记录警告日志。
 pub struct GrantService<BR>
 where
     BR: BadgeRepositoryTrait,
@@ -49,6 +60,8 @@ where
     badge_repo: Arc<BR>,
     cache: Arc<Cache>,
     pool: PgPool,
+    /// 级联评估器（延迟注入，避免循环依赖）
+    cascade_evaluator: RwLock<Option<Arc<CascadeEvaluator>>>,
 }
 
 impl<BR> GrantService<BR>
@@ -60,10 +73,21 @@ where
             badge_repo,
             cache,
             pool,
+            cascade_evaluator: RwLock::new(None),
         }
     }
 
-    /// 发放徽章给用户
+    /// 设置级联评估器
+    ///
+    /// 由于 GrantService 和 CascadeEvaluator 存在循环依赖，
+    /// 需要在服务初始化后通过此方法延迟注入评估器。
+    pub async fn set_cascade_evaluator(&self, evaluator: Arc<CascadeEvaluator>) {
+        let mut guard = self.cascade_evaluator.write().await;
+        *guard = Some(evaluator);
+        info!("GrantService 级联评估器已设置");
+    }
+
+    /// 发放徽章给用户（公开接口）
     ///
     /// 完整的发放流程：
     /// 1. 幂等检查（如果有 idempotency_key）
@@ -72,8 +96,28 @@ where
     /// 4. 用户限制检查
     /// 5. 事务内写入
     /// 6. 清除缓存
+    /// 7. 级联评估（仅非级联来源触发，失败不影响主流程）
     #[instrument(skip(self), fields(user_id = %request.user_id, badge_id = %request.badge_id))]
     pub async fn grant_badge(&self, request: GrantBadgeRequest) -> Result<GrantBadgeResponse> {
+        let user_id = request.user_id.clone();
+        let badge_id = request.badge_id;
+        let source_type = request.source_type;
+
+        // 调用内部发放逻辑
+        let response = self.grant_badge_internal(request).await?;
+
+        // 仅非级联来源触发级联评估，避免无限递归
+        if source_type != SourceType::Cascade {
+            self.trigger_cascade(&user_id, badge_id).await;
+        }
+
+        Ok(response)
+    }
+
+    /// 内部发放逻辑（不触发级联）
+    ///
+    /// 此方法由 `grant_badge` 和级联发放调用，不会触发级联评估。
+    async fn grant_badge_internal(&self, request: GrantBadgeRequest) -> Result<GrantBadgeResponse> {
         // 参数校验
         if request.quantity <= 0 {
             return Err(BadgeError::Validation("发放数量必须大于0".to_string()));
@@ -113,6 +157,32 @@ where
         );
 
         Ok(GrantBadgeResponse::success(user_badge_id, new_quantity))
+    }
+
+    /// 触发级联评估
+    ///
+    /// 在徽章发放成功后调用，检查是否有其他徽章依赖此徽章。
+    /// 级联评估失败不影响主发放流程，仅记录警告日志。
+    async fn trigger_cascade(&self, user_id: &str, badge_id: i64) {
+        let evaluator = {
+            let guard = self.cascade_evaluator.read().await;
+            guard.clone()
+        };
+
+        if let Some(evaluator) = evaluator {
+            // 将 badge_id (i64) 转换为 UUID
+            // 注意：这里使用与 CascadeEvaluator 相同的转换逻辑
+            let badge_uuid = badge_id_to_uuid(badge_id);
+
+            if let Err(e) = evaluator.evaluate(user_id, badge_uuid).await {
+                warn!(
+                    user_id = %user_id,
+                    badge_id = badge_id,
+                    error = %e,
+                    "级联评估失败，但不影响主发放流程"
+                );
+            }
+        }
     }
 
     /// 批量发放徽章
@@ -399,6 +469,65 @@ fn calculate_expires_at(config: &ValidityConfig) -> Option<DateTime<Utc>> {
         ValidityType::RelativeDays => config
             .relative_days
             .map(|days| Utc::now() + Duration::days(days as i64)),
+    }
+}
+
+/// 将 badge_id (i64) 转换为 UUID
+///
+/// 此转换与 CascadeEvaluator 中的 `badge_id_to_uuid` 保持一致。
+/// 在实际生产环境中，badge_dependency 表应直接使用 i64 类型的 badge_id，
+/// 或维护 UUID 到 i64 的映射表。当前实现将 i64 放入 UUID 的低 64 位。
+fn badge_id_to_uuid(badge_id: i64) -> Uuid {
+    let mut bytes = [0u8; 16];
+    bytes[0..8].copy_from_slice(&badge_id.to_le_bytes());
+    Uuid::from_bytes(bytes)
+}
+
+// ==================== BadgeGranter trait 实现 ====================
+
+/// 为 GrantService 实现 BadgeGranter trait
+///
+/// 此实现使 CascadeEvaluator 能够通过 trait 调用 GrantService 进行级联发放，
+/// 解决了两者之间的循环依赖问题。
+#[async_trait]
+impl<BR> BadgeGranter for GrantService<BR>
+where
+    BR: BadgeRepositoryTrait + Send + Sync + 'static,
+{
+    /// 级联发放徽章
+    ///
+    /// 创建一个 `SourceType::Cascade` 的发放请求，调用内部发放逻辑。
+    /// 由于使用了 `grant_badge_internal`，不会再次触发级联评估，避免无限递归。
+    ///
+    /// # Returns
+    /// * `Ok(true)` - 发放成功
+    /// * `Ok(false)` - 发放被跳过（如用户已持有且已达上限）
+    /// * `Err(_)` - 发放失败
+    async fn grant_cascade(
+        &self,
+        user_id: &str,
+        badge_id: i64,
+        triggered_by: Uuid,
+    ) -> Result<bool> {
+        let request = GrantBadgeRequest {
+            user_id: user_id.to_string(),
+            badge_id,
+            quantity: 1,
+            source_type: SourceType::Cascade,
+            source_ref_id: Some(triggered_by.to_string()),
+            idempotency_key: None,
+            reason: Some(format!("级联触发，由徽章 {} 触发", triggered_by)),
+            operator: None,
+        };
+
+        match self.grant_badge_internal(request).await {
+            Ok(_) => Ok(true),
+            Err(e) if e.is_duplicate_grant() => {
+                // 用户已持有且已达上限，视为跳过而非失败
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 

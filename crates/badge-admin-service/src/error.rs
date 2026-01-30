@@ -24,6 +24,8 @@ pub enum AdminError {
     RuleNotFound(i64),
     #[error("任务不存在: {0}")]
     TaskNotFound(i64),
+    #[error("依赖关系不存在: {0}")]
+    DependencyNotFound(uuid::Uuid),
 
     // 业务错误
     #[error("徽章已发布，无法删除")]
@@ -56,7 +58,8 @@ impl AdminError {
             | Self::SeriesNotFound(_)
             | Self::BadgeNotFound(_)
             | Self::RuleNotFound(_)
-            | Self::TaskNotFound(_) => StatusCode::NOT_FOUND,
+            | Self::TaskNotFound(_)
+            | Self::DependencyNotFound(_) => StatusCode::NOT_FOUND,
 
             Self::BadgeAlreadyPublished | Self::InsufficientStock | Self::InsufficientUserBadge => {
                 StatusCode::CONFLICT
@@ -79,6 +82,7 @@ impl AdminError {
             Self::BadgeNotFound(_) => "BADGE_NOT_FOUND",
             Self::RuleNotFound(_) => "RULE_NOT_FOUND",
             Self::TaskNotFound(_) => "TASK_NOT_FOUND",
+            Self::DependencyNotFound(_) => "DEPENDENCY_NOT_FOUND",
             Self::BadgeAlreadyPublished => "BADGE_ALREADY_PUBLISHED",
             Self::InvalidRuleJson(_) => "INVALID_RULE_JSON",
             Self::FileProcessingError(_) => "FILE_PROCESSING_ERROR",
@@ -109,6 +113,20 @@ impl IntoResponse for AdminError {
 impl From<validator::ValidationErrors> for AdminError {
     fn from(errors: validator::ValidationErrors) -> Self {
         Self::Validation(errors.to_string())
+    }
+}
+
+/// 从 badge-management-service 的错误转换
+impl From<badge_management::BadgeError> for AdminError {
+    fn from(err: badge_management::BadgeError) -> Self {
+        match err {
+            badge_management::BadgeError::Database(e) => Self::Database(e),
+            badge_management::BadgeError::BadgeNotFound(id) => Self::BadgeNotFound(id),
+            badge_management::BadgeError::SeriesNotFound(id) => Self::SeriesNotFound(id),
+            badge_management::BadgeError::CategoryNotFound(id) => Self::CategoryNotFound(id),
+            badge_management::BadgeError::Validation(msg) => Self::Validation(msg),
+            other => Self::Internal(other.to_string()),
+        }
     }
 }
 

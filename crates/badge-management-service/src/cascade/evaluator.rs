@@ -57,18 +57,10 @@ pub trait BadgeGranter: Send + Sync {
 }
 
 /// 依赖图缓存
+#[derive(Default)]
 struct CachedGraph {
     graph: Option<DependencyGraph>,
     cached_at: Option<Instant>,
-}
-
-impl Default for CachedGraph {
-    fn default() -> Self {
-        Self {
-            graph: None,
-            cached_at: None,
-        }
-    }
 }
 
 /// 级联评估器
@@ -199,12 +191,12 @@ impl CascadeEvaluator {
         // 快速路径：检查缓存是否有效
         {
             let cache = self.graph_cache.read().await;
-            if let Some(ref graph) = cache.graph {
-                if let Some(cached_at) = cache.cached_at {
-                    let elapsed = cached_at.elapsed().as_secs();
-                    if elapsed < self.config.graph_cache_seconds {
-                        return Ok(graph.clone());
-                    }
+            if let Some(ref graph) = cache.graph
+                && let Some(cached_at) = cache.cached_at
+            {
+                let elapsed = cached_at.elapsed().as_secs();
+                if elapsed < self.config.graph_cache_seconds {
+                    return Ok(graph.clone());
                 }
             }
         }
@@ -1213,22 +1205,22 @@ mod tests {
     #[test]
     fn test_dependency_type_parsing() {
         assert_eq!(
-            DependencyType::from_str("prerequisite"),
+            DependencyType::parse("prerequisite"),
             Some(DependencyType::Prerequisite)
         );
         assert_eq!(
-            DependencyType::from_str("PREREQUISITE"),
+            DependencyType::parse("PREREQUISITE"),
             Some(DependencyType::Prerequisite)
         );
         assert_eq!(
-            DependencyType::from_str("consume"),
+            DependencyType::parse("consume"),
             Some(DependencyType::Consume)
         );
         assert_eq!(
-            DependencyType::from_str("exclusive"),
+            DependencyType::parse("exclusive"),
             Some(DependencyType::Exclusive)
         );
-        assert_eq!(DependencyType::from_str("invalid"), None);
+        assert_eq!(DependencyType::parse("invalid"), None);
     }
 
     #[test]

@@ -143,6 +143,37 @@ make dev-frontend
 - Rule Engine gRPC: localhost:50051
 - Badge Management gRPC: localhost:50052
 
+## 核心功能
+
+### 级联触发
+
+当用户获得徽章 A 时，系统自动检查是否满足其他徽章的获取条件，并自动发放。
+
+**配置方式**:
+1. 在管理后台为徽章配置依赖关系
+2. 设置 `auto_trigger = true` 启用自动触发
+3. 使用依赖组控制 AND/OR 逻辑
+
+**安全机制**:
+- 循环依赖检测
+- 深度限制（默认 10 层）
+- 超时保护（默认 5 秒）
+
+### 竞争兑换
+
+支持需要消耗徽章的兑换场景，自动处理并发竞争。
+
+**特性**:
+- 分布式锁防止重复兑换
+- 互斥组约束检查
+- 原子事务保证数据一致性
+
+**API**:
+- `POST /api/admin/badges/{id}/dependencies` - 创建依赖关系
+- `GET /api/admin/badges/{id}/dependencies` - 获取依赖列表
+- `DELETE /api/admin/dependencies/{id}` - 删除依赖
+- `POST /api/admin/cache/dependencies/refresh` - 刷新缓存
+
 ## 常用命令
 
 ```bash

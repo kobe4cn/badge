@@ -367,8 +367,7 @@ mod competitive_redemption_integration {
         let target_badge = Uuid::new_v4();
         let rule_id = "promotion_2024_spring";
 
-        let request =
-            CompetitiveRedeemRequest::new(user_id, target_badge).with_rule_id(rule_id);
+        let request = CompetitiveRedeemRequest::new(user_id, target_badge).with_rule_id(rule_id);
 
         assert_eq!(request.user_id, user_id);
         assert_eq!(request.target_badge_id, target_badge);
@@ -431,8 +430,8 @@ mod lock_integration {
     #[test]
     fn test_lock_config_for_redemption() {
         let config = LockConfig {
-            default_ttl: Duration::from_secs(10), // 兑换操作 10 秒超时
-            retry_count: 2,                       // 最多重试 2 次
+            default_ttl: Duration::from_secs(10),   // 兑换操作 10 秒超时
+            retry_count: 2,                         // 最多重试 2 次
             retry_delay: Duration::from_millis(50), // 50ms 重试间隔
         };
 
@@ -549,29 +548,26 @@ mod dependency_type_integration {
     #[test]
     fn test_dependency_type_from_str() {
         assert_eq!(
-            DependencyType::from_str("prerequisite"),
+            DependencyType::parse("prerequisite"),
             Some(DependencyType::Prerequisite)
         );
         assert_eq!(
-            DependencyType::from_str("PREREQUISITE"),
+            DependencyType::parse("PREREQUISITE"),
             Some(DependencyType::Prerequisite)
         );
         assert_eq!(
-            DependencyType::from_str("consume"),
+            DependencyType::parse("consume"),
             Some(DependencyType::Consume)
         );
         assert_eq!(
-            DependencyType::from_str("CONSUME"),
+            DependencyType::parse("CONSUME"),
             Some(DependencyType::Consume)
         );
         assert_eq!(
-            DependencyType::from_str("exclusive"),
+            DependencyType::parse("exclusive"),
             Some(DependencyType::Exclusive)
         );
-        assert_eq!(
-            DependencyType::from_str("invalid"),
-            None
-        );
+        assert_eq!(DependencyType::parse("invalid"), None);
     }
 
     /// 测试场景：DependencyType 的业务语义
@@ -682,11 +678,39 @@ mod dependency_graph_advanced {
 
         let dependencies = vec![
             // A 和 B 在 group1 中互斥
-            create_dependency_row(badge_a, Uuid::new_v4(), "exclusive", false, "g1", Some("group1")),
-            create_dependency_row(badge_b, Uuid::new_v4(), "exclusive", false, "g1", Some("group1")),
+            create_dependency_row(
+                badge_a,
+                Uuid::new_v4(),
+                "exclusive",
+                false,
+                "g1",
+                Some("group1"),
+            ),
+            create_dependency_row(
+                badge_b,
+                Uuid::new_v4(),
+                "exclusive",
+                false,
+                "g1",
+                Some("group1"),
+            ),
             // C 和 D 在 group2 中互斥
-            create_dependency_row(badge_c, Uuid::new_v4(), "exclusive", false, "g1", Some("group2")),
-            create_dependency_row(badge_d, Uuid::new_v4(), "exclusive", false, "g1", Some("group2")),
+            create_dependency_row(
+                badge_c,
+                Uuid::new_v4(),
+                "exclusive",
+                false,
+                "g1",
+                Some("group2"),
+            ),
+            create_dependency_row(
+                badge_d,
+                Uuid::new_v4(),
+                "exclusive",
+                false,
+                "g1",
+                Some("group2"),
+            ),
         ];
 
         let graph = DependencyGraph::from_rows(dependencies);

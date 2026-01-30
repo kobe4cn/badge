@@ -191,14 +191,14 @@ impl CompetitiveRedemptionService {
 
                 // 检查用户是否已持有互斥组中的其他目标徽章
                 for other_badge_id in group_badges {
-                    // 跳过当前目标徽章
-                    if other_badge_id != dep.badge_id {
-                        if self.user_has_badge(user_id, other_badge_id).await? {
-                            return Err(BadgeError::Validation(format!(
-                                "互斥冲突：用户已持有互斥组 {} 中的徽章 {}",
-                                group_id, other_badge_id
-                            )));
-                        }
+                    // 跳过当前目标徽章，检查其他徽章是否已被持有
+                    if other_badge_id != dep.badge_id
+                        && self.user_has_badge(user_id, other_badge_id).await?
+                    {
+                        return Err(BadgeError::Validation(format!(
+                            "互斥冲突：用户已持有互斥组 {} 中的徽章 {}",
+                            group_id, other_badge_id
+                        )));
                     }
                 }
             }
