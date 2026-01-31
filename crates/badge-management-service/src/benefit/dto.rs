@@ -99,16 +99,25 @@ pub struct BenefitGrantResult {
 
 impl BenefitGrantResult {
     /// 创建成功的发放结果
+    ///
+    /// 注意：granted_at 默认为 None，由 Handler 实现者根据实际发放完成时间设置。
+    /// 同步发放场景可使用 `with_granted_now()` 快捷设置当前时间。
     pub fn success(grant_no: impl Into<String>) -> Self {
         Self {
             grant_no: grant_no.into(),
             status: GrantStatus::Success,
             external_ref: None,
             payload: None,
-            granted_at: Some(Utc::now()),
+            granted_at: None, // 留给 Handler 根据实际完成时间设置
             expires_at: None,
             message: None,
         }
+    }
+
+    /// 设置发放时间为当前时间（同步发放场景的快捷方法）
+    pub fn with_granted_now(mut self) -> Self {
+        self.granted_at = Some(Utc::now());
+        self
     }
 
     /// 创建处理中的发放结果（用于异步发放场景）
