@@ -4,20 +4,23 @@
 
 use std::sync::Arc;
 
-use axum::{Json, Router, routing::get};
+use axum::{Json, Router, middleware, routing::get};
 use badge_admin_service::{routes, state::AppState};
-use badge_shared::{cache::Cache, config::AppConfig, database::Database};
-use tokio::net::TcpListener;
-use tower_http::{
-    cors::{Any, CorsLayer},
-    trace::TraceLayer,
+use badge_shared::{
+    cache::Cache,
+    config::AppConfig,
+    database::Database,
+    observability::{self, ObservabilityConfig, middleware as obs_middleware},
 };
+use tokio::net::TcpListener;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    // 初始化可观测性（tracing + metrics）
+    let obs_config = ObservabilityConfig::from_env("badge-admin-service");
+    let _guard = observability::init(&obs_config).await?;
 
     let config = AppConfig::load("badge-admin-service").unwrap_or_default();
     info!("Starting badge-admin-service on {}", config.server_addr());
@@ -46,7 +49,9 @@ async fn main() -> anyhow::Result<()> {
             }),
         )
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        // 可观测性中间件：请求追踪和指标收集
+        .layer(middleware::from_fn(obs_middleware::http_tracing))
+        .layer(middleware::from_fn(obs_middleware::request_id))
         .with_state(state);
 
     let listener = TcpListener::bind(config.server_addr()).await?;
@@ -82,15 +87,4 @@ async fn readiness_check(db: Database, cache: Arc<Cache>) -> Json<serde_json::Va
             "redis": if cache_ok { "ok" } else { "fail" }
         }
     }))
-}
-
-/// 初始化 tracing 日志
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,badge_admin=debug"));
-
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_target(true).with_level(true))
-        .with(filter)
-        .init();
 }

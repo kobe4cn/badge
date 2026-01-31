@@ -3,14 +3,19 @@
 //! 提供徽章查询、兑换、展示等 C 端功能的 gRPC 服务入口。
 
 use anyhow::Result;
+use axum::middleware;
 use badge_proto::badge::badge_management_service_server::BadgeManagementServiceServer;
-use badge_shared::{cache::Cache, config::AppConfig, database::Database};
+use badge_shared::{
+    cache::Cache,
+    config::AppConfig,
+    database::Database,
+    observability::{self, ObservabilityConfig, middleware as obs_middleware},
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
 use tonic::transport::Server;
 use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use badge_management::{
     benefit::BenefitService,
@@ -50,8 +55,9 @@ impl ServiceConfig {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. 初始化日志
-    init_tracing();
+    // 1. 初始化可观测性（tracing + metrics）
+    let obs_config = ObservabilityConfig::from_env("badge-management-service");
+    let _guard = observability::init(&obs_config).await?;
 
     info!("Starting badge-management-service...");
 
@@ -159,17 +165,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// 初始化 tracing 日志
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,badge_management=debug"));
-
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_target(true).with_level(true))
-        .with(filter)
-        .init();
-}
-
 /// 健康检查服务器
 ///
 /// 提供 /health 和 /ready 端点，用于 Kubernetes 健康探针
@@ -227,7 +222,10 @@ async fn run_health_server(addr: SocketAddr, db: Database, cache: Arc<Cache>) {
                     })
                 }
             }),
-        );
+        )
+        // 可观测性中间件：请求追踪和指标收集
+        .layer(middleware::from_fn(obs_middleware::http_tracing))
+        .layer(middleware::from_fn(obs_middleware::request_id));
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
