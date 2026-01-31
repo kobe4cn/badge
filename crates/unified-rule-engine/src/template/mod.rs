@@ -7,7 +7,12 @@
 //! - `ParameterDef`: 模板参数定义，支持多种类型和验证规则
 //! - `RuleTemplate`: 规则模板，包含可参数化的规则定义
 //! - `TemplateCategory`: 模板分类，用于组织和过滤模板
+//! - `TemplateRepository`: 模板仓储，提供数据库访问功能
 
+pub mod compiler;
 pub mod models;
+pub mod repository;
 
+pub use compiler::*;
 pub use models::*;
+pub use repository::*;

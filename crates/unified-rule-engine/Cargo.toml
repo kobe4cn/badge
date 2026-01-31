@@ -23,6 +23,9 @@ prost-types = { workspace = true }
 # Web framework for health endpoints
 axum = { workspace = true }
 
+# Database
+sqlx = { workspace = true }
+
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
