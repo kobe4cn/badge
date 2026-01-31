@@ -254,6 +254,7 @@ mod tests {
     #[test]
     fn test_benefit_grant_result_success() {
         let result = BenefitGrantResult::success("grant-001")
+            .with_granted_now()
             .with_external_ref("coupon-abc")
             .with_payload(json!({"coupon_code": "ABC123"}))
             .with_message("发放成功");

@@ -7,6 +7,8 @@
 //! - `dto`: 权益发放相关的数据传输对象
 //! - `handler`: BenefitHandler trait 定义
 //! - `handlers`: 各权益类型的具体 Handler 实现
+//! - `registry`: Handler 注册表，按权益类型索引
+//! - `service`: 权益服务层，封装发放、撤销、查询的业务逻辑
 //!
 //! ## 设计说明
 //!
@@ -17,31 +19,47 @@
 //! ## 使用示例
 //!
 //! ```ignore
-//! use badge_management::benefit::{BenefitHandler, BenefitGrantRequest, BenefitGrantResult};
-//! use badge_management::benefit::handlers::CouponHandler;
+//! use badge_management::benefit::{BenefitService, GrantBenefitRequest};
+//! use badge_management::benefit::registry::HandlerRegistry;
+//! use badge_management::models::BenefitType;
+//! use std::sync::Arc;
 //!
-//! // 创建处理器
-//! let handler = CouponHandler::new("http://coupon-service:8080");
+//! // 创建服务（使用默认 Handler）
+//! let service = BenefitService::with_defaults();
 //!
-//! // 构造发放请求
-//! let request = BenefitGrantRequest::new(
-//!     "grant-001",
+//! // 发放权益
+//! let request = GrantBenefitRequest::new(
 //!     "user-123",
-//!     benefit_id,
-//!     config,
+//!     BenefitType::Coupon,
+//!     1,
+//!     serde_json::json!({"coupon_template_id": "tpl-001"}),
 //! );
+//! let result = service.grant_benefit(request).await?;
 //!
-//! // 执行发放
-//! let result = handler.grant(request).await?;
+//! // 或者使用自定义注册表
+//! let registry = Arc::new(HandlerRegistry::with_defaults());
+//! let service = BenefitService::new(registry);
 //! ```
 
 pub mod dto;
 pub mod handler;
 pub mod handlers;
+pub mod registry;
+pub mod service;
 
-// Re-export commonly used types
+// Re-export commonly used types from dto
 pub use dto::{BenefitGrantRequest, BenefitGrantResult, BenefitRevokeResult};
+
+// Re-export handler trait
 pub use handler::BenefitHandler;
 
 // Re-export handlers for convenience
 pub use handlers::{CouponHandler, PhysicalHandler, PointsHandler};
+
+// Re-export registry types
+pub use registry::{HandlerRegistry, RegistryConfig};
+
+// Re-export service types
+pub use service::{
+    BenefitService, GrantBenefitRequest, GrantBenefitResponse, RevokeResult,
+};

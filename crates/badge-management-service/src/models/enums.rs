@@ -129,7 +129,7 @@ pub enum SourceType {
 /// 权益类型
 ///
 /// 定义徽章可兑换的权益种类，不同类型有不同的发放和撤销特性
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BenefitType {
