@@ -129,7 +129,7 @@ impl PredefinedScenarios {
                     user_id,
                     order_id,
                     amount: 299.00,
-                    badge_ids: vec![1, 2], // 假设购买触发了 ID 为 1 和 2 的徽章
+                    badge_ids: vec![3, 4], // 购买触发首次购买(3)和购物新星(4)徽章
                     delay_ms: None,
                 },
             ],
