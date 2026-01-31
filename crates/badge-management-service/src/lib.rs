@@ -30,7 +30,10 @@ pub mod models;
 pub mod repository;
 pub mod service;
 
-pub use benefit::{BenefitGrantRequest, BenefitGrantResult, BenefitHandler, BenefitRevokeResult};
+pub use benefit::{
+    BenefitGrantRequest, BenefitGrantResult, BenefitHandler, BenefitRevokeResult, BenefitService,
+    GrantBenefitRequest, GrantBenefitResponse, HandlerRegistry,
+};
 pub use error::{BadgeError, Result};
 pub use grpc::BadgeManagementServiceImpl;
 pub use lock::{LockConfig, LockGuard, LockManager};

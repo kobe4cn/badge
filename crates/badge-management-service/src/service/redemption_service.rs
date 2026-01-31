@@ -16,11 +16,12 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use sqlx::PgPool;
-use tracing::{info, instrument, warn};
+use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
 use badge_shared::cache::Cache;
 
+use crate::benefit::{BenefitService, GrantBenefitRequest};
 use crate::error::{BadgeError, Result};
 use crate::models::{
     BadgeLedger, BadgeRedemptionRule, Benefit, ChangeType, LogAction, OrderStatus,
@@ -49,6 +50,8 @@ pub struct RedemptionService {
     redemption_repo: Arc<RedemptionRepository>,
     cache: Arc<Cache>,
     pool: PgPool,
+    /// 权益服务（可选，用于渐进式迁移到新的权益发放机制）
+    benefit_service: Option<Arc<BenefitService>>,
 }
 
 impl RedemptionService {
@@ -61,7 +64,30 @@ impl RedemptionService {
             redemption_repo,
             cache,
             pool,
+            benefit_service: None,
         }
+    }
+
+    /// 创建带有 BenefitService 的实例
+    ///
+    /// 启用新的权益发放机制，兑换成功后会通过 BenefitService 发放权益
+    pub fn with_benefit_service(
+        redemption_repo: Arc<RedemptionRepository>,
+        cache: Arc<Cache>,
+        pool: PgPool,
+        benefit_service: Arc<BenefitService>,
+    ) -> Self {
+        Self {
+            redemption_repo,
+            cache,
+            pool,
+            benefit_service: Some(benefit_service),
+        }
+    }
+
+    /// 设置 BenefitService（允许运行时注入）
+    pub fn set_benefit_service(&mut self, benefit_service: Arc<BenefitService>) {
+        self.benefit_service = Some(benefit_service);
     }
 
     /// 兑换徽章换取权益
@@ -104,6 +130,18 @@ impl RedemptionService {
 
         // 11. 清除缓存
         self.invalidate_user_cache(&request.user_id).await;
+
+        // 12. 发放权益（如果配置了 BenefitService）
+        if let Some(ref benefit_service) = self.benefit_service {
+            self.grant_benefit_via_service(
+                benefit_service,
+                &request.user_id,
+                &benefit,
+                order_id,
+                &order_no,
+            )
+            .await;
+        }
 
         info!(
             user_id = %request.user_id,
@@ -189,6 +227,63 @@ impl RedemptionService {
     }
 
     // ==================== 私有方法 ====================
+
+    /// 通过 BenefitService 发放权益
+    ///
+    /// 将权益发放委托给 BenefitService 处理，支持多种权益类型。
+    /// 发放失败不会影响兑换结果（兑换已成功），但会记录错误日志。
+    async fn grant_benefit_via_service(
+        &self,
+        benefit_service: &BenefitService,
+        user_id: &str,
+        benefit: &Benefit,
+        order_id: i64,
+        order_no: &str,
+    ) {
+        let grant_request = GrantBenefitRequest::new(
+            user_id,
+            benefit.benefit_type,
+            benefit.id,
+            benefit.config.clone(),
+        )
+        .with_grant_no(format!("RG-{}", order_no))
+        .with_redemption_order(order_id);
+
+        match benefit_service.grant_benefit(grant_request).await {
+            Ok(response) => {
+                if response.is_success() {
+                    info!(
+                        order_id = order_id,
+                        grant_no = %response.grant_no,
+                        benefit_type = ?response.benefit_type,
+                        "权益发放成功"
+                    );
+                } else if response.is_processing() {
+                    info!(
+                        order_id = order_id,
+                        grant_no = %response.grant_no,
+                        "权益发放已提交，等待异步处理"
+                    );
+                } else {
+                    error!(
+                        order_id = order_id,
+                        grant_no = %response.grant_no,
+                        error = ?response.error_message,
+                        "权益发放失败"
+                    );
+                }
+            }
+            Err(e) => {
+                error!(
+                    order_id = order_id,
+                    user_id = user_id,
+                    benefit_id = benefit.id,
+                    error = %e,
+                    "调用 BenefitService 发放权益异常"
+                );
+            }
+        }
+    }
 
     /// 幂等检查
     ///
