@@ -94,13 +94,12 @@ pub async fn manual_grant(
     // 1. 插入或更新 user_badges
     sqlx::query(
         r#"
-        INSERT INTO user_badges (user_id, badge_id, quantity, status, first_acquired_at, last_acquired_at)
-        VALUES ($1, $2, $3, 'active', $4, $4)
+        INSERT INTO user_badges (user_id, badge_id, quantity, status, first_acquired_at, source_type, created_at, updated_at)
+        VALUES ($1, $2, $3, 'active', $4, 'manual', $4, $4)
         ON CONFLICT (user_id, badge_id)
         DO UPDATE SET
             quantity = user_badges.quantity + $3,
             status = 'active',
-            last_acquired_at = $4,
             updated_at = $4
         "#,
     )
@@ -111,17 +110,27 @@ pub async fn manual_grant(
     .execute(&mut *tx)
     .await?;
 
-    // 2. 写入 badge_ledger
+    // 2. 写入 badge_ledger（需要计算 balance_after）
+    let balance_row: (i32,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(quantity), 0)::INT FROM badge_ledger WHERE user_id = $1 AND badge_id = $2",
+    )
+    .bind(&req.user_id)
+    .bind(req.badge_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let balance_after = balance_row.0 + req.quantity;
+
     sqlx::query(
         r#"
-        INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, source_ref_id, quantity, remark, created_at)
-        VALUES ($1, $2, 'acquire', 'manual', $3, $4, $5, $6)
+        INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, ref_id, quantity, balance_after, remark, created_at)
+        VALUES ($1, $2, 'acquire', 'manual', $3, $4, $5, $6, $7)
         "#,
     )
     .bind(&req.user_id)
     .bind(req.badge_id)
     .bind(&source_ref_id)
     .bind(req.quantity)
+    .bind(balance_after)
     .bind(&req.reason)
     .bind(now)
     .execute(&mut *tx)

@@ -130,6 +130,8 @@ db-migrate:
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250128_001_init_schema.sql
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250130_001_badge_dependency.sql
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250131_001_cascade_log.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250201_001_user_badge_logs.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250202_001_dynamic_rules.sql
 	@echo "All migrations completed"
 
 db-reset:

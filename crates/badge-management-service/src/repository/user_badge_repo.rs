@@ -27,8 +27,8 @@ impl UserBadgeRepository {
     pub async fn get_user_badge(&self, user_id: &str, badge_id: i64) -> Result<Option<UserBadge>> {
         let user_badge = sqlx::query_as::<_, UserBadge>(
             r#"
-            SELECT id, user_id, badge_id, status, quantity, acquired_at,
-                   expires_at, created_at, updated_at
+            SELECT id, user_id, badge_id, status, quantity, first_acquired_at AS acquired_at,
+                   expires_at, source_type, created_at, updated_at
             FROM user_badges
             WHERE user_id = $1 AND badge_id = $2
             "#,
@@ -45,8 +45,8 @@ impl UserBadgeRepository {
     pub async fn get_user_badge_by_id(&self, id: i64) -> Result<Option<UserBadge>> {
         let user_badge = sqlx::query_as::<_, UserBadge>(
             r#"
-            SELECT id, user_id, badge_id, status, quantity, acquired_at,
-                   expires_at, created_at, updated_at
+            SELECT id, user_id, badge_id, status, quantity, first_acquired_at AS acquired_at,
+                   expires_at, source_type, created_at, updated_at
             FROM user_badges
             WHERE id = $1
             "#,
@@ -62,11 +62,11 @@ impl UserBadgeRepository {
     pub async fn list_user_badges(&self, user_id: &str) -> Result<Vec<UserBadge>> {
         let badges = sqlx::query_as::<_, UserBadge>(
             r#"
-            SELECT id, user_id, badge_id, status, quantity, acquired_at,
-                   expires_at, created_at, updated_at
+            SELECT id, user_id, badge_id, status, quantity, first_acquired_at AS acquired_at,
+                   expires_at, source_type, created_at, updated_at
             FROM user_badges
             WHERE user_id = $1
-            ORDER BY acquired_at DESC
+            ORDER BY first_acquired_at DESC
             "#,
         )
         .bind(user_id)
@@ -84,11 +84,11 @@ impl UserBadgeRepository {
     ) -> Result<Vec<UserBadge>> {
         let badges = sqlx::query_as::<_, UserBadge>(
             r#"
-            SELECT id, user_id, badge_id, status, quantity, acquired_at,
-                   expires_at, created_at, updated_at
+            SELECT id, user_id, badge_id, status, quantity, first_acquired_at AS acquired_at,
+                   expires_at, source_type, created_at, updated_at
             FROM user_badges
             WHERE user_id = $1 AND status = $2
-            ORDER BY acquired_at DESC
+            ORDER BY first_acquired_at DESC
             "#,
         )
         .bind(user_id)
@@ -107,8 +107,8 @@ impl UserBadgeRepository {
     pub async fn create_user_badge(&self, badge: &UserBadge) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO user_badges (user_id, badge_id, status, quantity, acquired_at, expires_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO user_badges (user_id, badge_id, status, quantity, first_acquired_at, expires_at, source_type, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
             "#,
         )
@@ -118,6 +118,7 @@ impl UserBadgeRepository {
         .bind(badge.quantity)
         .bind(badge.acquired_at)
         .bind(badge.expires_at)
+        .bind(badge.source_type)
         .bind(badge.created_at)
         .bind(badge.updated_at)
         .fetch_one(&self.pool)
@@ -176,8 +177,8 @@ impl UserBadgeRepository {
     ) -> Result<Option<UserBadge>> {
         let user_badge = sqlx::query_as::<_, UserBadge>(
             r#"
-            SELECT id, user_id, badge_id, status, quantity, acquired_at,
-                   expires_at, created_at, updated_at
+            SELECT id, user_id, badge_id, status, quantity, first_acquired_at AS acquired_at,
+                   expires_at, source_type, created_at, updated_at
             FROM user_badges
             WHERE user_id = $1 AND badge_id = $2
             FOR UPDATE
@@ -195,8 +196,8 @@ impl UserBadgeRepository {
     pub async fn create_user_badge_in_tx(tx: &mut PgConnection, badge: &UserBadge) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO user_badges (user_id, badge_id, status, quantity, acquired_at, expires_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO user_badges (user_id, badge_id, status, quantity, first_acquired_at, expires_at, source_type, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
             "#,
         )
@@ -206,6 +207,7 @@ impl UserBadgeRepository {
         .bind(badge.quantity)
         .bind(badge.acquired_at)
         .bind(badge.expires_at)
+        .bind(badge.source_type)
         .bind(badge.created_at)
         .bind(badge.updated_at)
         .fetch_one(tx)

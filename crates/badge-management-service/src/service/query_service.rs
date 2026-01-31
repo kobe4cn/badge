@@ -665,6 +665,7 @@ mod tests {
             quantity: 1,
             acquired_at: Utc::now(),
             expires_at: None,
+            source_type: crate::models::SourceType::Manual,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

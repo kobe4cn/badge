@@ -217,7 +217,7 @@ pub struct UserBadgeViewDto {
     pub icon_url: String,
     pub quantity: i32,
     pub first_acquired_at: DateTime<Utc>,
-    pub last_acquired_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 /// 统计概览

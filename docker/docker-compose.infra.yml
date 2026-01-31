@@ -62,7 +62,8 @@ services:
       retries: 5
 
   elasticsearch:
-    image: elasticsearch:8.11.0
+    image: elasticsearch:8.19.10
+    platform: linux/arm64
     container_name: badge-elasticsearch
     environment:
       - discovery.type=single-node

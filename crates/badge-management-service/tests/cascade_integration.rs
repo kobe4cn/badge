@@ -11,20 +11,27 @@ use badge_management::service::{
     CompetitiveRedeemRequest, CompetitiveRedeemResponse, ConsumedBadge,
 };
 use chrono::Utc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
-use uuid::Uuid;
+
+/// 测试 ID 生成器，确保每个测试用例的 ID 唯一
+static TEST_ID: AtomicI64 = AtomicI64::new(1000);
+
+fn next_test_id() -> i64 {
+    TEST_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 /// 创建测试用的依赖关系行
 fn create_dependency_row(
-    badge_id: Uuid,
-    depends_on: Uuid,
+    badge_id: i64,
+    depends_on: i64,
     dep_type: &str,
     auto_trigger: bool,
     group_id: &str,
     exclusive_group: Option<&str>,
 ) -> BadgeDependencyRow {
     BadgeDependencyRow {
-        id: Uuid::new_v4(),
+        id: next_test_id(),
         badge_id,
         depends_on_badge_id: depends_on,
         dependency_type: dep_type.to_string(),
@@ -49,9 +56,9 @@ mod cascade_integration {
     /// - 获得 B 时再次检查 C，此时 A+B 都满足，C 被自动发放
     #[test]
     fn test_cascade_chain_registration_binding_achievement() {
-        let badge_a = Uuid::new_v4(); // 注册徽章
-        let badge_b = Uuid::new_v4(); // 绑定徽章
-        let badge_c = Uuid::new_v4(); // 成就徽章（需要A+B）
+        let badge_a = next_test_id(); // 注册徽章
+        let badge_b = next_test_id(); // 绑定徽章
+        let badge_c = next_test_id(); // 成就徽章（需要A+B）
 
         let dependencies = vec![
             // C 依赖 A（前置条件，自动触发）
@@ -83,10 +90,10 @@ mod cascade_integration {
     /// 用户获得 A 后，如果满足条件，依次触发 B、C、D 的检查与发放
     #[test]
     fn test_multi_level_cascade() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let c = Uuid::new_v4();
-        let d = Uuid::new_v4();
+        let a = next_test_id();
+        let b = next_test_id();
+        let c = next_test_id();
+        let d = next_test_id();
 
         let dependencies = vec![
             create_dependency_row(b, a, "prerequisite", true, "g1", None),
@@ -116,9 +123,9 @@ mod cascade_integration {
     /// 防止 A -> B -> C -> A 这样的循环依赖导致无限递归
     #[test]
     fn test_cycle_detection_in_cascade_context() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let c = Uuid::new_v4();
+        let a = next_test_id();
+        let b = next_test_id();
+        let c = next_test_id();
 
         let mut context = CascadeContext::new();
 
@@ -155,7 +162,7 @@ mod cascade_integration {
 
         // 模拟 6 层深度
         for i in 0..6 {
-            context.enter(Uuid::new_v4());
+            context.enter(next_test_id());
             if context.depth > config.max_depth {
                 // 应该在第 6 层被阻止
                 assert_eq!(i, 5);
@@ -171,8 +178,8 @@ mod cascade_integration {
     /// 验证离开某层后深度正确递减，但 visited 集合保持不变（防止同一评估中重复访问）
     #[test]
     fn test_cascade_context_enter_leave() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
+        let a = next_test_id();
+        let b = next_test_id();
 
         let mut context = CascadeContext::new();
         assert_eq!(context.depth, 0);
@@ -213,11 +220,11 @@ mod cascade_integration {
     /// 如果 C 依赖 A 和 B，那么获得 A 或 B 都应该触发对 C 的检查
     #[test]
     fn test_multiple_triggers_for_same_target() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let c = Uuid::new_v4();
-        let d = Uuid::new_v4();
-        let target = Uuid::new_v4();
+        let a = next_test_id();
+        let b = next_test_id();
+        let c = next_test_id();
+        let d = next_test_id();
+        let target = next_test_id();
 
         // target 依赖 a, b, c, d
         let dependencies = vec![
@@ -242,9 +249,9 @@ mod cascade_integration {
     /// 测试场景：非自动触发的依赖不会出现在 triggered_by 中
     #[test]
     fn test_non_auto_trigger_dependencies() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let c = Uuid::new_v4();
+        let a = next_test_id();
+        let b = next_test_id();
+        let c = next_test_id();
 
         let dependencies = vec![
             // B 依赖 A，自动触发
@@ -277,12 +284,12 @@ mod competitive_redemption_integration {
     /// - D 和 E 在同一互斥组中，用户只能拥有其中一个
     #[test]
     fn test_exclusive_redemption_scenario() {
-        let a = Uuid::new_v4(); // 普通徽章
-        let b = Uuid::new_v4(); // 普通徽章
-        let c = Uuid::new_v4(); // 普通徽章
-        let f = Uuid::new_v4(); // 消耗型徽章
-        let d = Uuid::new_v4(); // 目标徽章 D
-        let e = Uuid::new_v4(); // 目标徽章 E
+        let a = next_test_id(); // 普通徽章
+        let b = next_test_id(); // 普通徽章
+        let c = next_test_id(); // 普通徽章
+        let f = next_test_id(); // 消耗型徽章
+        let d = next_test_id(); // 目标徽章 D
+        let e = next_test_id(); // 目标徽章 E
 
         let dependencies = vec![
             // D 的依赖
@@ -316,9 +323,9 @@ mod competitive_redemption_integration {
     #[test]
     fn test_redemption_request_response_flow() {
         let user_id = "user_12345".to_string();
-        let target_badge = Uuid::new_v4();
-        let consumed_badge_1 = Uuid::new_v4();
-        let consumed_badge_2 = Uuid::new_v4();
+        let target_badge = next_test_id();
+        let consumed_badge_1 = next_test_id();
+        let consumed_badge_2 = next_test_id();
 
         // 创建请求
         let request = CompetitiveRedeemRequest::new(user_id.clone(), target_badge);
@@ -364,7 +371,7 @@ mod competitive_redemption_integration {
     #[test]
     fn test_redemption_request_with_rule_id() {
         let user_id = "user_abc";
-        let target_badge = Uuid::new_v4();
+        let target_badge = next_test_id();
         let rule_id = "promotion_2024_spring";
 
         let request = CompetitiveRedeemRequest::new(user_id, target_badge).with_rule_id(rule_id);
@@ -377,8 +384,8 @@ mod competitive_redemption_integration {
     /// 测试场景：消耗型依赖的数量要求
     #[test]
     fn test_consume_dependency_quantity() {
-        let source = Uuid::new_v4();
-        let target = Uuid::new_v4();
+        let source = next_test_id();
+        let target = next_test_id();
 
         let mut row = create_dependency_row(target, source, "consume", false, "g1", None);
         row.required_quantity = 5; // 需要消耗 5 个
@@ -396,9 +403,9 @@ mod competitive_redemption_integration {
     /// 目标徽章同时需要：前置条件 + 消耗型依赖
     #[test]
     fn test_mixed_dependency_types() {
-        let prereq_badge = Uuid::new_v4();
-        let consume_badge = Uuid::new_v4();
-        let target = Uuid::new_v4();
+        let prereq_badge = next_test_id();
+        let consume_badge = next_test_id();
+        let target = next_test_id();
 
         let dependencies = vec![
             create_dependency_row(target, prereq_badge, "prerequisite", false, "g1", None),
@@ -446,7 +453,7 @@ mod lock_integration {
     #[test]
     fn test_lock_key_formatting() {
         let user_id = "user_123";
-        let badge_id = Uuid::new_v4();
+        let badge_id = next_test_id();
         let rule_id = "rule_456";
 
         // 竞争兑换锁 key
@@ -463,8 +470,8 @@ mod lock_integration {
     fn test_lock_key_uniqueness() {
         let user_a = "user_a";
         let user_b = "user_b";
-        let badge_1 = Uuid::new_v4();
-        let badge_2 = Uuid::new_v4();
+        let badge_1 = next_test_id();
+        let badge_2 = next_test_id();
 
         let key_1 = format!("redeem:{}:{}", user_a, badge_1);
         let key_2 = format!("redeem:{}:{}", user_a, badge_2);
@@ -504,8 +511,8 @@ mod cascade_result_integration {
     /// 测试场景：BlockReason 枚举覆盖各种阻止原因
     #[test]
     fn test_block_reasons() {
-        let missing_badges = vec![Uuid::new_v4(), Uuid::new_v4()];
-        let conflicting_badge = Uuid::new_v4();
+        let missing_badges = vec![next_test_id(), next_test_id()];
+        let conflicting_badge = next_test_id();
 
         // 前置条件不满足
         let reason1 = BlockReason::PrerequisiteNotMet {
@@ -632,7 +639,7 @@ mod dependency_graph_advanced {
 
         assert!(graph.is_empty());
 
-        let random_badge = Uuid::new_v4();
+        let random_badge = next_test_id();
         assert!(graph.get_triggered_by(random_badge).is_empty());
         assert!(graph.get_prerequisites(random_badge).is_empty());
         assert!(graph.get_exclusive_group("any_group").is_empty());
@@ -643,10 +650,10 @@ mod dependency_graph_advanced {
     /// 依赖应该按 priority 字段排序，低优先级值的依赖先被处理
     #[test]
     fn test_dependency_priority_ordering() {
-        let source = Uuid::new_v4();
-        let target1 = Uuid::new_v4();
-        let target2 = Uuid::new_v4();
-        let target3 = Uuid::new_v4();
+        let source = next_test_id();
+        let target1 = next_test_id();
+        let target2 = next_test_id();
+        let target3 = next_test_id();
 
         let mut dep1 = create_dependency_row(target1, source, "prerequisite", true, "g1", None);
         dep1.priority = 10;
@@ -671,16 +678,16 @@ mod dependency_graph_advanced {
     /// 测试场景：同一徽章的多个互斥组
     #[test]
     fn test_multiple_exclusive_groups() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
-        let badge_d = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
+        let badge_d = next_test_id();
 
         let dependencies = vec![
             // A 和 B 在 group1 中互斥
             create_dependency_row(
                 badge_a,
-                Uuid::new_v4(),
+                next_test_id(),
                 "exclusive",
                 false,
                 "g1",
@@ -688,7 +695,7 @@ mod dependency_graph_advanced {
             ),
             create_dependency_row(
                 badge_b,
-                Uuid::new_v4(),
+                next_test_id(),
                 "exclusive",
                 false,
                 "g1",
@@ -697,7 +704,7 @@ mod dependency_graph_advanced {
             // C 和 D 在 group2 中互斥
             create_dependency_row(
                 badge_c,
-                Uuid::new_v4(),
+                next_test_id(),
                 "exclusive",
                 false,
                 "g1",
@@ -705,7 +712,7 @@ mod dependency_graph_advanced {
             ),
             create_dependency_row(
                 badge_d,
-                Uuid::new_v4(),
+                next_test_id(),
                 "exclusive",
                 false,
                 "g1",

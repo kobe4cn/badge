@@ -19,7 +19,6 @@ use std::sync::Arc;
 use chrono::Utc;
 use sqlx::PgPool;
 use tracing::{info, instrument};
-use uuid::Uuid;
 
 use crate::error::{BadgeError, Result};
 use crate::lock::LockManager;
@@ -30,13 +29,13 @@ use crate::repository::{BadgeDependencyRow, DependencyRepository, UserBadgeRepos
 pub struct CompetitiveRedeemRequest {
     pub user_id: String,
     /// 目标徽章（要获得的徽章）
-    pub target_badge_id: Uuid,
+    pub target_badge_id: i64,
     /// 规则ID（用于锁定，可选）
     pub rule_id: Option<String>,
 }
 
 impl CompetitiveRedeemRequest {
-    pub fn new(user_id: impl Into<String>, target_badge_id: Uuid) -> Self {
+    pub fn new(user_id: impl Into<String>, target_badge_id: i64) -> Self {
         Self {
             user_id: user_id.into(),
             target_badge_id,
@@ -54,7 +53,7 @@ impl CompetitiveRedeemRequest {
 #[derive(Debug)]
 pub struct CompetitiveRedeemResponse {
     pub success: bool,
-    pub target_badge_id: Uuid,
+    pub target_badge_id: i64,
     /// 消耗的徽章列表
     pub consumed_badges: Vec<ConsumedBadge>,
     /// 失败原因（仅在 success=false 时有值）
@@ -62,7 +61,7 @@ pub struct CompetitiveRedeemResponse {
 }
 
 impl CompetitiveRedeemResponse {
-    fn success(target_badge_id: Uuid, consumed_badges: Vec<ConsumedBadge>) -> Self {
+    fn success(target_badge_id: i64, consumed_badges: Vec<ConsumedBadge>) -> Self {
         Self {
             success: true,
             target_badge_id,
@@ -71,7 +70,7 @@ impl CompetitiveRedeemResponse {
         }
     }
 
-    fn failure(target_badge_id: Uuid, reason: impl Into<String>) -> Self {
+    fn failure(target_badge_id: i64, reason: impl Into<String>) -> Self {
         Self {
             success: false,
             target_badge_id,
@@ -84,7 +83,7 @@ impl CompetitiveRedeemResponse {
 /// 消耗的徽章信息
 #[derive(Debug, Clone)]
 pub struct ConsumedBadge {
-    pub badge_id: Uuid,
+    pub badge_id: i64,
     pub quantity: i32,
 }
 
@@ -208,12 +207,8 @@ impl CompetitiveRedemptionService {
     }
 
     /// 检查用户是否持有指定徽章
-    async fn user_has_badge(&self, user_id: &str, badge_id: Uuid) -> Result<bool> {
-        // badge_id 是 Uuid，需要转换为 i64 来查询
-        // 实际项目中可能需要调整表结构或查询方式
-        let badge_id_i64 = (badge_id.as_u128() & 0x7FFFFFFFFFFFFFFF) as i64;
-
-        let user_badge = self.user_badge_repo.get_user_badge(user_id, badge_id_i64).await?;
+    async fn user_has_badge(&self, user_id: &str, badge_id: i64) -> Result<bool> {
+        let user_badge = self.user_badge_repo.get_user_badge(user_id, badge_id).await?;
 
         match user_badge {
             Some(ub) => Ok(ub.quantity > 0),
@@ -230,7 +225,7 @@ impl CompetitiveRedemptionService {
     async fn execute_redemption_tx(
         &self,
         user_id: &str,
-        target_badge_id: Uuid,
+        target_badge_id: i64,
         consume_deps: &[BadgeDependencyRow],
     ) -> Result<CompetitiveRedeemResponse> {
         let mut tx = self.pool.begin().await?;
@@ -239,8 +234,6 @@ impl CompetitiveRedemptionService {
         for dep in consume_deps {
             // FOR UPDATE NOWAIT 锁定用户徽章记录
             // 如果锁不可用立即失败，避免死锁等待
-            let badge_id_i64 = (dep.depends_on_badge_id.as_u128() & 0x7FFFFFFFFFFFFFFF) as i64;
-
             let user_badge = sqlx::query_as::<_, UserBadgeRow>(
                 r#"
                 SELECT id, user_id, badge_id, quantity, status::text as status
@@ -250,7 +243,7 @@ impl CompetitiveRedemptionService {
                 "#,
             )
             .bind(user_id)
-            .bind(badge_id_i64)
+            .bind(dep.depends_on_badge_id)
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| {
@@ -329,20 +322,19 @@ impl CompetitiveRedemptionService {
 
         // 发放目标徽章
         // 使用 UPSERT 模式：如果已存在则增加数量，否则创建新记录
-        let target_badge_id_i64 = (target_badge_id.as_u128() & 0x7FFFFFFFFFFFFFFF) as i64;
         let now = Utc::now();
 
         sqlx::query(
             r#"
-            INSERT INTO user_badges (user_id, badge_id, status, quantity, acquired_at, created_at, updated_at)
-            VALUES ($1, $2, 'ACTIVE', 1, $3, $3, $3)
+            INSERT INTO user_badges (user_id, badge_id, status, quantity, first_acquired_at, source_type, created_at, updated_at)
+            VALUES ($1, $2, 'active', 1, $3, 'redemption', $3, $3)
             ON CONFLICT (user_id, badge_id) DO UPDATE SET
                 quantity = user_badges.quantity + 1,
                 updated_at = $3
             "#,
         )
         .bind(user_id)
-        .bind(target_badge_id_i64)
+        .bind(target_badge_id)
         .bind(now)
         .execute(&mut *tx)
         .await?;
@@ -367,14 +359,15 @@ mod tests {
 
     #[test]
     fn test_competitive_redeem_request_new() {
-        let request = CompetitiveRedeemRequest::new("user-123", Uuid::new_v4());
+        let request = CompetitiveRedeemRequest::new("user-123", 100);
         assert_eq!(request.user_id, "user-123");
+        assert_eq!(request.target_badge_id, 100);
         assert!(request.rule_id.is_none());
     }
 
     #[test]
     fn test_competitive_redeem_request_with_rule_id() {
-        let badge_id = Uuid::new_v4();
+        let badge_id = 200;
         let request = CompetitiveRedeemRequest::new("user-123", badge_id)
             .with_rule_id("rule-001");
         assert_eq!(request.user_id, "user-123");
@@ -385,7 +378,7 @@ mod tests {
     #[test]
     fn test_competitive_redeem_request_builder_pattern() {
         // 测试链式调用的 builder 模式
-        let badge_id = Uuid::new_v4();
+        let badge_id = 300;
         let request = CompetitiveRedeemRequest::new("user-456", badge_id)
             .with_rule_id("complex-rule-id");
 
@@ -397,7 +390,7 @@ mod tests {
     #[test]
     fn test_competitive_redeem_request_different_user_types() {
         // 测试不同类型的 user_id 输入（Into<String> trait）
-        let badge_id = Uuid::new_v4();
+        let badge_id = 400;
 
         // 使用 &str
         let request1 = CompetitiveRedeemRequest::new("user-str", badge_id);
@@ -410,9 +403,9 @@ mod tests {
 
     #[test]
     fn test_competitive_redeem_response_success() {
-        let badge_id = Uuid::new_v4();
+        let badge_id = 500;
         let consumed = vec![ConsumedBadge {
-            badge_id: Uuid::new_v4(),
+            badge_id: 501,
             quantity: 2,
         }];
         let response = CompetitiveRedeemResponse::success(badge_id, consumed);
@@ -426,17 +419,17 @@ mod tests {
     #[test]
     fn test_competitive_redeem_response_success_multiple_badges() {
         // 测试成功响应包含多个消耗徽章
-        let target_badge_id = Uuid::new_v4();
+        let target_badge_id = 600;
         let consumed_badge_1 = ConsumedBadge {
-            badge_id: Uuid::new_v4(),
+            badge_id: 601,
             quantity: 1,
         };
         let consumed_badge_2 = ConsumedBadge {
-            badge_id: Uuid::new_v4(),
+            badge_id: 602,
             quantity: 3,
         };
         let consumed_badge_3 = ConsumedBadge {
-            badge_id: Uuid::new_v4(),
+            badge_id: 603,
             quantity: 2,
         };
 
@@ -456,7 +449,7 @@ mod tests {
     #[test]
     fn test_competitive_redeem_response_success_empty_consumed() {
         // 边界情况：成功但没有消耗徽章（理论上不应发生，但结构上允许）
-        let badge_id = Uuid::new_v4();
+        let badge_id = 700;
         let response = CompetitiveRedeemResponse::success(badge_id, vec![]);
 
         assert!(response.success);
@@ -466,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_competitive_redeem_response_failure() {
-        let badge_id = Uuid::new_v4();
+        let badge_id = 800;
         let response = CompetitiveRedeemResponse::failure(badge_id, "徽章数量不足");
 
         assert!(!response.success);
@@ -478,7 +471,7 @@ mod tests {
     #[test]
     fn test_competitive_redeem_response_failure_various_reasons() {
         // 测试不同的失败原因
-        let badge_id = Uuid::new_v4();
+        let badge_id = 900;
 
         let response1 = CompetitiveRedeemResponse::failure(badge_id, "缺少必需徽章");
         assert_eq!(response1.failure_reason, Some("缺少必需徽章".to_string()));
@@ -492,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_consumed_badge_creation() {
-        let badge_id = Uuid::new_v4();
+        let badge_id = 1000;
         let consumed = ConsumedBadge {
             badge_id,
             quantity: 3,
@@ -504,7 +497,7 @@ mod tests {
     #[test]
     fn test_consumed_badge_clone() {
         // 测试 ConsumedBadge 的 Clone trait
-        let badge_id = Uuid::new_v4();
+        let badge_id = 1100;
         let consumed = ConsumedBadge {
             badge_id,
             quantity: 5,
@@ -519,7 +512,7 @@ mod tests {
     #[test]
     fn test_consumed_badge_quantity_edge_cases() {
         // 测试数量边界值
-        let badge_id = Uuid::new_v4();
+        let badge_id = 1200;
 
         // 最小有效数量
         let consumed_min = ConsumedBadge {
@@ -547,7 +540,7 @@ mod tests {
     fn test_lock_key_format() {
         // 验证锁 key 的格式符合预期
         let user_id = "user_123";
-        let target_badge_id = Uuid::new_v4();
+        let target_badge_id: i64 = 1300;
 
         let lock_key = format!("redeem:{}:{}", user_id, target_badge_id);
 
@@ -568,8 +561,8 @@ mod tests {
         // 测试不同用户/徽章组合产生不同的锁 key
         let user_id_1 = "user_A";
         let user_id_2 = "user_B";
-        let badge_id_1 = Uuid::new_v4();
-        let badge_id_2 = Uuid::new_v4();
+        let badge_id_1: i64 = 1400;
+        let badge_id_2: i64 = 1401;
 
         let key_1 = format!("redeem:{}:{}", user_id_1, badge_id_1);
         let key_2 = format!("redeem:{}:{}", user_id_2, badge_id_1);
@@ -590,8 +583,8 @@ mod tests {
         // 假设用户持有徽章 A，而徽章 A 和徽章 B 在同一互斥组中
         // 当用户尝试兑换徽章 B 时应该失败
 
-        let badge_id_a = Uuid::new_v4();
-        let badge_id_b = Uuid::new_v4();
+        let badge_id_a: i64 = 1500;
+        let badge_id_b: i64 = 1501;
         let group_id = "exclusive-group-1";
 
         // 模拟错误消息格式
@@ -609,19 +602,5 @@ mod tests {
         assert!(!response.success);
         assert_eq!(response.target_badge_id, badge_id_b);
         assert!(response.failure_reason.as_ref().unwrap().contains("互斥冲突"));
-    }
-
-    #[test]
-    fn test_badge_id_conversion_consistency() {
-        // 测试 UUID 到 i64 转换的一致性（用于数据库查询）
-        let badge_id = Uuid::new_v4();
-        let badge_id_i64 = (badge_id.as_u128() & 0x7FFFFFFFFFFFFFFF) as i64;
-
-        // 同一 UUID 应该总是产生相同的 i64
-        let badge_id_i64_again = (badge_id.as_u128() & 0x7FFFFFFFFFFFFFFF) as i64;
-        assert_eq!(badge_id_i64, badge_id_i64_again);
-
-        // i64 应该是非负数（因为使用了掩码）
-        assert!(badge_id_i64 >= 0);
     }
 }

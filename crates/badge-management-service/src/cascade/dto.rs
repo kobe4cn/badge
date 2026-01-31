@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use uuid::Uuid;
 
 /// 依赖类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,11 +35,11 @@ impl DependencyType {
 /// 徽章依赖关系
 #[derive(Debug, Clone)]
 pub struct BadgeDependency {
-    pub id: Uuid,
+    pub id: i64,
     /// 目标徽章（获得此徽章需要满足依赖条件）
-    pub badge_id: Uuid,
+    pub badge_id: i64,
     /// 依赖的徽章
-    pub depends_on_badge_id: Uuid,
+    pub depends_on_badge_id: i64,
     /// 依赖类型
     pub dependency_type: DependencyType,
     /// 需要的数量
@@ -82,9 +81,9 @@ pub struct CascadeContext {
     /// 当前递归深度
     pub depth: u32,
     /// 已访问的徽章（用于循环检测）
-    pub visited: HashSet<Uuid>,
+    pub visited: HashSet<i64>,
     /// 访问路径（用于错误报告）
-    pub path: Vec<Uuid>,
+    pub path: Vec<i64>,
     /// 开始时间
     pub started_at: std::time::Instant,
 }
@@ -100,7 +99,7 @@ impl CascadeContext {
     }
 
     /// 进入下一层
-    pub fn enter(&mut self, badge_id: Uuid) {
+    pub fn enter(&mut self, badge_id: i64) {
         self.depth += 1;
         self.visited.insert(badge_id);
         self.path.push(badge_id);
@@ -113,7 +112,7 @@ impl CascadeContext {
     }
 
     /// 检查是否存在循环
-    pub fn has_cycle(&self, badge_id: Uuid) -> bool {
+    pub fn has_cycle(&self, badge_id: i64) -> bool {
         self.visited.contains(&badge_id)
     }
 
@@ -140,22 +139,22 @@ pub struct CascadeResult {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GrantedBadge {
-    pub badge_id: Uuid,
+    pub badge_id: i64,
     pub badge_name: String,
-    pub triggered_by: Uuid,
+    pub triggered_by: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockedBadge {
-    pub badge_id: Uuid,
+    pub badge_id: i64,
     pub badge_name: Option<String>,
     pub reason: BlockReason,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub enum BlockReason {
-    PrerequisiteNotMet { missing: Vec<Uuid> },
-    ExclusiveConflict { conflicting: Uuid },
+    PrerequisiteNotMet { missing: Vec<i64> },
+    ExclusiveConflict { conflicting: i64 },
     CycleDetected,
     DepthExceeded,
     Timeout,

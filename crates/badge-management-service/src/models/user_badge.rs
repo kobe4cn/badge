@@ -27,6 +27,8 @@ pub struct UserBadge {
     /// 过期时间（null 表示永久有效）
     #[sqlx(default)]
     pub expires_at: Option<DateTime<Utc>>,
+    /// 发放来源
+    pub source_type: SourceType,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -253,6 +255,7 @@ mod tests {
             quantity: 1,
             acquired_at: Utc::now(),
             expires_at: None,
+            source_type: SourceType::Manual,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

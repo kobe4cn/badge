@@ -47,43 +47,41 @@ CREATE INDEX idx_badge_series_category ON badge_series(category_id);
 CREATE TABLE badges (
     id BIGSERIAL PRIMARY KEY,
     series_id BIGINT NOT NULL REFERENCES badge_series(id),
-    code VARCHAR(50) NOT NULL UNIQUE, -- 业务唯一标识
+    badge_type VARCHAR(50) NOT NULL, -- normal, limited, achievement, event
     name VARCHAR(100) NOT NULL,
     description TEXT,
-    badge_type VARCHAR(50) NOT NULL, -- transaction, engagement, identity, seasonal
+    obtain_description TEXT, -- 获取条件描述，展示给用户
 
-    -- 素材
-    icon_url TEXT,
-    icon_3d_url TEXT,
+    -- 素材配置 (JSONB)
+    assets JSONB NOT NULL DEFAULT '{"iconUrl": ""}', -- {"iconUrl", "imageUrl", "animationUrl", "disabledIconUrl"}
 
-    -- 获取配置
-    acquire_time_start TIMESTAMPTZ,
-    acquire_time_end TIMESTAMPTZ,
-    max_acquire_count INT, -- NULL 表示无限制
+    -- 有效期配置 (JSONB)
+    validity_config JSONB NOT NULL DEFAULT '{"validityType": "PERMANENT"}', -- {"validityType", "fixedDate", "relativeDays"}
 
-    -- 持有有效期配置
-    validity_type VARCHAR(20) NOT NULL DEFAULT 'permanent', -- fixed, flexible, permanent
-    validity_fixed_date TIMESTAMPTZ, -- validity_type = fixed 时使用，固定到期日
-    validity_days INT, -- validity_type = flexible 时使用，获取后N天过期
+    -- 库存控制
+    max_supply BIGINT, -- NULL 表示不限量
+    issued_count BIGINT NOT NULL DEFAULT 0, -- 已发放数量
 
-    -- 发放对象
-    grant_target VARCHAR(20) NOT NULL DEFAULT 'account', -- account, actual_user
+    -- 排序
+    sort_order INT NOT NULL DEFAULT 0,
 
-    status VARCHAR(20) NOT NULL DEFAULT 'draft', -- draft, active, inactive
+    status VARCHAR(20) NOT NULL DEFAULT 'draft', -- draft, active, inactive, archived
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE badges IS '徽章定义，实际发放给用户的徽章实体';
-COMMENT ON COLUMN badges.code IS '业务唯一标识，用于外部系统引用';
-COMMENT ON COLUMN badges.badge_type IS '徽章类型：transaction-交易，engagement-互动，identity-身份，seasonal-季节性';
-COMMENT ON COLUMN badges.validity_type IS '有效期类型：fixed-固定日期，flexible-相对天数，permanent-永久';
-COMMENT ON COLUMN badges.status IS '状态：draft-草稿，active-已上线，inactive-已下线';
+COMMENT ON COLUMN badges.badge_type IS '徽章类型：normal-普通，limited-限定，achievement-成就，event-活动';
+COMMENT ON COLUMN badges.obtain_description IS '获取条件描述，向用户展示如何获得此徽章';
+COMMENT ON COLUMN badges.assets IS '素材配置JSON：iconUrl-图标，imageUrl-大图，animationUrl-动效，disabledIconUrl-灰态图标';
+COMMENT ON COLUMN badges.validity_config IS '有效期配置JSON：validityType-类型(PERMANENT/FIXED_DATE/RELATIVE_DAYS)，fixedDate-固定日期，relativeDays-相对天数';
+COMMENT ON COLUMN badges.max_supply IS '最大发放总量，NULL表示不限量';
+COMMENT ON COLUMN badges.issued_count IS '已发放数量，用于库存控制';
+COMMENT ON COLUMN badges.status IS '状态：draft-草稿，active-已上线，inactive-已下线，archived-已归档';
 
 CREATE INDEX idx_badges_series ON badges(series_id);
 CREATE INDEX idx_badges_type ON badges(badge_type);
 CREATE INDEX idx_badges_status ON badges(status);
-CREATE INDEX idx_badges_code ON badges(code);
 
 -- ==================== 规则配置 ====================
 
@@ -91,21 +89,30 @@ CREATE INDEX idx_badges_code ON badges(code);
 CREATE TABLE badge_rules (
     id BIGSERIAL PRIMARY KEY,
     badge_id BIGINT NOT NULL REFERENCES badges(id),
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
     rule_json JSONB NOT NULL, -- 规则 JSON，遵循统一规则引擎格式
-    priority INT NOT NULL DEFAULT 0, -- 优先级，数值越大越优先
-    status VARCHAR(20) NOT NULL DEFAULT 'active',
+
+    -- 时间限制
+    start_time TIMESTAMPTZ, -- 规则生效开始时间
+    end_time TIMESTAMPTZ, -- 规则生效结束时间
+
+    -- 发放限制
+    max_count_per_user INT, -- 每用户最大获取次数，NULL 表示不限制
+
+    enabled BOOLEAN NOT NULL DEFAULT TRUE, -- 是否启用
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE badge_rules IS '徽章获取规则，定义触发徽章发放的条件';
 COMMENT ON COLUMN badge_rules.rule_json IS '规则JSON，遵循统一规则引擎的JSON Schema格式';
-COMMENT ON COLUMN badge_rules.priority IS '优先级，当多条规则匹配时，数值越大越优先';
+COMMENT ON COLUMN badge_rules.start_time IS '规则生效开始时间，NULL表示立即生效';
+COMMENT ON COLUMN badge_rules.end_time IS '规则生效结束时间，NULL表示永久有效';
+COMMENT ON COLUMN badge_rules.max_count_per_user IS '每用户最大获取次数，NULL表示不限制';
+COMMENT ON COLUMN badge_rules.enabled IS '是否启用此规则';
 
 CREATE INDEX idx_badge_rules_badge ON badge_rules(badge_id);
-CREATE INDEX idx_badge_rules_status ON badge_rules(status);
+CREATE INDEX idx_badge_rules_enabled ON badge_rules(enabled);
 CREATE INDEX idx_badge_rules_json ON badge_rules USING GIN(rule_json);
 
 -- ==================== 用户徽章 ====================
@@ -138,6 +145,7 @@ CREATE INDEX idx_user_badges_badge ON user_badges(badge_id);
 CREATE INDEX idx_user_badges_status ON user_badges(status);
 CREATE INDEX idx_user_badges_user_status ON user_badges(user_id, status);
 CREATE INDEX idx_user_badges_expires ON user_badges(expires_at) WHERE expires_at IS NOT NULL;
+CREATE UNIQUE INDEX idx_user_badges_user_badge ON user_badges(user_id, badge_id);
 
 -- 徽章账本（流水）- 复式记账设计
 CREATE TABLE badge_ledger (

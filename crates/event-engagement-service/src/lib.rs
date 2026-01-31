@@ -7,4 +7,3 @@ pub mod consumer;
 pub mod error;
 pub mod processor;
 pub mod rule_client;
-pub mod rule_mapping;

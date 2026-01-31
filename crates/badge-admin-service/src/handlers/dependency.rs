@@ -9,7 +9,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use uuid::Uuid;
 
 use crate::{
     dto::ApiResponse,
@@ -22,7 +21,7 @@ use crate::{
 #[serde(rename_all = "camelCase")]
 pub struct CreateDependencyRequest {
     /// 依赖的徽章 ID（该徽章必须先获得）
-    pub depends_on_badge_id: Uuid,
+    pub depends_on_badge_id: i64,
     /// 依赖类型：prerequisite（前置条件）、consume（消耗）、exclusive（互斥）
     pub dependency_type: String,
     /// 需要的数量，默认为 1
@@ -48,9 +47,9 @@ fn default_quantity() -> i32 {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DependencyResponse {
-    pub id: Uuid,
-    pub badge_id: Uuid,
-    pub depends_on_badge_id: Uuid,
+    pub id: i64,
+    pub badge_id: i64,
+    pub depends_on_badge_id: i64,
     pub dependency_type: String,
     pub required_quantity: i32,
     pub exclusive_group_id: Option<String>,
@@ -75,7 +74,7 @@ const VALID_DEPENDENCY_TYPES: [&str; 3] = ["prerequisite", "consume", "exclusive
 /// - exclusive: 互斥关系，同一互斥组内的徽章只能拥有一个
 pub async fn create_dependency(
     State(state): State<AppState>,
-    Path(badge_id): Path<Uuid>,
+    Path(badge_id): Path<i64>,
     Json(req): Json<CreateDependencyRequest>,
 ) -> Result<(StatusCode, Json<ApiResponse<DependencyResponse>>), AdminError> {
     // 验证 dependency_type
@@ -123,8 +122,8 @@ pub async fn create_dependency(
     let row = dependency_repo.create(&create_req).await?;
 
     info!(
-        badge_id = %badge_id,
-        depends_on = %req.depends_on_badge_id,
+        badge_id = badge_id,
+        depends_on = req.depends_on_badge_id,
         dependency_type = %req.dependency_type,
         "Dependency created"
     );
@@ -140,7 +139,7 @@ pub async fn create_dependency(
 /// 返回指定徽章的所有前置依赖条件
 pub async fn list_dependencies(
     State(state): State<AppState>,
-    Path(badge_id): Path<Uuid>,
+    Path(badge_id): Path<i64>,
 ) -> Result<Json<ApiResponse<Vec<DependencyResponse>>>, AdminError> {
     let dependency_repo = state.dependency_repo()?;
 
@@ -157,14 +156,14 @@ pub async fn list_dependencies(
 /// 删除指定的依赖关系配置
 pub async fn delete_dependency(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     let dependency_repo = state.dependency_repo()?;
 
     let deleted = dependency_repo.delete(id).await?;
 
     if deleted {
-        info!(dependency_id = %id, "Dependency deleted");
+        info!(dependency_id = id, "Dependency deleted");
         Ok(Json(ApiResponse::<()>::success_empty()))
     } else {
         Err(AdminError::DependencyNotFound(id))

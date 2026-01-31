@@ -167,7 +167,7 @@ impl RedemptionRepository {
     pub async fn create_order(&self, order: &RedemptionOrder) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO redemption_orders (order_no, user_id, rule_id, benefit_id, status,
+            INSERT INTO redemption_orders (order_no, user_id, redemption_rule_id, benefit_id, status,
                                           failure_reason, benefit_result, idempotency_key,
                                           created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -194,7 +194,7 @@ impl RedemptionRepository {
     pub async fn create_order_in_tx(tx: &mut PgConnection, order: &RedemptionOrder) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO redemption_orders (order_no, user_id, rule_id, benefit_id, status,
+            INSERT INTO redemption_orders (order_no, user_id, redemption_rule_id, benefit_id, status,
                                           failure_reason, benefit_result, idempotency_key,
                                           created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -221,7 +221,7 @@ impl RedemptionRepository {
     pub async fn get_order(&self, id: i64) -> Result<Option<RedemptionOrder>> {
         let order = sqlx::query_as::<_, RedemptionOrder>(
             r#"
-            SELECT id, order_no, user_id, rule_id, benefit_id, status,
+            SELECT id, order_no, user_id, redemption_rule_id AS rule_id, benefit_id, status,
                    failure_reason, benefit_result, idempotency_key,
                    created_at, updated_at
             FROM redemption_orders
@@ -239,7 +239,7 @@ impl RedemptionRepository {
     pub async fn get_order_by_no(&self, order_no: &str) -> Result<Option<RedemptionOrder>> {
         let order = sqlx::query_as::<_, RedemptionOrder>(
             r#"
-            SELECT id, order_no, user_id, rule_id, benefit_id, status,
+            SELECT id, order_no, user_id, redemption_rule_id AS rule_id, benefit_id, status,
                    failure_reason, benefit_result, idempotency_key,
                    created_at, updated_at
             FROM redemption_orders
@@ -262,7 +262,7 @@ impl RedemptionRepository {
     ) -> Result<Option<RedemptionOrder>> {
         let order = sqlx::query_as::<_, RedemptionOrder>(
             r#"
-            SELECT id, order_no, user_id, rule_id, benefit_id, status,
+            SELECT id, order_no, user_id, redemption_rule_id AS rule_id, benefit_id, status,
                    failure_reason, benefit_result, idempotency_key,
                    created_at, updated_at
             FROM redemption_orders
@@ -351,7 +351,7 @@ impl RedemptionRepository {
     ) -> Result<Vec<RedemptionOrder>> {
         let orders = sqlx::query_as::<_, RedemptionOrder>(
             r#"
-            SELECT id, order_no, user_id, rule_id, benefit_id, status,
+            SELECT id, order_no, user_id, redemption_rule_id AS rule_id, benefit_id, status,
                    failure_reason, benefit_result, idempotency_key,
                    created_at, updated_at
             FROM redemption_orders
@@ -374,7 +374,7 @@ impl RedemptionRepository {
     pub async fn count_user_redemptions(
         &self,
         user_id: &str,
-        rule_id: i64,
+        redemption_rule_id: i64,
         since: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<i64> {
         let count: i64 = if let Some(since_time) = since {
@@ -382,11 +382,11 @@ impl RedemptionRepository {
                 r#"
                 SELECT COUNT(*) as count
                 FROM redemption_orders
-                WHERE user_id = $1 AND rule_id = $2 AND status = $3 AND created_at >= $4
+                WHERE user_id = $1 AND redemption_rule_id = $2 AND status = $3 AND created_at >= $4
                 "#,
             )
             .bind(user_id)
-            .bind(rule_id)
+            .bind(redemption_rule_id)
             .bind(OrderStatus::Success)
             .bind(since_time)
             .fetch_one(&self.pool)
@@ -396,11 +396,11 @@ impl RedemptionRepository {
                 r#"
                 SELECT COUNT(*) as count
                 FROM redemption_orders
-                WHERE user_id = $1 AND rule_id = $2 AND status = $3
+                WHERE user_id = $1 AND redemption_rule_id = $2 AND status = $3
                 "#,
             )
             .bind(user_id)
-            .bind(rule_id)
+            .bind(redemption_rule_id)
             .bind(OrderStatus::Success)
             .fetch_one(&self.pool)
             .await?
@@ -542,10 +542,10 @@ impl RedemptionRepositoryTrait for RedemptionRepository {
     async fn count_user_redemptions(
         &self,
         user_id: &str,
-        rule_id: i64,
+        redemption_rule_id: i64,
         since: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<i64> {
-        self.count_user_redemptions(user_id, rule_id, since).await
+        self.count_user_redemptions(user_id, redemption_rule_id, since).await
     }
 
     async fn create_detail(&self, detail: &RedemptionDetail) -> Result<i64> {

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use uuid::Uuid;
 
 use super::dto::BadgeDependency;
 use crate::repository::BadgeDependencyRow;
@@ -10,11 +9,11 @@ use crate::repository::BadgeDependencyRow;
 #[derive(Debug, Default, Clone)]
 pub struct DependencyGraph {
     /// badge_id -> 依赖此徽章的徽章列表 (auto_trigger=true)
-    triggered_by: HashMap<Uuid, Vec<BadgeDependency>>,
+    triggered_by: HashMap<i64, Vec<BadgeDependency>>,
     /// badge_id -> 此徽章的前置条件
-    prerequisites: HashMap<Uuid, Vec<BadgeDependency>>,
+    prerequisites: HashMap<i64, Vec<BadgeDependency>>,
     /// exclusive_group_id -> 组内徽章列表
-    exclusive_groups: HashMap<String, Vec<Uuid>>,
+    exclusive_groups: HashMap<String, Vec<i64>>,
 }
 
 impl DependencyGraph {
@@ -62,7 +61,7 @@ impl DependencyGraph {
     }
 
     /// 获取依赖某徽章的所有徽章（用于级联触发）
-    pub fn get_triggered_by(&self, badge_id: Uuid) -> &[BadgeDependency] {
+    pub fn get_triggered_by(&self, badge_id: i64) -> &[BadgeDependency] {
         self.triggered_by
             .get(&badge_id)
             .map(|v| v.as_slice())
@@ -70,7 +69,7 @@ impl DependencyGraph {
     }
 
     /// 获取某徽章的所有前置条件
-    pub fn get_prerequisites(&self, badge_id: Uuid) -> &[BadgeDependency] {
+    pub fn get_prerequisites(&self, badge_id: i64) -> &[BadgeDependency] {
         self.prerequisites
             .get(&badge_id)
             .map(|v| v.as_slice())
@@ -78,7 +77,7 @@ impl DependencyGraph {
     }
 
     /// 获取互斥组中的所有徽章
-    pub fn get_exclusive_group(&self, group_id: &str) -> &[Uuid] {
+    pub fn get_exclusive_group(&self, group_id: &str) -> &[i64] {
         self.exclusive_groups
             .get(group_id)
             .map(|v| v.as_slice())
@@ -113,17 +112,24 @@ impl BadgeDependency {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    static TEST_ID: AtomicI64 = AtomicI64::new(1000);
+
+    fn next_test_id() -> i64 {
+        TEST_ID.fetch_add(1, Ordering::Relaxed)
+    }
 
     fn create_test_row(
-        badge_id: Uuid,
-        depends_on: Uuid,
+        badge_id: i64,
+        depends_on: i64,
         dep_type: &str,
         auto_trigger: bool,
         group_id: &str,
         exclusive_group: Option<&str>,
     ) -> BadgeDependencyRow {
         BadgeDependencyRow {
-            id: Uuid::new_v4(),
+            id: next_test_id(),
             badge_id,
             depends_on_badge_id: depends_on,
             dependency_type: dep_type.to_string(),
@@ -146,8 +152,8 @@ mod tests {
 
     #[test]
     fn test_triggered_by_mapping() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
 
         let rows = vec![create_test_row(
             badge_b,
@@ -168,8 +174,8 @@ mod tests {
 
     #[test]
     fn test_prerequisites_mapping() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
 
         let rows = vec![create_test_row(
             badge_b,
@@ -190,14 +196,14 @@ mod tests {
 
     #[test]
     fn test_exclusive_groups() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         let rows = vec![
             create_test_row(
                 badge_a,
-                Uuid::new_v4(),
+                next_test_id(),
                 "exclusive",
                 false,
                 "default",
@@ -205,7 +211,7 @@ mod tests {
             ),
             create_test_row(
                 badge_b,
-                Uuid::new_v4(),
+                next_test_id(),
                 "exclusive",
                 false,
                 "default",
@@ -224,8 +230,8 @@ mod tests {
 
     #[test]
     fn test_non_auto_trigger_not_in_triggered_by() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
 
         let rows = vec![create_test_row(
             badge_b,

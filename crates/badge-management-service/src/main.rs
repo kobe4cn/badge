@@ -13,9 +13,11 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use badge_management::{
+    cascade::{CascadeConfig, CascadeEvaluator},
     grpc::BadgeManagementServiceImpl,
     repository::{
-        BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository,
+        BadgeLedgerRepository, BadgeRepository, DependencyRepository, RedemptionRepository,
+        UserBadgeRepository,
     },
     service::{BadgeQueryService, GrantService, RedemptionService, RevokeService},
 };
@@ -104,6 +106,21 @@ async fn main() -> Result<()> {
         cache.clone(),
         pool.clone(),
     ));
+
+    // 7. 初始化级联评估器（解决循环依赖：CascadeEvaluator 需要 GrantService，GrantService 需要 CascadeEvaluator）
+    let dependency_repo = Arc::new(DependencyRepository::new(pool.clone()));
+    let cascade_config = CascadeConfig::default();
+    let cascade_evaluator = Arc::new(CascadeEvaluator::new(
+        cascade_config,
+        dependency_repo,
+        user_badge_repo.clone(),
+    ));
+
+    // 互相注入：打破循环依赖
+    cascade_evaluator.set_grant_service(grant_service.clone()).await;
+    grant_service.set_cascade_evaluator(cascade_evaluator.clone()).await;
+    info!("Cascade evaluator initialized");
+
     info!("Services initialized");
 
     // 7. 创建 gRPC 服务

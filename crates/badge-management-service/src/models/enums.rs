@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// 区分不同性质的徽章，影响徽章的获取方式和展示逻辑
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BadgeType {
     /// 普通徽章 - 常规活动可获取
     #[default]
@@ -27,7 +27,7 @@ pub enum BadgeType {
 /// 控制徽章是否对用户可见和可获取
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BadgeStatus {
     /// 草稿 - 配置中，不对用户展示
     #[default]
@@ -45,7 +45,7 @@ pub enum BadgeStatus {
 /// 追踪用户持有徽章的生命周期
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UserBadgeStatus {
     /// 有效 - 正常持有中
     #[default]
@@ -63,7 +63,7 @@ pub enum UserBadgeStatus {
 /// 决定徽章过期时间的计算方式
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ValidityType {
     /// 永久有效 - 无过期时间
     #[default]
@@ -79,7 +79,7 @@ pub enum ValidityType {
 /// 采用复式记账思想，记录徽章数量的每一次变动
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ChangeType {
     /// 获取（+）- 通过任何方式获得徽章
     Acquire,
@@ -109,7 +109,7 @@ impl ChangeType {
 /// 标识徽章变动的触发来源，用于追溯和审计
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SourceType {
     /// 事件触发 - 用户行为触发规则引擎
     Event,
@@ -131,7 +131,7 @@ pub enum SourceType {
 /// 定义徽章可兑换的权益种类
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BenefitType {
     /// 数字资产 - NFT、虚拟物品等
     DigitalAsset,
@@ -146,7 +146,7 @@ pub enum BenefitType {
 /// 追踪兑换订单的处理进度
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OrderStatus {
     /// 待处理 - 订单已创建，等待执行
     #[default]
@@ -164,7 +164,7 @@ pub enum OrderStatus {
 /// 用于用户徽章操作日志的分类
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LogAction {
     /// 发放
     Grant,
@@ -181,7 +181,7 @@ pub enum LogAction {
 /// 控制徽章分类和系列的可见性
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CategoryStatus {
     /// 启用 - 正常展示
     #[default]

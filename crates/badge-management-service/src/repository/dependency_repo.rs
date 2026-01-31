@@ -4,16 +4,15 @@
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::error::Result;
 
 /// 依赖关系数据库行
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct BadgeDependencyRow {
-    pub id: Uuid,
-    pub badge_id: Uuid,
-    pub depends_on_badge_id: Uuid,
+    pub id: i64,
+    pub badge_id: i64,
+    pub depends_on_badge_id: i64,
     pub dependency_type: String,
     pub required_quantity: i32,
     pub exclusive_group_id: Option<String>,
@@ -28,8 +27,8 @@ pub struct BadgeDependencyRow {
 /// 创建依赖关系请求
 #[derive(Debug)]
 pub struct CreateDependencyRequest {
-    pub badge_id: Uuid,
-    pub depends_on_badge_id: Uuid,
+    pub badge_id: i64,
+    pub depends_on_badge_id: i64,
     pub dependency_type: String,
     pub required_quantity: i32,
     pub exclusive_group_id: Option<String>,
@@ -42,7 +41,7 @@ pub struct CreateDependencyRequest {
 #[derive(Debug)]
 pub struct CascadeEvaluationLog {
     pub user_id: String,
-    pub trigger_badge_id: Uuid,
+    pub trigger_badge_id: i64,
     pub evaluation_context: serde_json::Value,
     pub result_status: String,
     pub granted_badges: Option<serde_json::Value>,
@@ -74,7 +73,7 @@ impl DependencyRepository {
             SELECT id, badge_id, depends_on_badge_id, dependency_type,
                    required_quantity, exclusive_group_id, auto_trigger,
                    priority, dependency_group_id, enabled, created_at, updated_at
-            FROM badge_dependency
+            FROM badge_dependencies
             WHERE enabled = true
             ORDER BY priority ASC, id ASC
             "#,
@@ -88,13 +87,13 @@ impl DependencyRepository {
     /// 获取以某徽章为依赖的所有规则（用于级联触发）
     ///
     /// 当用户获得某徽章后，查询哪些徽章可能因此满足条件并自动发放
-    pub async fn get_triggered_by(&self, badge_id: Uuid) -> Result<Vec<BadgeDependencyRow>> {
+    pub async fn get_triggered_by(&self, badge_id: i64) -> Result<Vec<BadgeDependencyRow>> {
         let rows = sqlx::query_as::<_, BadgeDependencyRow>(
             r#"
             SELECT id, badge_id, depends_on_badge_id, dependency_type,
                    required_quantity, exclusive_group_id, auto_trigger,
                    priority, dependency_group_id, enabled, created_at, updated_at
-            FROM badge_dependency
+            FROM badge_dependencies
             WHERE depends_on_badge_id = $1
               AND auto_trigger = true
               AND enabled = true
@@ -111,13 +110,13 @@ impl DependencyRepository {
     /// 获取某徽章的所有前置条件
     ///
     /// 用于检查用户是否满足获得目标徽章的所有依赖要求
-    pub async fn get_prerequisites(&self, badge_id: Uuid) -> Result<Vec<BadgeDependencyRow>> {
+    pub async fn get_prerequisites(&self, badge_id: i64) -> Result<Vec<BadgeDependencyRow>> {
         let rows = sqlx::query_as::<_, BadgeDependencyRow>(
             r#"
             SELECT id, badge_id, depends_on_badge_id, dependency_type,
                    required_quantity, exclusive_group_id, auto_trigger,
                    priority, dependency_group_id, enabled, created_at, updated_at
-            FROM badge_dependency
+            FROM badge_dependencies
             WHERE badge_id = $1 AND enabled = true
             ORDER BY dependency_group_id ASC, priority ASC, id ASC
             "#,
@@ -132,11 +131,11 @@ impl DependencyRepository {
     /// 获取互斥组成员
     ///
     /// 返回同一互斥组内所有徽章的 badge_id，用于检查互斥冲突
-    pub async fn get_exclusive_group(&self, group_id: &str) -> Result<Vec<Uuid>> {
-        let rows = sqlx::query_scalar::<_, Uuid>(
+    pub async fn get_exclusive_group(&self, group_id: &str) -> Result<Vec<i64>> {
+        let rows = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT DISTINCT badge_id
-            FROM badge_dependency
+            FROM badge_dependencies
             WHERE exclusive_group_id = $1 AND enabled = true
             "#,
         )
@@ -151,7 +150,7 @@ impl DependencyRepository {
     pub async fn create(&self, request: &CreateDependencyRequest) -> Result<BadgeDependencyRow> {
         let row = sqlx::query_as::<_, BadgeDependencyRow>(
             r#"
-            INSERT INTO badge_dependency (
+            INSERT INTO badge_dependencies (
                 badge_id, depends_on_badge_id, dependency_type,
                 required_quantity, exclusive_group_id, auto_trigger,
                 priority, dependency_group_id
@@ -179,10 +178,10 @@ impl DependencyRepository {
     /// 删除依赖关系
     ///
     /// 返回是否成功删除（true 表示存在并已删除，false 表示记录不存在）
-    pub async fn delete(&self, id: Uuid) -> Result<bool> {
+    pub async fn delete(&self, id: i64) -> Result<bool> {
         let result = sqlx::query(
             r#"
-            DELETE FROM badge_dependency
+            DELETE FROM badge_dependencies
             WHERE id = $1
             "#,
         )
@@ -196,10 +195,10 @@ impl DependencyRepository {
     /// 记录级联评估日志
     ///
     /// 用于审计追踪和调试级联评估过程
-    pub async fn log_evaluation(&self, log: &CascadeEvaluationLog) -> Result<Uuid> {
-        let id = sqlx::query_scalar::<_, Uuid>(
+    pub async fn log_evaluation(&self, log: &CascadeEvaluationLog) -> Result<i64> {
+        let id = sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO cascade_evaluation_log (
+            INSERT INTO cascade_evaluation_logs (
                 user_id, trigger_badge_id, evaluation_context,
                 result_status, granted_badges, blocked_badges,
                 error_message, started_at, completed_at, duration_ms

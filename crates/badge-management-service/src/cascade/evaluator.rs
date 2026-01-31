@@ -20,7 +20,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 use super::dto::{
     BadgeDependency, BlockReason, BlockedBadge, CascadeConfig, CascadeContext, CascadeResult,
@@ -52,7 +51,7 @@ pub trait BadgeGranter: Send + Sync {
         &self,
         user_id: &str,
         badge_id: i64,
-        triggered_by: Uuid,
+        triggered_by: i64,
     ) -> Result<bool>;
 }
 
@@ -120,11 +119,11 @@ impl CascadeEvaluator {
     ///
     /// # Arguments
     /// * `user_id` - 用户 ID
-    /// * `trigger_badge_id` - 触发级联的徽章 ID（UUID 格式，对应 badge_dependency 表）
+    /// * `trigger_badge_id` - 触发级联的徽章 ID
     ///
     /// # Returns
     /// 返回级联评估结果，包含成功发放和被阻止的徽章列表
-    pub async fn evaluate(&self, user_id: &str, trigger_badge_id: Uuid) -> Result<CascadeResult> {
+    pub async fn evaluate(&self, user_id: &str, trigger_badge_id: i64) -> Result<CascadeResult> {
         let mut context = CascadeContext::new();
         let mut result = CascadeResult::default();
 
@@ -230,7 +229,7 @@ impl CascadeEvaluator {
     async fn evaluate_recursive(
         &self,
         user_id: &str,
-        trigger_badge_id: Uuid,
+        trigger_badge_id: i64,
         graph: &DependencyGraph,
         context: &mut CascadeContext,
         result: &mut CascadeResult,
@@ -262,7 +261,7 @@ impl CascadeEvaluator {
 
         // 5. 按目标徽章分组处理
         // 由于同一个目标徽章可能有多个依赖条件，需要先收集再评估
-        let mut badge_candidates: HashMap<Uuid, Vec<&BadgeDependency>> = HashMap::new();
+        let mut badge_candidates: HashMap<i64, Vec<&BadgeDependency>> = HashMap::new();
         for candidate in candidates {
             badge_candidates
                 .entry(candidate.badge_id)
@@ -339,14 +338,8 @@ impl CascadeEvaluator {
             // 6.5 发放徽章
             context.enter(target_badge_id);
 
-            // 需要将 UUID 转换为 badge_id (i64)
-            // 这里假设 BadgeDependency.badge_id 是 UUID，实际发放需要查找对应的 badge 表 id
-            // 由于 grant_cascade 接口使用 i64，这里需要一个映射
-            // 暂时使用 UUID 的低 64 位作为 badge_id（实际应用中应有映射表）
-            let badge_id_i64 = self.uuid_to_badge_id(target_badge_id);
-
             match self
-                .grant_badge(user_id, badge_id_i64, trigger_badge_id)
+                .grant_badge(user_id, target_badge_id, trigger_badge_id)
                 .await
             {
                 Ok(true) => {
@@ -396,16 +389,6 @@ impl CascadeEvaluator {
         Ok(())
     }
 
-    /// UUID 转换为 badge_id
-    ///
-    /// 注意：这是一个简化实现。在实际生产环境中，badge_dependency 表的 badge_id
-    /// 应该是 i64 类型（与 badges 表一致），或者需要维护 UUID 到 i64 的映射。
-    /// 当前实现取 UUID 的低 64 位。
-    fn uuid_to_badge_id(&self, uuid: Uuid) -> i64 {
-        let bytes = uuid.as_bytes();
-        i64::from_le_bytes(bytes[0..8].try_into().unwrap())
-    }
-
     /// 检查前置条件（支持依赖组逻辑）
     ///
     /// 依赖组逻辑：
@@ -419,8 +402,8 @@ impl CascadeEvaluator {
         &self,
         _user_id: &str,
         prerequisites: &[BadgeDependency],
-        user_badges: &HashMap<Uuid, i32>,
-    ) -> Result<(bool, Vec<Uuid>)> {
+        user_badges: &HashMap<i64, i32>,
+    ) -> Result<(bool, Vec<i64>)> {
         if prerequisites.is_empty() {
             return Ok((true, vec![]));
         }
@@ -444,12 +427,12 @@ impl CascadeEvaluator {
 
         // OR 逻辑：只要有一个组满足即可
         let mut any_group_satisfied = false;
-        let mut all_missing: Vec<Uuid> = vec![];
+        let mut all_missing: Vec<i64> = vec![];
 
         for (_group_id, deps) in groups {
             // AND 逻辑：组内所有条件都要满足
             let mut group_satisfied = true;
-            let mut group_missing: Vec<Uuid> = vec![];
+            let mut group_missing: Vec<i64> = vec![];
 
             for dep in deps {
                 let user_qty = user_badges.get(&dep.depends_on_badge_id).copied().unwrap_or(0);
@@ -493,7 +476,7 @@ impl CascadeEvaluator {
     /// 获取用户徽章数量映射
     ///
     /// 返回用户持有的所有有效徽章及其数量
-    async fn get_user_badge_quantities(&self, user_id: &str) -> Result<HashMap<Uuid, i32>> {
+    async fn get_user_badge_quantities(&self, user_id: &str) -> Result<HashMap<i64, i32>> {
         let badges = self
             .user_badge_repo
             .list_user_badges_by_status(user_id, UserBadgeStatus::Active)
@@ -505,21 +488,11 @@ impl CascadeEvaluator {
         for badge in badges {
             // 只计入有效且未过期的徽章
             if badge.is_valid(now) {
-                // 将 badge_id (i64) 转换为 UUID
-                // 这里同样是简化实现，实际应有映射表
-                let uuid = self.badge_id_to_uuid(badge.badge_id);
-                *result.entry(uuid).or_insert(0) += badge.quantity;
+                *result.entry(badge.badge_id).or_insert(0) += badge.quantity;
             }
         }
 
         Ok(result)
-    }
-
-    /// badge_id 转换为 UUID
-    fn badge_id_to_uuid(&self, badge_id: i64) -> Uuid {
-        let mut bytes = [0u8; 16];
-        bytes[0..8].copy_from_slice(&badge_id.to_le_bytes());
-        Uuid::from_bytes(bytes)
     }
 
     /// 检查互斥冲突
@@ -528,13 +501,13 @@ impl CascadeEvaluator {
     ///
     /// # Returns
     /// * `Ok(None)` - 无冲突
-    /// * `Ok(Some(uuid))` - 存在冲突，返回冲突的徽章 ID
+    /// * `Ok(Some(badge_id))` - 存在冲突，返回冲突的徽章 ID
     async fn check_exclusive_conflict(
         &self,
         user_id: &str,
-        target_badge_id: Uuid,
-        group_badges: &[Uuid],
-    ) -> Result<Option<Uuid>> {
+        target_badge_id: i64,
+        group_badges: &[i64],
+    ) -> Result<Option<i64>> {
         let user_badges = self.get_user_badge_quantities(user_id).await?;
 
         for &badge_id in group_badges {
@@ -559,7 +532,7 @@ impl CascadeEvaluator {
         &self,
         user_id: &str,
         badge_id: i64,
-        triggered_by: Uuid,
+        triggered_by: i64,
     ) -> Result<bool> {
         let guard = self.grant_service.read().await;
         let service = guard
@@ -575,7 +548,7 @@ impl CascadeEvaluator {
     async fn log_evaluation(
         &self,
         user_id: &str,
-        trigger_badge_id: Uuid,
+        trigger_badge_id: i64,
         context: &CascadeContext,
         result: &CascadeResult,
         error: Option<&str>,
@@ -644,10 +617,17 @@ mod tests {
     use super::*;
     use crate::repository::BadgeDependencyRow;
     use chrono::Utc;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    static TEST_ID: AtomicI64 = AtomicI64::new(1000);
+
+    fn next_test_id() -> i64 {
+        TEST_ID.fetch_add(1, Ordering::Relaxed)
+    }
 
     fn create_test_dependency_row(
-        badge_id: Uuid,
-        depends_on: Uuid,
+        badge_id: i64,
+        depends_on: i64,
         dep_type: &str,
         auto_trigger: bool,
         group_id: &str,
@@ -655,7 +635,7 @@ mod tests {
         required_qty: i32,
     ) -> BadgeDependencyRow {
         BadgeDependencyRow {
-            id: Uuid::new_v4(),
+            id: next_test_id(),
             badge_id,
             depends_on_badge_id: depends_on,
             dependency_type: dep_type.to_string(),
@@ -680,8 +660,8 @@ mod tests {
     #[test]
     fn test_cascade_context() {
         let mut context = CascadeContext::new();
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
 
         assert_eq!(context.depth, 0);
         assert!(!context.has_cycle(badge_a));
@@ -712,9 +692,9 @@ mod tests {
     #[test]
     fn test_cascade_context_path_tracking() {
         let mut context = CascadeContext::new();
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         context.enter(badge_a);
         context.enter(badge_b);
@@ -734,8 +714,8 @@ mod tests {
 
     #[test]
     fn test_simple_cascade_a_to_b() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
 
         // B 依赖 A，且 auto_trigger = true
         let dep = create_test_dependency_row(badge_b, badge_a, "prerequisite", true, "group1", None, 1);
@@ -751,8 +731,8 @@ mod tests {
 
     #[test]
     fn test_simple_cascade_non_auto_trigger() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
 
         // B 依赖 A，但 auto_trigger = false
         let dep = create_test_dependency_row(badge_b, badge_a, "prerequisite", false, "group1", None, 1);
@@ -772,9 +752,9 @@ mod tests {
 
     #[test]
     fn test_multi_level_cascade_a_to_b_to_c() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         let rows = vec![
             // B 依赖 A
@@ -809,9 +789,9 @@ mod tests {
 
     #[test]
     fn test_multi_level_cascade_depth_tracking() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         let mut context = CascadeContext::new();
 
@@ -840,9 +820,9 @@ mod tests {
 
     #[test]
     fn test_cycle_detection_simple() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         // A -> B -> C -> A（循环）
         let deps = vec![
@@ -878,7 +858,7 @@ mod tests {
 
     #[test]
     fn test_cycle_detection_self_reference() {
-        let badge_a = Uuid::new_v4();
+        let badge_a = next_test_id();
 
         // A -> A（自引用循环）
         let deps = vec![create_test_dependency_row(
@@ -900,7 +880,7 @@ mod tests {
 
     #[test]
     fn test_cycle_detection_in_blocked_badges() {
-        let badge_a = Uuid::new_v4();
+        let badge_a = next_test_id();
 
         // 模拟评估结果中记录循环检测
         let mut result = CascadeResult::default();
@@ -930,8 +910,8 @@ mod tests {
         let mut context = CascadeContext::new();
 
         // 模拟进入 4 层深度
-        for _ in 0..4 {
-            context.enter(Uuid::new_v4());
+        for i in 0..4 {
+            context.enter(i);
         }
 
         // 验证深度超过限制
@@ -950,15 +930,15 @@ mod tests {
         let mut context = CascadeContext::new();
 
         // 刚好到达最大深度
-        for _ in 0..3 {
-            context.enter(Uuid::new_v4());
+        for i in 0..3 {
+            context.enter(i);
         }
 
         // 在边界上，还没超过
         assert_eq!(context.depth, config.max_depth);
 
         // 再进入一层就超过了
-        context.enter(Uuid::new_v4());
+        context.enter(100);
         assert!(context.depth > config.max_depth);
     }
 
@@ -971,7 +951,7 @@ mod tests {
 
         // 验证可以用于 BlockedBadge
         let blocked = BlockedBadge {
-            badge_id: Uuid::new_v4(),
+            badge_id: 123,
             badge_name: Some("测试徽章".to_string()),
             reason: BlockReason::DepthExceeded,
         };
@@ -983,9 +963,9 @@ mod tests {
 
     #[test]
     fn test_exclusive_group_conflict_detection() {
-        let badge_d = Uuid::new_v4();
-        let badge_e = Uuid::new_v4();
-        let trigger = Uuid::new_v4();
+        let badge_d = next_test_id();
+        let badge_e = next_test_id();
+        let trigger = next_test_id();
 
         // D 和 E 属于同一互斥组 "vip_tier"
         let rows = vec![
@@ -1020,8 +1000,8 @@ mod tests {
 
     #[test]
     fn test_exclusive_conflict_block_reason() {
-        let badge_d = Uuid::new_v4();
-        let badge_e = Uuid::new_v4();
+        let badge_d: i64 = 100;
+        let badge_e: i64 = 200;
 
         // 模拟用户已持有 D，尝试获得 E 被阻止
         let blocked = BlockedBadge {
@@ -1035,7 +1015,7 @@ mod tests {
         // 验证序列化
         let json = serde_json::to_string(&blocked).unwrap();
         assert!(json.contains("ExclusiveConflict"));
-        assert!(json.contains(&badge_d.to_string()));
+        assert!(json.contains("100"));
     }
 
     #[test]
@@ -1049,11 +1029,11 @@ mod tests {
 
     #[test]
     fn test_multiple_exclusive_groups() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
-        let badge_d = Uuid::new_v4();
-        let trigger = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
+        let badge_d = next_test_id();
+        let trigger = next_test_id();
 
         // A, B 属于 "vip_tier"，C, D 属于 "member_level"
         let rows = vec![
@@ -1112,8 +1092,8 @@ mod tests {
 
     #[test]
     fn test_prerequisite_not_met_block_reason() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a: i64 = 1;
+        let badge_b: i64 = 2;
 
         // B 需要 A，但用户没有 A
         let blocked = BlockedBadge {
@@ -1126,13 +1106,13 @@ mod tests {
 
         let json = serde_json::to_string(&blocked).unwrap();
         assert!(json.contains("PrerequisiteNotMet"));
-        assert!(json.contains(&badge_a.to_string()));
+        assert!(json.contains("1"));
     }
 
     #[test]
     fn test_prerequisite_with_required_quantity() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
 
         // B 需要 3 个 A
         let dep = create_test_dependency_row(badge_b, badge_a, "prerequisite", true, "group1", None, 3);
@@ -1145,9 +1125,9 @@ mod tests {
 
     #[test]
     fn test_multiple_prerequisites() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         // C 需要 A 和 B（同一依赖组，AND 关系）
         let rows = vec![
@@ -1160,16 +1140,16 @@ mod tests {
         let prereqs = graph.get_prerequisites(badge_c);
         assert_eq!(prereqs.len(), 2);
 
-        let prereq_ids: Vec<Uuid> = prereqs.iter().map(|p| p.depends_on_badge_id).collect();
+        let prereq_ids: Vec<i64> = prereqs.iter().map(|p| p.depends_on_badge_id).collect();
         assert!(prereq_ids.contains(&badge_a));
         assert!(prereq_ids.contains(&badge_b));
     }
 
     #[test]
     fn test_dependency_groups_or_logic() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         // C 可以通过两种方式获得：
         // - 方式1（group1）：需要 A
@@ -1196,7 +1176,7 @@ mod tests {
     #[test]
     fn test_prerequisite_check_with_groups_empty() {
         let prerequisites: Vec<BadgeDependency> = vec![];
-        let _user_badges: HashMap<Uuid, i32> = HashMap::new();
+        let _user_badges: HashMap<i64, i32> = HashMap::new();
 
         // 空的前置条件列表应返回 true
         assert!(prerequisites.is_empty());
@@ -1225,9 +1205,9 @@ mod tests {
 
     #[test]
     fn test_dependency_graph_from_rows() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let badge_c = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let badge_c = next_test_id();
 
         let rows = vec![
             // B 依赖 A（前置条件）
@@ -1255,9 +1235,9 @@ mod tests {
 
     #[test]
     fn test_exclusive_group_in_graph() {
-        let badge_a = Uuid::new_v4();
-        let badge_b = Uuid::new_v4();
-        let trigger = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b = next_test_id();
+        let trigger = next_test_id();
 
         let rows = vec![
             create_test_dependency_row(
@@ -1299,7 +1279,7 @@ mod tests {
     #[test]
     fn test_block_reason_serialization() {
         let reason = BlockReason::PrerequisiteNotMet {
-            missing: vec![Uuid::new_v4()],
+            missing: vec![1, 2, 3],
         };
         let json = serde_json::to_string(&reason).unwrap();
         assert!(json.contains("PrerequisiteNotMet"));
@@ -1318,16 +1298,16 @@ mod tests {
 
     #[test]
     fn test_granted_badge_serialization() {
-        let trigger = Uuid::new_v4();
+        let trigger: i64 = 123;
         let granted = GrantedBadge {
-            badge_id: Uuid::new_v4(),
+            badge_id: 456,
             badge_name: "测试徽章".to_string(),
             triggered_by: trigger,
         };
 
         let json = serde_json::to_string(&granted).unwrap();
         assert!(json.contains("测试徽章"));
-        assert!(json.contains(&trigger.to_string()));
+        assert!(json.contains("123"));
     }
 
     #[test]
@@ -1355,8 +1335,8 @@ mod tests {
     #[test]
     fn test_badge_dependency_clone() {
         let row = create_test_dependency_row(
-            Uuid::new_v4(),
-            Uuid::new_v4(),
+            next_test_id(),
+            next_test_id(),
             "prerequisite",
             true,
             "group1",
@@ -1387,10 +1367,10 @@ mod tests {
 
     #[test]
     fn test_graph_priority_ordering() {
-        let badge_a = Uuid::new_v4();
-        let badge_b1 = Uuid::new_v4();
-        let badge_b2 = Uuid::new_v4();
-        let badge_b3 = Uuid::new_v4();
+        let badge_a = next_test_id();
+        let badge_b1 = next_test_id();
+        let badge_b2 = next_test_id();
+        let badge_b3 = next_test_id();
 
         // 创建具有不同优先级的依赖
         let mut row1 = create_test_dependency_row(badge_b1, badge_a, "prerequisite", true, "g1", None, 1);

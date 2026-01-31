@@ -20,7 +20,6 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::{PgPool, Row};
 use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
-use uuid::Uuid;
 
 use badge_shared::cache::Cache;
 
@@ -169,19 +168,15 @@ where
             guard.clone()
         };
 
-        if let Some(evaluator) = evaluator {
-            // 将 badge_id (i64) 转换为 UUID
-            // 注意：这里使用与 CascadeEvaluator 相同的转换逻辑
-            let badge_uuid = badge_id_to_uuid(badge_id);
-
-            if let Err(e) = evaluator.evaluate(user_id, badge_uuid).await {
-                warn!(
-                    user_id = %user_id,
-                    badge_id = badge_id,
-                    error = %e,
-                    "级联评估失败，但不影响主发放流程"
-                );
-            }
+        if let Some(evaluator) = evaluator
+            && let Err(e) = evaluator.evaluate(user_id, badge_id).await
+        {
+            warn!(
+                user_id = %user_id,
+                badge_id = badge_id,
+                error = %e,
+                "级联评估失败，但不影响主发放流程"
+            );
         }
     }
 
@@ -246,7 +241,7 @@ where
             r#"
             SELECT l.user_id, l.badge_id, l.balance_after,
                    ub.id as user_badge_id, ub.quantity
-            FROM badge_ledgers l
+            FROM badge_ledger l
             JOIN user_badges ub ON l.user_id = ub.user_id AND l.badge_id = ub.badge_id
             WHERE l.ref_id = $1 AND l.change_type = 'acquire'
             LIMIT 1
@@ -379,6 +374,7 @@ where
                 quantity: request.quantity,
                 acquired_at: now,
                 expires_at,
+                source_type: request.source_type,
                 created_at: now,
                 updated_at: now,
             };
@@ -471,18 +467,6 @@ fn calculate_expires_at(config: &ValidityConfig) -> Option<DateTime<Utc>> {
             .map(|days| Utc::now() + Duration::days(days as i64)),
     }
 }
-
-/// 将 badge_id (i64) 转换为 UUID
-///
-/// 此转换与 CascadeEvaluator 中的 `badge_id_to_uuid` 保持一致。
-/// 在实际生产环境中，badge_dependency 表应直接使用 i64 类型的 badge_id，
-/// 或维护 UUID 到 i64 的映射表。当前实现将 i64 放入 UUID 的低 64 位。
-fn badge_id_to_uuid(badge_id: i64) -> Uuid {
-    let mut bytes = [0u8; 16];
-    bytes[0..8].copy_from_slice(&badge_id.to_le_bytes());
-    Uuid::from_bytes(bytes)
-}
-
 // ==================== BadgeGranter trait 实现 ====================
 
 /// 为 GrantService 实现 BadgeGranter trait
@@ -507,7 +491,7 @@ where
         &self,
         user_id: &str,
         badge_id: i64,
-        triggered_by: Uuid,
+        triggered_by: i64,
     ) -> Result<bool> {
         let request = GrantBadgeRequest {
             user_id: user_id.to_string(),

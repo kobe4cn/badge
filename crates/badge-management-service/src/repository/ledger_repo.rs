@@ -27,7 +27,7 @@ impl BadgeLedgerRepository {
     pub async fn create(&self, ledger: &BadgeLedger) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO badge_ledgers (user_id, badge_id, change_type, quantity, balance_after, ref_id, ref_type, remark, created_at)
+            INSERT INTO badge_ledger (user_id, badge_id, change_type, quantity, balance_after, ref_id, source_type, remark, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
             "#,
@@ -51,7 +51,7 @@ impl BadgeLedgerRepository {
     pub async fn create_in_tx(tx: &mut PgConnection, ledger: &BadgeLedger) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO badge_ledgers (user_id, badge_id, change_type, quantity, balance_after, ref_id, ref_type, remark, created_at)
+            INSERT INTO badge_ledger (user_id, badge_id, change_type, quantity, balance_after, ref_id, source_type, remark, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
             "#,
@@ -78,8 +78,8 @@ impl BadgeLedgerRepository {
         let ledgers = sqlx::query_as::<_, BadgeLedger>(
             r#"
             SELECT id, user_id, badge_id, change_type, quantity, balance_after,
-                   ref_id, ref_type, remark, created_at
-            FROM badge_ledgers
+                   ref_id, source_type AS ref_type, remark, created_at
+            FROM badge_ledger
             WHERE user_id = $1
             ORDER BY created_at DESC
             LIMIT $2
@@ -102,8 +102,8 @@ impl BadgeLedgerRepository {
         let ledgers = sqlx::query_as::<_, BadgeLedger>(
             r#"
             SELECT id, user_id, badge_id, change_type, quantity, balance_after,
-                   ref_id, ref_type, remark, created_at
-            FROM badge_ledgers
+                   ref_id, source_type AS ref_type, remark, created_at
+            FROM badge_ledger
             WHERE user_id = $1 AND badge_id = $2
             ORDER BY created_at DESC
             "#,
@@ -124,7 +124,7 @@ impl BadgeLedgerRepository {
             r#"
             SELECT COALESCE(
                 (SELECT balance_after
-                 FROM badge_ledgers
+                 FROM badge_ledger
                  WHERE user_id = $1 AND badge_id = $2
                  ORDER BY created_at DESC, id DESC
                  LIMIT 1),
@@ -150,7 +150,7 @@ impl BadgeLedgerRepository {
             r#"
             SELECT COALESCE(
                 (SELECT balance_after
-                 FROM badge_ledgers
+                 FROM badge_ledger
                  WHERE user_id = $1 AND badge_id = $2
                  ORDER BY created_at DESC, id DESC
                  LIMIT 1),
@@ -174,7 +174,7 @@ impl BadgeLedgerRepository {
         let rows = sqlx::query(
             r#"
             SELECT DISTINCT ON (badge_id) badge_id, balance_after
-            FROM badge_ledgers
+            FROM badge_ledger
             WHERE user_id = $1
             ORDER BY badge_id, created_at DESC, id DESC
             "#,

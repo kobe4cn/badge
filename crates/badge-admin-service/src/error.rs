@@ -25,7 +25,7 @@ pub enum AdminError {
     #[error("任务不存在: {0}")]
     TaskNotFound(i64),
     #[error("依赖关系不存在: {0}")]
-    DependencyNotFound(uuid::Uuid),
+    DependencyNotFound(i64),
 
     // 业务错误
     #[error("徽章已发布，无法删除")]

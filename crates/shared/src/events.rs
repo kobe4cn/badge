@@ -70,6 +70,29 @@ impl EventType {
     pub fn is_seasonal(&self) -> bool {
         matches!(self, Self::SeasonalActivity | Self::CampaignParticipation)
     }
+
+    /// 返回数据库中使用的事件类型键名
+    ///
+    /// 数据库中的 event_types 表使用小写下划线格式（snake_case），
+    /// 而 Display trait 使用 SCREAMING_SNAKE_CASE 用于日志和 Kafka。
+    /// 此方法专用于规则查找时匹配数据库记录。
+    pub fn to_db_key(&self) -> &'static str {
+        match self {
+            Self::Purchase => "purchase",
+            Self::Refund => "refund",
+            Self::OrderCancel => "order_cancel",
+            Self::CheckIn => "checkin",
+            Self::ProfileUpdate => "profile_update",
+            Self::PageView => "page_view",
+            Self::Share => "share",
+            Self::Review => "review",
+            Self::Registration => "registration",
+            Self::MembershipUpgrade => "membership_upgrade",
+            Self::Anniversary => "anniversary",
+            Self::SeasonalActivity => "seasonal_activity",
+            Self::CampaignParticipation => "campaign_participation",
+        }
+    }
 }
 
 impl std::fmt::Display for EventType {
