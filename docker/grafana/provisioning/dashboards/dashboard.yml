@@ -1,0 +1,16 @@
+# Grafana 仪表盘自动配置
+# 从指定目录加载仪表盘 JSON 文件
+
+apiVersion: 1
+
+providers:
+  - name: 'Badge Dashboards'
+    orgId: 1
+    folder: 'Badge System'
+    folderUid: 'badge-system'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

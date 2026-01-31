@@ -1,0 +1,168 @@
+# Prometheus 告警规则
+# 定义业务和系统级别的告警条件
+
+groups:
+  # 徽章系统业务告警
+  - name: badge_business_alerts
+    rules:
+      # 徽章发放错误率过高
+      - alert: HighGrantErrorRate
+        expr: |
+          (
+            sum(rate(badge_grants_total{status="error"}[5m]))
+            / sum(rate(badge_grants_total[5m]))
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: badge
+        annotations:
+          summary: "徽章发放错误率过高"
+          description: "过去5分钟徽章发放错误率 {{ $value | humanizePercentage }} 超过阈值 5%"
+          runbook_url: "https://wiki.example.com/runbooks/badge-grant-errors"
+
+      # 权益库存不足
+      - alert: BenefitStockLow
+        expr: benefit_remaining_stock < 100
+        for: 5m
+        labels:
+          severity: warning
+          team: badge
+        annotations:
+          summary: "权益库存不足"
+          description: "权益 {{ $labels.benefit_id }} 剩余库存 {{ $value }} 不足100"
+          runbook_url: "https://wiki.example.com/runbooks/benefit-stock-low"
+
+      # 权益库存耗尽
+      - alert: BenefitStockDepleted
+        expr: benefit_remaining_stock == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: badge
+        annotations:
+          summary: "权益库存已耗尽"
+          description: "权益 {{ $labels.benefit_id }} 库存已耗尽"
+          runbook_url: "https://wiki.example.com/runbooks/benefit-stock-depleted"
+
+      # 兑换延迟过高
+      - alert: RedemptionLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(redemption_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 3m
+        labels:
+          severity: warning
+          team: badge
+        annotations:
+          summary: "兑换延迟过高"
+          description: "兑换操作 P95 延迟 {{ $value | humanizeDuration }} 超过阈值 2s"
+          runbook_url: "https://wiki.example.com/runbooks/redemption-latency"
+
+      # 兑换错误率过高
+      - alert: HighRedemptionErrorRate
+        expr: |
+          (
+            sum(rate(redemptions_total{status="error"}[5m]))
+            / sum(rate(redemptions_total[5m]))
+          ) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          team: badge
+        annotations:
+          summary: "兑换错误率过高"
+          description: "过去5分钟兑换错误率 {{ $value | humanizePercentage }} 超过阈值 10%"
+          runbook_url: "https://wiki.example.com/runbooks/redemption-errors"
+
+      # 级联评估超时
+      - alert: CascadeEvaluationSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(cascade_evaluation_duration_seconds_bucket[5m])) by (le, depth)
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: badge
+        annotations:
+          summary: "级联评估耗时过长"
+          description: "深度 {{ $labels.depth }} 的级联评估 P99 延迟 {{ $value | humanizeDuration }} 超过阈值 5s"
+          runbook_url: "https://wiki.example.com/runbooks/cascade-slow"
+
+  # HTTP 服务告警
+  - name: http_service_alerts
+    rules:
+      # HTTP 请求错误率过高（5xx）
+      - alert: HighHttpErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
+            / sum(rate(http_requests_total[5m])) by (job)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "HTTP 5xx 错误率过高"
+          description: "服务 {{ $labels.job }} 过去5分钟 5xx 错误率 {{ $value | humanizePercentage }} 超过阈值 5%"
+
+      # HTTP 请求延迟过高
+      - alert: HighHttpLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "HTTP 请求延迟过高"
+          description: "服务 {{ $labels.job }} HTTP 请求 P95 延迟 {{ $value | humanizeDuration }} 超过阈值 1s"
+
+      # 服务无请求（可能宕机）
+      - alert: ServiceNoRequests
+        expr: |
+          sum(rate(http_requests_total[5m])) by (job) == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "服务无流量"
+          description: "服务 {{ $labels.job }} 过去10分钟没有收到任何 HTTP 请求"
+
+  # 规则引擎告警
+  - name: rule_engine_alerts
+    rules:
+      # 规则评估失败率过高
+      - alert: HighRuleEvaluationFailureRate
+        expr: |
+          (
+            sum(rate(rule_evaluations_total{matched="false"}[5m]))
+            / sum(rate(rule_evaluations_total[5m]))
+          ) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          team: badge
+        annotations:
+          summary: "规则匹配率过低"
+          description: "过去10分钟规则未匹配率 {{ $value | humanizePercentage }} 超过 90%，可能需要检查规则配置"
+
+      # 规则评估延迟过高
+      - alert: RuleEvaluationSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(rule_evaluation_duration_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: badge
+        annotations:
+          summary: "规则评估延迟过高"
+          description: "规则评估 P95 延迟 {{ $value | humanizeDuration }} 超过阈值 500ms"

@@ -1,0 +1,67 @@
+# Prometheus 配置
+# 定义抓取目标和全局设置
+
+global:
+  scrape_interval: 15s      # 默认抓取间隔
+  evaluation_interval: 15s  # 规则评估间隔
+  external_labels:
+    cluster: 'badge-local'
+    env: 'development'
+
+# 告警规则文件
+rule_files:
+  - alerts.yml
+
+# Alertmanager 配置（可选，用于告警通知）
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# 抓取配置
+scrape_configs:
+  # Prometheus 自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Badge Admin Service
+  # 管理后台服务，提供徽章、规则、权益的 CRUD 接口
+  - job_name: 'badge-admin'
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Badge Management Service
+  # 核心业务服务，处理徽章发放、级联评估、兑换等
+  - job_name: 'badge-management'
+    static_configs:
+      - targets: ['host.docker.internal:9092']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Rule Engine Service
+  # 规则引擎服务，处理复杂的业务规则匹配
+  - job_name: 'rule-engine'
+    static_configs:
+      - targets: ['host.docker.internal:9093']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Event Engagement Service
+  # 活动参与服务
+  - job_name: 'event-engagement'
+    static_configs:
+      - targets: ['host.docker.internal:9094']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Event Transaction Service
+  # 活动交易服务
+  - job_name: 'event-transaction'
+    static_configs:
+      - targets: ['host.docker.internal:9095']
+    metrics_path: /metrics
+    scrape_interval: 10s

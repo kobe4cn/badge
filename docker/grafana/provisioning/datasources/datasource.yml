@@ -1,0 +1,30 @@
+# Grafana 数据源自动配置
+# 启动时自动注册 Prometheus 作为默认数据源
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: "2.50.0"
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: ''
+        spanStartTimeShift: ''
+        spanEndTimeShift: ''
+        filterByTraceID: false
+        filterBySpanID: false
