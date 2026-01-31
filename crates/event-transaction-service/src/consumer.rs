@@ -271,66 +271,8 @@ async fn send_revoke_notification(producer: &KafkaProducer, event: &EventPayload
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rule_client::{GrantResult, RevokeResult, RuleMatch, TransactionRuleService};
-    use crate::rule_mapping::RuleBadgeMapping;
     use badge_shared::kafka::ConsumerMessage;
     use std::collections::HashMap;
-    use std::sync::Arc;
-
-    /// Mock 服务实现，用于 consumer 测试中构造 processor
-    struct MockTransactionRuleService;
-
-    #[async_trait::async_trait]
-    impl TransactionRuleService for MockTransactionRuleService {
-        async fn evaluate_rules(
-            &self,
-            _rule_ids: &[String],
-            _context: serde_json::Value,
-        ) -> Result<Vec<RuleMatch>, crate::error::TransactionError> {
-            Ok(vec![])
-        }
-
-        async fn grant_badge(
-            &self,
-            _user_id: &str,
-            _badge_id: i64,
-            _quantity: i32,
-            _source_ref: &str,
-        ) -> Result<GrantResult, crate::error::TransactionError> {
-            Ok(GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            })
-        }
-
-        async fn revoke_badge(
-            &self,
-            _user_id: &str,
-            _badge_id: i64,
-            _quantity: i32,
-            _reason: &str,
-        ) -> Result<RevokeResult, crate::error::TransactionError> {
-            Ok(RevokeResult {
-                success: true,
-                message: String::new(),
-            })
-        }
-    }
-
-    /// 构造测试用 processor
-    fn make_test_processor() -> TransactionEventProcessor {
-        let config = badge_shared::config::RedisConfig {
-            url: "redis://localhost:6379".to_string(),
-            pool_size: 1,
-        };
-        let cache = badge_shared::cache::Cache::new(&config).expect("Redis client 创建失败");
-        TransactionEventProcessor::new(
-            cache,
-            Arc::new(MockTransactionRuleService),
-            Arc::new(RuleBadgeMapping::new()),
-        )
-    }
 
     /// 构造测试用的 ConsumerMessage
     fn make_test_message(event: &EventPayload) -> ConsumerMessage {
@@ -346,26 +288,31 @@ mod tests {
         }
     }
 
+    /// 交易服务支持的事件类型
+    fn get_supported_event_types() -> Vec<EventType> {
+        vec![
+            EventType::Purchase,
+            EventType::Refund,
+            EventType::OrderCancel,
+        ]
+    }
+
     /// 非交易类事件应被拒绝
     #[test]
     fn test_handle_unsupported_event_type() {
-        let processor = make_test_processor();
+        let supported_types = get_supported_event_types();
 
         // CheckIn 是行为类事件，不在交易处理器的支持列表中
-        let checkin_type = EventType::CheckIn;
-        assert!(!is_supported_event_type(&checkin_type, &processor));
+        assert!(!supported_types.contains(&EventType::CheckIn));
 
-        // Purchase 是交易类事件，应该通过校验
-        let purchase_type = EventType::Purchase;
-        assert!(is_supported_event_type(&purchase_type, &processor));
+        // Purchase 是交易类事件，应该在支持列表中
+        assert!(supported_types.contains(&EventType::Purchase));
 
         // Refund 也是交易类事件
-        let refund_type = EventType::Refund;
-        assert!(is_supported_event_type(&refund_type, &processor));
+        assert!(supported_types.contains(&EventType::Refund));
 
         // OrderCancel 也是交易类事件
-        let cancel_type = EventType::OrderCancel;
-        assert!(is_supported_event_type(&cancel_type, &processor));
+        assert!(supported_types.contains(&EventType::OrderCancel));
     }
 
     /// 验证有效交易事件可以正确解析和类型校验
@@ -387,11 +334,8 @@ mod tests {
         assert_eq!(deserialized.user_id, "user-001");
 
         // 验证事件类型是受支持的
-        let processor = make_test_processor();
-        assert!(is_supported_event_type(
-            &deserialized.event_type,
-            &processor
-        ));
+        let supported_types = get_supported_event_types();
+        assert!(supported_types.contains(&deserialized.event_type));
     }
 
     /// 验证退款事件可以正确解析

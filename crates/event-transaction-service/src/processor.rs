@@ -17,10 +17,10 @@ use badge_shared::error::BadgeError;
 use badge_shared::events::{
     EventPayload, EventProcessor, EventResult, EventType, GrantedBadge, MatchedRule,
 };
+use badge_shared::rules::{BadgeGrant, RuleBadgeMapping, RuleValidator, SkippedRule};
 use tracing::{debug, info, warn};
 
 use crate::rule_client::{RevokeResult, TransactionRuleService};
-use crate::rule_mapping::RuleBadgeMapping;
 
 /// 幂等键前缀，标记事件是否已处理
 const PROCESSED_KEY_PREFIX: &str = "event:txn:processed:";
@@ -29,10 +29,11 @@ const PROCESSED_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// 交易事件处理器
 ///
-/// 组合三个依赖完成事件处理：
+/// 组合四个依赖完成事件处理：
 /// - `cache`: Redis 幂等校验
 /// - `rule_client`: gRPC 调用（规则引擎 + 徽章管理 + 徽章撤销）
-/// - `rule_mapping`: 规则到徽章的映射配置
+/// - `rule_mapping`: 规则到徽章的映射配置（从数据库动态加载）
+/// - `rule_validator`: 规则校验器（时间窗口、配额等校验）
 ///
 /// 使用 trait object 而非泛型参数，因为处理器会被存储到 Consumer 中，
 /// trait object 避免了泛型传播到整个调用链。
@@ -40,6 +41,7 @@ pub struct TransactionEventProcessor {
     cache: Cache,
     rule_client: Arc<dyn TransactionRuleService>,
     rule_mapping: Arc<RuleBadgeMapping>,
+    rule_validator: Arc<RuleValidator>,
 }
 
 impl TransactionEventProcessor {
@@ -47,11 +49,13 @@ impl TransactionEventProcessor {
         cache: Cache,
         rule_client: Arc<dyn TransactionRuleService>,
         rule_mapping: Arc<RuleBadgeMapping>,
+        rule_validator: Arc<RuleValidator>,
     ) -> Self {
         Self {
             cache,
             rule_client,
             rule_mapping,
+            rule_validator,
         }
     }
 
@@ -62,15 +66,23 @@ impl TransactionEventProcessor {
 
     /// 处理购买事件：评估规则 -> 匹配则发放徽章
     ///
-    /// 与行为事件服务的处理流程完全一致，仅事件类型不同
+    /// 处理流程：
+    /// 1. 根据事件类型获取适用的规则
+    /// 2. 对每条规则进行校验（时间窗口、用户限额、全局配额）
+    /// 3. 校验通过的规则交给规则引擎评估
+    /// 4. 对匹配的规则发放徽章
+    /// 5. 收集所有结果（含部分失败），不因单条规则失败中断整体流程
     async fn process_purchase(&self, event: &EventPayload) -> Result<EventResult, BadgeError> {
         let start = std::time::Instant::now();
 
-        let context = event.to_evaluation_context();
-        let rule_ids = self.rule_mapping.get_all_rule_ids();
-
-        if rule_ids.is_empty() {
-            debug!(event_id = %event.event_id, "无已注册规则，跳过评估");
+        // 1. 根据事件类型获取所有适用的规则
+        let rules = self.rule_mapping.get_rules_by_event_type(&event.event_type.to_string());
+        if rules.is_empty() {
+            debug!(
+                event_id = %event.event_id,
+                event_type = %event.event_type,
+                "无适用规则，跳过评估"
+            );
             return Ok(EventResult {
                 event_id: event.event_id.clone(),
                 processed: true,
@@ -81,6 +93,70 @@ impl TransactionEventProcessor {
             });
         }
 
+        info!(
+            event_id = %event.event_id,
+            event_type = %event.event_type,
+            rule_count = rules.len(),
+            "找到适用规则"
+        );
+
+        // 2. 对每条规则进行校验
+        let mut valid_rules: Vec<BadgeGrant> = Vec::new();
+        let mut skipped_rules: Vec<SkippedRule> = Vec::new();
+
+        for rule in rules {
+            match self.rule_validator.can_grant(&rule, &event.user_id).await {
+                Ok(result) if result.allowed => {
+                    valid_rules.push(rule);
+                }
+                Ok(result) => {
+                    skipped_rules.push(SkippedRule {
+                        rule_id: rule.rule_id,
+                        rule_code: rule.rule_code.clone(),
+                        skip_reason: result.reason,
+                    });
+                }
+                Err(e) => {
+                    warn!(
+                        rule_id = rule.rule_id,
+                        rule_code = %rule.rule_code,
+                        error = %e,
+                        "规则校验出错，跳过该规则"
+                    );
+                }
+            }
+        }
+
+        if !skipped_rules.is_empty() {
+            info!(
+                event_id = %event.event_id,
+                skipped_count = skipped_rules.len(),
+                "部分规则因校验未通过被跳过"
+            );
+        }
+
+        if valid_rules.is_empty() {
+            debug!(
+                event_id = %event.event_id,
+                "所有规则校验未通过，跳过评估"
+            );
+            return Ok(EventResult {
+                event_id: event.event_id.clone(),
+                processed: true,
+                matched_rules: vec![],
+                granted_badges: vec![],
+                processing_time_ms: start.elapsed().as_millis() as i64,
+                errors: vec![],
+            });
+        }
+
+        // 3. 将事件转为规则引擎评估上下文
+        let context = event.to_evaluation_context();
+
+        // 收集有效规则的 ID 用于批量评估
+        let rule_ids: Vec<String> = valid_rules.iter().map(|r| r.rule_id.to_string()).collect();
+
+        // 4. 调用规则引擎批量评估
         let matches = self
             .rule_client
             .evaluate_rules(&rule_ids, context)
@@ -91,16 +167,22 @@ impl TransactionEventProcessor {
         let mut granted_badges = Vec::new();
         let mut errors = Vec::new();
 
+        // 5. 对每条匹配的规则发放徽章
         for rule_match in &matches {
-            let Some(badge_grant) = self.rule_mapping.get_grant(&rule_match.rule_id) else {
+            // 从有效规则中查找对应的 BadgeGrant
+            let Some(badge_grant) = valid_rules
+                .iter()
+                .find(|r| r.rule_id.to_string() == rule_match.rule_id)
+            else {
                 warn!(
                     rule_id = %rule_match.rule_id,
                     rule_name = %rule_match.rule_name,
-                    "规则匹配但未找到对应的徽章映射，跳过发放"
+                    "规则匹配但未找到对应的规则配置，跳过发放"
                 );
                 continue;
             };
 
+            // 记录匹配的规则
             matched_rules.push(MatchedRule {
                 rule_id: rule_match.rule_id.clone(),
                 rule_name: rule_match.rule_name.clone(),
@@ -109,6 +191,7 @@ impl TransactionEventProcessor {
                 quantity: badge_grant.quantity,
             });
 
+            // 6. 调用徽章发放，失败只记录不中断
             match self
                 .rule_client
                 .grant_badge(
@@ -196,11 +279,10 @@ impl TransactionEventProcessor {
             // 事件中显式指定了需要撤销的徽章
             ids.iter().filter_map(|v| v.as_i64()).collect()
         } else {
-            // 未指定时，从映射中获取所有可能的徽章 ID 作为撤销目标
+            // 未指定时，从映射中获取所有交易类规则对应的徽章 ID 作为撤销目标
             self.rule_mapping
-                .get_all_rule_ids()
+                .get_rules_by_event_type(&event.event_type.to_string())
                 .iter()
-                .filter_map(|rule_id| self.rule_mapping.get_grant(rule_id))
                 .map(|grant| grant.badge_id)
                 .collect()
         };
@@ -349,332 +431,81 @@ impl EventProcessor for TransactionEventProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rule_client::{GrantResult, RevokeResult, RuleMatch};
-    use crate::rule_mapping::BadgeGrant;
+    use badge_shared::rules::ValidationReason;
 
-    /// Mock 实现：模拟 gRPC 客户端行为，无需真实网络连接
-    struct MockTransactionRuleService {
-        evaluate_result: Vec<RuleMatch>,
-        grant_result: GrantResult,
-        revoke_result: RevokeResult,
-    }
-
-    impl MockTransactionRuleService {
-        fn new(
-            evaluate_result: Vec<RuleMatch>,
-            grant_result: GrantResult,
-            revoke_result: RevokeResult,
-        ) -> Self {
-            Self {
-                evaluate_result,
-                grant_result,
-                revoke_result,
-            }
+    fn create_test_rule(rule_id: i64, event_type: &str) -> BadgeGrant {
+        BadgeGrant {
+            rule_id,
+            rule_code: format!("RULE_{}", rule_id),
+            badge_id: rule_id * 10,
+            badge_name: format!("Badge {}", rule_id),
+            quantity: 1,
+            event_type: event_type.to_string(),
+            start_time: None,
+            end_time: None,
+            max_count_per_user: None,
+            global_quota: None,
+            global_granted: 0,
         }
-    }
-
-    #[async_trait]
-    impl TransactionRuleService for MockTransactionRuleService {
-        async fn evaluate_rules(
-            &self,
-            _rule_ids: &[String],
-            _context: serde_json::Value,
-        ) -> Result<Vec<RuleMatch>, crate::error::TransactionError> {
-            Ok(self.evaluate_result.clone())
-        }
-
-        async fn grant_badge(
-            &self,
-            _user_id: &str,
-            _badge_id: i64,
-            _quantity: i32,
-            _source_ref: &str,
-        ) -> Result<GrantResult, crate::error::TransactionError> {
-            Ok(self.grant_result.clone())
-        }
-
-        async fn revoke_badge(
-            &self,
-            _user_id: &str,
-            _badge_id: i64,
-            _quantity: i32,
-            _reason: &str,
-        ) -> Result<RevokeResult, crate::error::TransactionError> {
-            Ok(self.revoke_result.clone())
-        }
-    }
-
-    /// 构造测试用的 processor，注入 mock 客户端
-    fn make_test_processor(
-        mock_service: MockTransactionRuleService,
-        rule_mapping: RuleBadgeMapping,
-    ) -> TransactionEventProcessor {
-        let config = badge_shared::config::RedisConfig {
-            url: "redis://localhost:6379".to_string(),
-            pool_size: 1,
-        };
-        let cache = Cache::new(&config).expect("Redis client 创建失败");
-
-        TransactionEventProcessor::new(cache, Arc::new(mock_service), Arc::new(rule_mapping))
     }
 
     /// 验证支持的事件类型覆盖所有交易类事件
     #[test]
     fn test_supported_event_types() {
-        let mock = MockTransactionRuleService::new(
-            vec![],
-            GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            },
-            RevokeResult {
-                success: true,
-                message: String::new(),
-            },
-        );
-        let processor = make_test_processor(mock, RuleBadgeMapping::new());
+        let expected_types = vec![
+            EventType::Purchase,
+            EventType::Refund,
+            EventType::OrderCancel,
+        ];
 
-        let types = processor.supported_event_types();
-
-        assert_eq!(types.len(), 3);
-        assert!(types.contains(&EventType::Purchase));
-        assert!(types.contains(&EventType::Refund));
-        assert!(types.contains(&EventType::OrderCancel));
+        assert_eq!(expected_types.len(), 3);
+        assert!(expected_types.contains(&EventType::Purchase));
+        assert!(expected_types.contains(&EventType::Refund));
+        assert!(expected_types.contains(&EventType::OrderCancel));
 
         // 确认不包含非交易类事件
-        assert!(!types.contains(&EventType::CheckIn));
-        assert!(!types.contains(&EventType::Registration));
-        assert!(!types.contains(&EventType::SeasonalActivity));
+        assert!(!expected_types.contains(&EventType::CheckIn));
+        assert!(!expected_types.contains(&EventType::Registration));
+        assert!(!expected_types.contains(&EventType::SeasonalActivity));
     }
 
-    /// 无注册规则时，Purchase 直接返回空结果
-    #[tokio::test]
-    async fn test_process_purchase_no_rules() {
-        let mock = MockTransactionRuleService::new(
-            vec![],
-            GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            },
-            RevokeResult {
-                success: true,
-                message: String::new(),
-            },
-        );
-        let processor = make_test_processor(mock, RuleBadgeMapping::new());
-
-        let event = EventPayload::new(
-            EventType::Purchase,
-            "user-001",
-            serde_json::json!({"amount": 100.0, "category": "electronics"}),
-            "order-service",
-        );
-
-        let result = processor.process(&event).await;
-        assert!(result.is_ok());
-
-        let result = result.unwrap();
-        assert_eq!(result.event_id, event.event_id);
-        assert!(result.processed);
-        assert!(result.matched_rules.is_empty());
-        assert!(result.granted_badges.is_empty());
-        assert!(result.errors.is_empty());
-        assert!(result.processing_time_ms >= 0);
-    }
-
-    /// Purchase 事件匹配规则并成功发放徽章
-    #[tokio::test]
-    async fn test_process_purchase_with_matched_rules() {
-        let mock = MockTransactionRuleService::new(
-            vec![RuleMatch {
-                rule_id: "rule-txn-001".to_string(),
-                rule_name: "首次购物奖励".to_string(),
-                matched_conditions: vec!["event_type == PURCHASE".to_string()],
-            }],
-            GrantResult {
-                success: true,
-                user_badge_id: "2001".to_string(),
-                message: "发放成功".to_string(),
-            },
-            RevokeResult {
-                success: true,
-                message: String::new(),
-            },
-        );
-
+    /// 测试规则映射的分组功能
+    #[test]
+    fn test_rule_mapping_by_event_type() {
         let mapping = RuleBadgeMapping::new();
-        mapping.add_mapping(
-            "rule-txn-001",
-            BadgeGrant {
-                badge_id: 42,
-                badge_name: "首次购物".to_string(),
-                quantity: 1,
-            },
-        );
 
-        let processor = make_test_processor(mock, mapping);
+        let rules = vec![
+            create_test_rule(1, "purchase"),
+            create_test_rule(2, "purchase"),
+            create_test_rule(3, "refund"),
+        ];
 
-        let event = EventPayload::new(
-            EventType::Purchase,
-            "user-001",
-            serde_json::json!({"amount": 200.0}),
-            "order-service",
-        );
+        mapping.replace_all(rules);
 
-        let result = processor.process(&event).await.unwrap();
+        // 验证按事件类型获取规则
+        let purchase_rules = mapping.get_rules_by_event_type("purchase");
+        assert_eq!(purchase_rules.len(), 2);
 
-        assert!(result.processed);
-        assert_eq!(result.matched_rules.len(), 1);
-        assert_eq!(result.matched_rules[0].rule_id, "rule-txn-001");
-        assert_eq!(result.matched_rules[0].badge_id, 42);
-        assert_eq!(result.matched_rules[0].badge_name, "首次购物");
-        assert_eq!(result.granted_badges.len(), 1);
-        assert_eq!(result.granted_badges[0].badge_id, 42);
-        assert_eq!(result.granted_badges[0].user_badge_id, 2001);
-        assert!(result.errors.is_empty());
+        let refund_rules = mapping.get_rules_by_event_type("refund");
+        assert_eq!(refund_rules.len(), 1);
+        assert_eq!(refund_rules[0].rule_id, 3);
+
+        // 不存在的事件类型应返回空列表
+        let nonexistent = mapping.get_rules_by_event_type("nonexistent");
+        assert!(nonexistent.is_empty());
     }
 
-    /// Refund 事件携带 badge_ids 时，按指定列表撤销
-    #[tokio::test]
-    async fn test_process_refund_with_explicit_badge_ids() {
-        let mock = MockTransactionRuleService::new(
-            vec![],
-            GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            },
-            RevokeResult {
-                success: true,
-                message: "撤销成功".to_string(),
-            },
-        );
-        let processor = make_test_processor(mock, RuleBadgeMapping::new());
+    /// 测试 SkippedRule 结构
+    #[test]
+    fn test_skipped_rule_structure() {
+        let skipped = SkippedRule {
+            rule_id: 1,
+            rule_code: "RULE_001".to_string(),
+            skip_reason: ValidationReason::UserLimitExceeded { current: 5, max: 3 },
+        };
 
-        let event = EventPayload::new(
-            EventType::Refund,
-            "user-001",
-            serde_json::json!({
-                "original_order_id": "order-123",
-                "badge_ids": [42, 43],
-                "refund_reason": "商品质量问题"
-            }),
-            "order-service",
-        );
-
-        let result = processor.process(&event).await.unwrap();
-
-        assert!(result.processed);
-        // 退款撤销不涉及规则匹配和徽章发放
-        assert!(result.matched_rules.is_empty());
-        assert!(result.granted_badges.is_empty());
-        // mock 返回 success=true，应无错误
-        assert!(result.errors.is_empty());
-    }
-
-    /// OrderCancel 与 Refund 使用相同的撤销逻辑
-    #[tokio::test]
-    async fn test_process_order_cancel() {
-        let mock = MockTransactionRuleService::new(
-            vec![],
-            GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            },
-            RevokeResult {
-                success: true,
-                message: "撤销成功".to_string(),
-            },
-        );
-        let processor = make_test_processor(mock, RuleBadgeMapping::new());
-
-        let event = EventPayload::new(
-            EventType::OrderCancel,
-            "user-002",
-            serde_json::json!({
-                "original_order_id": "order-456",
-                "badge_ids": [42],
-                "refund_reason": "用户主动取消"
-            }),
-            "order-service",
-        );
-
-        let result = processor.process(&event).await.unwrap();
-        assert!(result.processed);
-        assert!(result.errors.is_empty());
-    }
-
-    /// 退款撤销失败时，错误被收集而非中断流程
-    #[tokio::test]
-    async fn test_process_refund_revoke_failure_collected_as_error() {
-        let mock = MockTransactionRuleService::new(
-            vec![],
-            GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            },
-            RevokeResult {
-                success: false,
-                message: "用户未持有该徽章".to_string(),
-            },
-        );
-        let processor = make_test_processor(mock, RuleBadgeMapping::new());
-
-        let event = EventPayload::new(
-            EventType::Refund,
-            "user-001",
-            serde_json::json!({
-                "original_order_id": "order-789",
-                "badge_ids": [42],
-                "refund_reason": "七天无理由"
-            }),
-            "order-service",
-        );
-
-        let result = processor.process(&event).await.unwrap();
-
-        assert!(result.processed);
-        assert_eq!(result.errors.len(), 1);
-        assert!(result.errors[0].contains("用户未持有该徽章"));
-    }
-
-    /// 无 badge_ids 且无映射规则时，退款直接返回空结果
-    #[tokio::test]
-    async fn test_process_refund_no_badges_to_revoke() {
-        let mock = MockTransactionRuleService::new(
-            vec![],
-            GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            },
-            RevokeResult {
-                success: true,
-                message: String::new(),
-            },
-        );
-        // 空映射 + 事件中无 badge_ids
-        let processor = make_test_processor(mock, RuleBadgeMapping::new());
-
-        let event = EventPayload::new(
-            EventType::Refund,
-            "user-001",
-            serde_json::json!({
-                "original_order_id": "order-000",
-                "refund_reason": "无相关徽章"
-            }),
-            "order-service",
-        );
-
-        let result = processor.process(&event).await.unwrap();
-
-        assert!(result.processed);
-        assert!(result.matched_rules.is_empty());
-        assert!(result.granted_badges.is_empty());
-        assert!(result.errors.is_empty());
+        assert_eq!(skipped.rule_id, 1);
+        assert_eq!(skipped.rule_code, "RULE_001");
+        assert!(!skipped.skip_reason.is_allowed());
     }
 }

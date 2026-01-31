@@ -29,6 +29,7 @@ async-trait = { workspace = true }
 prost-types = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
+sqlx = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
