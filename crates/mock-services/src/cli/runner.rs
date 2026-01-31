@@ -141,6 +141,7 @@ impl CommandRunner {
             brokers: self.kafka_brokers.clone(),
             consumer_group: "mock-services".to_string(),
             auto_offset_reset: "earliest".to_string(),
+            topics: Default::default(),
         };
         let producer = KafkaProducer::new(&kafka_config).context("创建 Kafka 生产者失败")?;
         let sender = BatchEventSender::new(producer);
@@ -220,6 +221,7 @@ impl CommandRunner {
             brokers: self.kafka_brokers.clone(),
             consumer_group: "mock-services".to_string(),
             auto_offset_reset: "earliest".to_string(),
+            topics: Default::default(),
         };
         let producer = KafkaProducer::new(&kafka_config).context("创建 Kafka 生产者失败")?;
         let sender = BatchEventSender::new(producer);
