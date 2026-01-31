@@ -76,7 +76,10 @@ async fn main() -> Result<()> {
     );
 
     let consumer = event_transaction_service::consumer::TransactionConsumer::new(
-        &config, processor, producer,
+        &config,
+        processor,
+        producer,
+        rule_loader.clone(),
     )?;
 
     let health_port = config.server.port;

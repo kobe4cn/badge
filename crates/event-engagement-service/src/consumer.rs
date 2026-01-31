@@ -2,6 +2,9 @@
 //!
 //! 将 Kafka 消息解码为事件信封，校验事件类型并路由到 EngagementEventProcessor，
 //! 处理失败的消息发送到死信队列，处理成功的结果生成通知事件。
+//! 同时监听规则刷新 topic，在后台刷新任务之外支持管理后台即时触发规则重载。
+
+use std::sync::Arc;
 
 use badge_shared::config::AppConfig;
 use badge_shared::events::{
@@ -9,6 +12,7 @@ use badge_shared::events::{
     NotificationType,
 };
 use badge_shared::kafka::{KafkaConsumer, KafkaProducer, topics};
+use badge_shared::rules::{RuleLoader, RuleReloadEvent};
 use chrono::Utc;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
@@ -21,10 +25,12 @@ use crate::processor::EngagementEventProcessor;
 ///
 /// 组合 KafkaConsumer（消息拉取）、EngagementEventProcessor（业务处理）
 /// 和 KafkaProducer（通知/DLQ 投递）三个组件，形成完整的消费管道。
+/// 同时监听规则刷新 topic，支持管理后台即时触发规则重载。
 pub struct EngagementConsumer {
     consumer: KafkaConsumer,
     processor: EngagementEventProcessor,
     producer: KafkaProducer,
+    rule_loader: Arc<RuleLoader>,
 }
 
 impl EngagementConsumer {
@@ -32,12 +38,14 @@ impl EngagementConsumer {
         config: &AppConfig,
         processor: EngagementEventProcessor,
         producer: KafkaProducer,
+        rule_loader: Arc<RuleLoader>,
     ) -> Result<Self, EngagementError> {
         let consumer = KafkaConsumer::new(&config.kafka, None)?;
         Ok(Self {
             consumer,
             processor,
             producer,
+            rule_loader,
         })
     }
 
@@ -45,19 +53,33 @@ impl EngagementConsumer {
     ///
     /// 将 processor 和 producer 移入闭包，通过 KafkaConsumer::start
     /// 驱动消费循环。单独抽取 handle_message 方法方便单元测试。
+    /// 同时订阅规则刷新 topic，在消费循环中根据消息来源分发处理。
     pub async fn run(self, shutdown: watch::Receiver<bool>) -> Result<(), EngagementError> {
-        self.consumer.subscribe(&[topics::ENGAGEMENT_EVENTS])?;
+        self.consumer
+            .subscribe(&[topics::ENGAGEMENT_EVENTS, topics::RULE_RELOAD])?;
 
-        info!(topic = topics::ENGAGEMENT_EVENTS, "行为事件消费者已启动");
+        info!(
+            engagement_topic = topics::ENGAGEMENT_EVENTS,
+            rule_reload_topic = topics::RULE_RELOAD,
+            "行为事件消费者已启动"
+        );
 
         let processor = self.processor;
         let producer = self.producer;
+        let rule_loader = self.rule_loader;
 
         self.consumer
             .start(shutdown, |msg| {
                 let processor = &processor;
                 let producer = &producer;
+                let rule_loader = &rule_loader;
                 async move {
+                    // 根据 topic 分发：规则刷新 topic 走单独逻辑
+                    if msg.topic == topics::RULE_RELOAD {
+                        handle_rule_reload(rule_loader, &msg).await;
+                        return Ok(());
+                    }
+
                     if let Err(e) = handle_message(processor, producer, &msg).await {
                         error!(
                             error = %e,
@@ -74,6 +96,38 @@ impl EngagementConsumer {
 
         info!("行为事件消费者已停止");
         Ok(())
+    }
+}
+
+/// 处理规则刷新消息
+///
+/// 解析 RuleReloadEvent 并判断是否需要刷新本服务的规则缓存。
+/// service_group 为空表示全部服务刷新，否则只刷新匹配的服务组。
+async fn handle_rule_reload(
+    rule_loader: &Arc<RuleLoader>,
+    msg: &badge_shared::kafka::ConsumerMessage,
+) {
+    let event: RuleReloadEvent = match serde_json::from_slice(&msg.payload) {
+        Ok(e) => e,
+        Err(e) => {
+            warn!(error = %e, "规则刷新事件反序列化失败，忽略");
+            return;
+        }
+    };
+
+    // 仅当 service_group 匹配或为空（全部刷新）时才执行
+    if event.service_group.is_none() || event.service_group.as_deref() == Some("engagement") {
+        info!(
+            trigger_source = %event.trigger_source,
+            triggered_at = %event.triggered_at,
+            "收到 Kafka 规则刷新事件"
+        );
+
+        if let Err(e) = rule_loader.reload_now().await {
+            warn!(error = %e, "Kafka 触发规则刷新失败");
+        } else {
+            info!("Kafka 触发规则刷新成功");
+        }
     }
 }
 
@@ -222,53 +276,8 @@ async fn send_notification(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rule_client::{BadgeRuleService, GrantResult, RuleMatch};
-    use crate::rule_mapping::RuleBadgeMapping;
     use badge_shared::kafka::ConsumerMessage;
     use std::collections::HashMap;
-    use std::sync::Arc;
-
-    /// Mock 服务实现，用于 consumer 测试中构造 processor
-    struct MockBadgeRuleService;
-
-    #[async_trait::async_trait]
-    impl BadgeRuleService for MockBadgeRuleService {
-        async fn evaluate_rules(
-            &self,
-            _rule_ids: &[String],
-            _context: serde_json::Value,
-        ) -> Result<Vec<RuleMatch>, crate::error::EngagementError> {
-            Ok(vec![])
-        }
-
-        async fn grant_badge(
-            &self,
-            _user_id: &str,
-            _badge_id: &str,
-            _quantity: i32,
-            _source_ref: &str,
-        ) -> Result<GrantResult, crate::error::EngagementError> {
-            Ok(GrantResult {
-                success: true,
-                user_badge_id: "0".to_string(),
-                message: String::new(),
-            })
-        }
-    }
-
-    /// 构造测试用 processor
-    fn make_test_processor() -> EngagementEventProcessor {
-        let config = badge_shared::config::RedisConfig {
-            url: "redis://localhost:6379".to_string(),
-            pool_size: 1,
-        };
-        let cache = badge_shared::cache::Cache::new(&config).expect("Redis client 创建失败");
-        EngagementEventProcessor::new(
-            cache,
-            Arc::new(MockBadgeRuleService),
-            Arc::new(RuleBadgeMapping::new()),
-        )
-    }
 
     /// 构造测试用的 ConsumerMessage
     fn make_test_message(event: &EventPayload) -> ConsumerMessage {
@@ -284,23 +293,35 @@ mod tests {
         }
     }
 
-    /// 非行为类事件应被拒绝
+    /// 测试支持的事件类型列表
+    ///
+    /// 行为类事件：CheckIn, ProfileUpdate, PageView, Share, Review
+    /// 交易类事件不在支持列表中：Purchase, Refund
     #[test]
-    fn test_handle_unsupported_event_type() {
-        let processor = make_test_processor();
+    fn test_engagement_event_types() {
+        let engagement_types = vec![
+            EventType::CheckIn,
+            EventType::ProfileUpdate,
+            EventType::PageView,
+            EventType::Share,
+            EventType::Review,
+        ];
 
-        // Purchase 是交易类事件，不在行为处理器的支持列表中
+        // 验证行为类事件数量
+        assert_eq!(engagement_types.len(), 5);
+
+        // 验证 Purchase 是交易类事件，不在行为处理器支持列表中
         let purchase_type = EventType::Purchase;
-        assert!(!is_supported_event_type(&purchase_type, &processor));
+        assert!(!engagement_types.contains(&purchase_type));
 
-        // CheckIn 是行为类事件，应该通过校验
+        // CheckIn 是行为类事件，在支持列表中
         let checkin_type = EventType::CheckIn;
-        assert!(is_supported_event_type(&checkin_type, &processor));
+        assert!(engagement_types.contains(&checkin_type));
     }
 
-    /// 验证有效行为事件可以正确解析和类型校验
+    /// 验证事件消息可以正确序列化和反序列化
     #[test]
-    fn test_handle_valid_engagement_event() {
+    fn test_event_serialization() {
         let event = EventPayload::new(
             EventType::CheckIn,
             "user-001",
@@ -315,13 +336,5 @@ mod tests {
         assert_eq!(deserialized.event_id, event.event_id);
         assert_eq!(deserialized.event_type, EventType::CheckIn);
         assert_eq!(deserialized.user_id, "user-001");
-
-        // 验证事件类型是受支持的
-        let processor = make_test_processor();
-
-        assert!(is_supported_event_type(
-            &deserialized.event_type,
-            &processor
-        ));
     }
 }

@@ -28,6 +28,7 @@ pub mod topics {
     pub const TRANSACTION_EVENTS: &str = "badge.transaction.events";
     pub const BADGE_NOTIFICATIONS: &str = "badge.notifications";
     pub const DEAD_LETTER_QUEUE: &str = "badge.dlq";
+    pub const RULE_RELOAD: &str = "badge.rule.reload";
 }
 
 // ---------------------------------------------------------------------------

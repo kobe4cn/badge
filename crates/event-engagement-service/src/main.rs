@@ -9,6 +9,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 use tracing::info;
 
+use badge_shared::database::Database;
+use badge_shared::rules::{RuleBadgeMapping, RuleLoader, RuleValidator};
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // 使用环境变量控制日志级别，默认 info
@@ -23,6 +26,10 @@ async fn main() -> Result<()> {
 
     // 配置加载失败应立即终止，而非带着错误配置运行
     let config = badge_shared::config::AppConfig::load("event-engagement")?;
+
+    // 初始化数据库连接
+    let db = Database::connect(&config.database).await?;
+    let db_pool = db.pool().clone();
 
     let cache = badge_shared::cache::Cache::new(&config.redis)?;
 
@@ -40,20 +47,43 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    // 启动时为空映射，生产环境应从管理服务动态加载
-    let rule_mapping = Arc::new(event_engagement_service::rule_mapping::RuleBadgeMapping::new());
+    // 初始化规则组件：RuleBadgeMapping 作为内存缓存存储从数据库加载的规则
+    let rule_mapping = Arc::new(RuleBadgeMapping::new());
+
+    // RuleLoader 负责从数据库加载规则并维护到 rule_mapping
+    let rule_loader = Arc::new(RuleLoader::new(
+        db_pool.clone(),
+        "engagement",
+        rule_mapping.clone(),
+        config.rules.refresh_interval_secs,
+        config.rules.initial_load_timeout_secs,
+    ));
+
+    // RuleValidator 在发放前校验规则的时间窗口、用户限额、全局配额等条件
+    let rule_validator = Arc::new(RuleValidator::new(cache.clone(), db_pool.clone()));
+
+    // watch channel 实现优雅关闭：发送端置 true 后消费循环自行退出
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    // 初始加载规则（阻塞，失败则终止启动）
+    rule_loader.initial_load().await?;
+
+    // 启动后台刷新任务
+    rule_loader.clone().start_background_refresh(shutdown_rx.clone());
 
     let processor = event_engagement_service::processor::EngagementEventProcessor::new(
         cache,
         Arc::new(rule_client),
         rule_mapping,
+        rule_validator,
     );
 
-    let consumer =
-        event_engagement_service::consumer::EngagementConsumer::new(&config, processor, producer)?;
-
-    // watch channel 实现优雅关闭：发送端置 true 后消费循环自行退出
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let consumer = event_engagement_service::consumer::EngagementConsumer::new(
+        &config,
+        processor,
+        producer,
+        rule_loader.clone(),
+    )?;
 
     let health_port = config.server.port;
     let health_handle = tokio::spawn(start_health_server(health_port));

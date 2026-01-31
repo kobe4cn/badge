@@ -4,6 +4,9 @@
 //! 处理失败的消息发送到死信队列，处理成功时：
 //! - Purchase 成功发放 -> 发送 BadgeGranted 通知
 //! - Refund / OrderCancel 撤销成功 -> 发送 BadgeRevoked 通知
+//! 同时监听规则刷新 topic，在后台刷新任务之外支持管理后台即时触发规则重载。
+
+use std::sync::Arc;
 
 use badge_shared::config::AppConfig;
 use badge_shared::events::{
@@ -11,6 +14,7 @@ use badge_shared::events::{
     NotificationType,
 };
 use badge_shared::kafka::{KafkaConsumer, KafkaProducer, topics};
+use badge_shared::rules::{RuleLoader, RuleReloadEvent};
 use chrono::Utc;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
@@ -23,10 +27,12 @@ use crate::processor::TransactionEventProcessor;
 ///
 /// 组合 KafkaConsumer（消息拉取）、TransactionEventProcessor（业务处理）
 /// 和 KafkaProducer（通知/DLQ 投递）三个组件，形成完整的消费管道。
+/// 同时监听规则刷新 topic，支持管理后台即时触发规则重载。
 pub struct TransactionConsumer {
     consumer: KafkaConsumer,
     processor: TransactionEventProcessor,
     producer: KafkaProducer,
+    rule_loader: Arc<RuleLoader>,
 }
 
 impl TransactionConsumer {
@@ -34,12 +40,14 @@ impl TransactionConsumer {
         config: &AppConfig,
         processor: TransactionEventProcessor,
         producer: KafkaProducer,
+        rule_loader: Arc<RuleLoader>,
     ) -> Result<Self, TransactionError> {
         let consumer = KafkaConsumer::new(&config.kafka, None)?;
         Ok(Self {
             consumer,
             processor,
             producer,
+            rule_loader,
         })
     }
 
@@ -47,19 +55,33 @@ impl TransactionConsumer {
     ///
     /// 将 processor 和 producer 移入闭包，通过 KafkaConsumer::start
     /// 驱动消费循环。单独抽取 handle_message 方法方便单元测试。
+    /// 同时订阅规则刷新 topic，在消费循环中根据消息来源分发处理。
     pub async fn run(self, shutdown: watch::Receiver<bool>) -> Result<(), TransactionError> {
-        self.consumer.subscribe(&[topics::TRANSACTION_EVENTS])?;
+        self.consumer
+            .subscribe(&[topics::TRANSACTION_EVENTS, topics::RULE_RELOAD])?;
 
-        info!(topic = topics::TRANSACTION_EVENTS, "交易事件消费者已启动");
+        info!(
+            transaction_topic = topics::TRANSACTION_EVENTS,
+            rule_reload_topic = topics::RULE_RELOAD,
+            "交易事件消费者已启动"
+        );
 
         let processor = self.processor;
         let producer = self.producer;
+        let rule_loader = self.rule_loader;
 
         self.consumer
             .start(shutdown, |msg| {
                 let processor = &processor;
                 let producer = &producer;
+                let rule_loader = &rule_loader;
                 async move {
+                    // 根据 topic 分发：规则刷新 topic 走单独逻辑
+                    if msg.topic == topics::RULE_RELOAD {
+                        handle_rule_reload(rule_loader, &msg).await;
+                        return Ok(());
+                    }
+
                     if let Err(e) = handle_message(processor, producer, &msg).await {
                         error!(
                             error = %e,
@@ -76,6 +98,38 @@ impl TransactionConsumer {
 
         info!("交易事件消费者已停止");
         Ok(())
+    }
+}
+
+/// 处理规则刷新消息
+///
+/// 解析 RuleReloadEvent 并判断是否需要刷新本服务的规则缓存。
+/// service_group 为空表示全部服务刷新，否则只刷新匹配的服务组。
+async fn handle_rule_reload(
+    rule_loader: &Arc<RuleLoader>,
+    msg: &badge_shared::kafka::ConsumerMessage,
+) {
+    let event: RuleReloadEvent = match serde_json::from_slice(&msg.payload) {
+        Ok(e) => e,
+        Err(e) => {
+            warn!(error = %e, "规则刷新事件反序列化失败，忽略");
+            return;
+        }
+    };
+
+    // 仅当 service_group 匹配或为空（全部刷新）时才执行
+    if event.service_group.is_none() || event.service_group.as_deref() == Some("transaction") {
+        info!(
+            trigger_source = %event.trigger_source,
+            triggered_at = %event.triggered_at,
+            "收到 Kafka 规则刷新事件"
+        );
+
+        if let Err(e) = rule_loader.reload_now().await {
+            warn!(error = %e, "Kafka 触发规则刷新失败");
+        } else {
+            info!("Kafka 触发规则刷新成功");
+        }
     }
 }
 
