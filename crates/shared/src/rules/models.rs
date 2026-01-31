@@ -112,6 +112,16 @@ pub struct ValidationContext {
     pub global_granted_count: Option<i32>,
 }
 
+impl Default for ValidationContext {
+    fn default() -> Self {
+        Self {
+            checked_at: Utc::now(),
+            user_granted_count: None,
+            global_granted_count: None,
+        }
+    }
+}
+
 /// 全局配额更新结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QuotaUpdateResult {
