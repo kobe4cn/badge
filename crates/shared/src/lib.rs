@@ -10,5 +10,6 @@ pub mod error;
 pub mod events;
 pub mod kafka;
 pub mod retry;
+pub mod rules;
 pub mod telemetry;
 pub mod test_utils;
