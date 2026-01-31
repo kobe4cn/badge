@@ -24,5 +24,17 @@ dashmap = { workspace = true }
 crossbeam-utils = "0.8"
 dotenvy = "0.15.7"
 
+# Observability
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.27"
+tracing-opentelemetry = "0.28"
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+axum = { workspace = true }
+hyper = { version = "1.5", features = ["full"] }
+http-body-util = "0.1"
+
 [dev-dependencies]
 tokio-test = { workspace = true }

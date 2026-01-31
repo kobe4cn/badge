@@ -9,6 +9,7 @@ pub mod dlq;
 pub mod error;
 pub mod events;
 pub mod kafka;
+pub mod observability;
 pub mod retry;
 pub mod rules;
 pub mod telemetry;
