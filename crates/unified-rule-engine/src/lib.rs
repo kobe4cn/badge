@@ -14,6 +14,7 @@ pub mod grpc;
 pub mod models;
 pub mod operators;
 pub mod store;
+pub mod template;
 
 pub use compiler::{CompiledRule, RuleCompiler};
 pub use error::{Result, RuleError};
