@@ -47,27 +47,27 @@ impl RuleValidator {
         };
 
         // 先检查过期，过期的规则无论如何都不应该发放
-        if let Some(end_time) = rule.end_time {
-            if now > end_time {
-                let result =
-                    self.build_result(rule, user_id, ValidationReason::RuleExpired { end_time }, context);
-                self.log_validation(&result, start.elapsed().as_millis() as u64);
-                return Ok(result);
-            }
+        if let Some(end_time) = rule.end_time
+            && now > end_time
+        {
+            let result =
+                self.build_result(rule, user_id, ValidationReason::RuleExpired { end_time }, context);
+            self.log_validation(&result, start.elapsed().as_millis() as u64);
+            return Ok(result);
         }
 
         // 检查是否在生效时间之前
-        if let Some(start_time) = rule.start_time {
-            if now < start_time {
-                let result = self.build_result(
-                    rule,
-                    user_id,
-                    ValidationReason::RuleNotStarted { start_time },
-                    context,
-                );
-                self.log_validation(&result, start.elapsed().as_millis() as u64);
-                return Ok(result);
-            }
+        if let Some(start_time) = rule.start_time
+            && now < start_time
+        {
+            let result = self.build_result(
+                rule,
+                user_id,
+                ValidationReason::RuleNotStarted { start_time },
+                context,
+            );
+            self.log_validation(&result, start.elapsed().as_millis() as u64);
+            return Ok(result);
         }
 
         // 检查用户发放次数限制

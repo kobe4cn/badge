@@ -4,6 +4,7 @@
 //! 处理失败的消息发送到死信队列，处理成功时：
 //! - Purchase 成功发放 -> 发送 BadgeGranted 通知
 //! - Refund / OrderCancel 撤销成功 -> 发送 BadgeRevoked 通知
+//!
 //! 同时监听规则刷新 topic，在后台刷新任务之外支持管理后台即时触发规则重载。
 
 use std::sync::Arc;
