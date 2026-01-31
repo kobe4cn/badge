@@ -13,6 +13,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use badge_management::{
+    benefit::BenefitService,
     cascade::{CascadeConfig, CascadeEvaluator},
     grpc::BadgeManagementServiceImpl,
     repository::{
@@ -101,10 +102,15 @@ async fn main() -> Result<()> {
 
     let revoke_service = Arc::new(RevokeService::new(cache.clone(), pool.clone()));
 
-    let redemption_service = Arc::new(RedemptionService::new(
+    // 6.1 初始化权益服务（使用默认的 Handler 注册表）
+    let benefit_service = Arc::new(BenefitService::with_defaults());
+    info!("Benefit service initialized with default handlers");
+
+    let redemption_service = Arc::new(RedemptionService::with_benefit_service(
         redemption_repo.clone(),
         cache.clone(),
         pool.clone(),
+        benefit_service,
     ));
 
     // 7. 初始化级联评估器（解决循环依赖：CascadeEvaluator 需要 GrantService，GrantService 需要 CascadeEvaluator）
