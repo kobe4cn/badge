@@ -3,3 +3,7 @@ target/
 node_modules/
 .env
 *.log
+
+# 测试生成的临时文件
+.playwright-mcp/
+screenshots/
