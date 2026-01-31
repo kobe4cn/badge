@@ -479,21 +479,21 @@ impl BenefitService {
         match record {
             Some(r) => {
                 // 如果是处理中状态，调用 Handler 查询最新状态
-                if r.status == GrantStatus::Processing {
-                    if let Some(handler) = self.registry.get(r.benefit_type) {
-                        let latest_status = handler.query_status(grant_no).await?;
+                if r.status == GrantStatus::Processing
+                    && let Some(handler) = self.registry.get(r.benefit_type)
+                {
+                    let latest_status = handler.query_status(grant_no).await?;
 
-                        // 如果状态有变化，更新本地记录
-                        if latest_status != r.status {
-                            let mut grants = self.grants.write().await;
-                            if let Some(record) = grants.get_mut(grant_no) {
-                                record.status = latest_status;
-                                record.updated_at = Utc::now();
-                            }
+                    // 如果状态有变化，更新本地记录
+                    if latest_status != r.status {
+                        let mut grants = self.grants.write().await;
+                        if let Some(record) = grants.get_mut(grant_no) {
+                            record.status = latest_status;
+                            record.updated_at = Utc::now();
                         }
-
-                        return Ok(latest_status);
                     }
+
+                    return Ok(latest_status);
                 }
 
                 Ok(r.status)

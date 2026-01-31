@@ -191,6 +191,7 @@ pub mod grpc {
     ///     .serve(addr)
     ///     .await?;
     /// ```
+    #[allow(clippy::result_large_err)] // tonic 的 Status 类型较大，但这是 Interceptor trait 的签名要求
     pub fn tracing_interceptor<T>(request: Request<T>) -> Result<Request<T>, Status> {
         // 从 metadata 提取 trace context（W3C Trace Context）
         // 这里是占位实现，完整实现在 Task 3.4

@@ -59,11 +59,15 @@ impl PointsHandler {
             points_service_url: points_service_url.into(),
         }
     }
+}
 
-    /// 创建使用默认配置的处理器（用于测试）
-    pub fn default() -> Self {
+impl Default for PointsHandler {
+    fn default() -> Self {
         Self::new("http://points-service:8080")
     }
+}
+
+impl PointsHandler {
 
     /// 解析积分配置
     fn parse_config(&self, config: &Value) -> Result<PointsConfig> {
@@ -213,12 +217,12 @@ impl BenefitHandler for PointsHandler {
             return Err(BadgeError::Validation("point_type 不能为空".into()));
         }
 
-        if let Some(days) = points_config.validity_days {
-            if days <= 0 {
-                return Err(BadgeError::Validation(
-                    "validity_days 必须大于 0".into(),
-                ));
-            }
+        if let Some(days) = points_config.validity_days
+            && days <= 0
+        {
+            return Err(BadgeError::Validation(
+                "validity_days 必须大于 0".into(),
+            ));
         }
 
         Ok(())

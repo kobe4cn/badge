@@ -96,11 +96,15 @@ impl PhysicalHandler {
             shipment_topic: shipment_topic.into(),
         }
     }
+}
 
-    /// 创建使用默认配置的处理器（用于测试）
-    pub fn default() -> Self {
+impl Default for PhysicalHandler {
+    fn default() -> Self {
         Self::new("localhost:9092", "physical_shipment")
     }
+}
+
+impl PhysicalHandler {
 
     /// 解析实物配置
     fn parse_config(&self, config: &Value) -> Result<PhysicalConfig> {
@@ -123,12 +127,12 @@ impl PhysicalHandler {
         }
 
         // 尝试从 metadata 中提取
-        if let Some(meta) = metadata {
-            if let Some(addr_value) = meta.get("shipping_address") {
-                return serde_json::from_value(addr_value.clone()).map_err(|e| {
-                    BadgeError::Validation(format!("metadata 中收货地址解析失败: {}", e))
-                });
-            }
+        if let Some(meta) = metadata
+            && let Some(addr_value) = meta.get("shipping_address")
+        {
+            return serde_json::from_value(addr_value.clone()).map_err(|e| {
+                BadgeError::Validation(format!("metadata 中收货地址解析失败: {}", e))
+            });
         }
 
         Err(BadgeError::Validation(

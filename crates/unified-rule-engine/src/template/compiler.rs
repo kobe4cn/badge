@@ -112,23 +112,23 @@ impl TemplateCompiler {
 
         // 数值范围检查
         if let Some(v) = value.as_f64() {
-            if let Some(min) = def.min {
-                if v < min {
-                    return Err(CompileError::ParamOutOfRange {
-                        name: def.name.clone(),
-                        min: Some(min),
-                        max: def.max,
-                    });
-                }
+            if let Some(min) = def.min
+                && v < min
+            {
+                return Err(CompileError::ParamOutOfRange {
+                    name: def.name.clone(),
+                    min: Some(min),
+                    max: def.max,
+                });
             }
-            if let Some(max) = def.max {
-                if v > max {
-                    return Err(CompileError::ParamOutOfRange {
-                        name: def.name.clone(),
-                        min: def.min,
-                        max: Some(max),
-                    });
-                }
+            if let Some(max) = def.max
+                && v > max
+            {
+                return Err(CompileError::ParamOutOfRange {
+                    name: def.name.clone(),
+                    min: def.min,
+                    max: Some(max),
+                });
             }
         }
 
@@ -143,10 +143,10 @@ impl TemplateCompiler {
     ) -> HashMap<String, Value> {
         let mut merged = params.clone();
         for def in definitions {
-            if !merged.contains_key(&def.name) {
-                if let Some(default) = &def.default {
-                    merged.insert(def.name.clone(), default.clone());
-                }
+            if !merged.contains_key(&def.name)
+                && let Some(default) = &def.default
+            {
+                merged.insert(def.name.clone(), default.clone());
             }
         }
         merged
@@ -164,13 +164,13 @@ impl TemplateCompiler {
         match template {
             Value::String(s) => {
                 // 检查是否是纯占位符，以便保留原始类型
-                if let Some(caps) = self.placeholder_regex.captures(s) {
-                    if caps.get(0).map(|m| m.as_str()) == Some(s.as_str()) {
-                        let param_name = &caps[1];
-                        return params.get(param_name).cloned().ok_or_else(|| {
-                            CompileError::MissingParameter(param_name.to_string())
-                        });
-                    }
+                if let Some(caps) = self.placeholder_regex.captures(s)
+                    && caps.get(0).map(|m| m.as_str()) == Some(s.as_str())
+                {
+                    let param_name = &caps[1];
+                    return params.get(param_name).cloned().ok_or_else(|| {
+                        CompileError::MissingParameter(param_name.to_string())
+                    });
                 }
 
                 // 混合字符串中的占位符替换

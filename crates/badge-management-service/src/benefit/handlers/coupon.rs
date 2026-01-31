@@ -57,11 +57,15 @@ impl CouponHandler {
             coupon_service_url: coupon_service_url.into(),
         }
     }
+}
 
-    /// 创建使用默认配置的处理器（用于测试）
-    pub fn default() -> Self {
+impl Default for CouponHandler {
+    fn default() -> Self {
         Self::new("http://coupon-service:8080")
     }
+}
+
+impl CouponHandler {
 
     /// 解析优惠券配置
     fn parse_config(&self, config: &Value) -> Result<CouponConfig> {
@@ -168,10 +172,10 @@ impl BenefitHandler for CouponHandler {
                     }));
 
                 // 设置过期时间
-                if let Some(expires_str) = &response.expires_at {
-                    if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(expires_str) {
-                        result = result.with_expires_at(expires.with_timezone(&chrono::Utc));
-                    }
+                if let Some(expires_str) = &response.expires_at
+                    && let Ok(expires) = chrono::DateTime::parse_from_rfc3339(expires_str)
+                {
+                    result = result.with_expires_at(expires.with_timezone(&chrono::Utc));
                 }
 
                 Ok(result)
@@ -217,12 +221,12 @@ impl BenefitHandler for CouponHandler {
             return Err(BadgeError::Validation("quantity 必须大于 0".into()));
         }
 
-        if let Some(days) = coupon_config.validity_days {
-            if days <= 0 {
-                return Err(BadgeError::Validation(
-                    "validity_days 必须大于 0".into(),
-                ));
-            }
+        if let Some(days) = coupon_config.validity_days
+            && days <= 0
+        {
+            return Err(BadgeError::Validation(
+                "validity_days 必须大于 0".into(),
+            ));
         }
 
         Ok(())
