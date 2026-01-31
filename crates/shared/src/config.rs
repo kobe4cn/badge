@@ -53,12 +53,61 @@ impl Default for RedisConfig {
     }
 }
 
+/// Kafka Topics 配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct KafkaTopicsConfig {
+    #[serde(default = "default_engagement_events")]
+    pub engagement_events: String,
+
+    #[serde(default = "default_transaction_events")]
+    pub transaction_events: String,
+
+    #[serde(default = "default_notifications")]
+    pub notifications: String,
+
+    #[serde(default = "default_dead_letter_queue")]
+    pub dead_letter_queue: String,
+
+    #[serde(default = "default_rule_reload")]
+    pub rule_reload: String,
+}
+
+fn default_engagement_events() -> String {
+    "badge.engagement.events".into()
+}
+fn default_transaction_events() -> String {
+    "badge.transaction.events".into()
+}
+fn default_notifications() -> String {
+    "badge.notifications".into()
+}
+fn default_dead_letter_queue() -> String {
+    "badge.dlq".into()
+}
+fn default_rule_reload() -> String {
+    "badge.rule.reload".into()
+}
+
+impl Default for KafkaTopicsConfig {
+    fn default() -> Self {
+        Self {
+            engagement_events: default_engagement_events(),
+            transaction_events: default_transaction_events(),
+            notifications: default_notifications(),
+            dead_letter_queue: default_dead_letter_queue(),
+            rule_reload: default_rule_reload(),
+        }
+    }
+}
+
 /// Kafka 配置
 #[derive(Debug, Clone, Deserialize)]
 pub struct KafkaConfig {
     pub brokers: String,
     pub consumer_group: String,
     pub auto_offset_reset: String,
+    #[serde(default)]
+    pub topics: KafkaTopicsConfig,
 }
 
 impl Default for KafkaConfig {
@@ -67,6 +116,7 @@ impl Default for KafkaConfig {
             brokers: "localhost:9092".to_string(),
             consumer_group: "badge-service".to_string(),
             auto_offset_reset: "earliest".to_string(),
+            topics: KafkaTopicsConfig::default(),
         }
     }
 }
@@ -85,6 +135,42 @@ impl Default for ServerConfig {
             host: "0.0.0.0".to_string(),
             port: 8080,
             workers: None,
+        }
+    }
+}
+
+/// 规则加载配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct RulesConfig {
+    /// 定时刷新间隔（秒），默认 30
+    #[serde(default = "default_refresh_interval")]
+    pub refresh_interval_secs: u64,
+
+    /// 启动加载超时（秒），默认 10
+    #[serde(default = "default_initial_timeout")]
+    pub initial_load_timeout_secs: u64,
+
+    /// 幂等窗口（小时），默认 24
+    #[serde(default = "default_idempotency_ttl")]
+    pub idempotency_ttl_hours: u64,
+}
+
+fn default_refresh_interval() -> u64 {
+    30
+}
+fn default_initial_timeout() -> u64 {
+    10
+}
+fn default_idempotency_ttl() -> u64 {
+    24
+}
+
+impl Default for RulesConfig {
+    fn default() -> Self {
+        Self {
+            refresh_interval_secs: default_refresh_interval(),
+            initial_load_timeout_secs: default_initial_timeout(),
+            idempotency_ttl_hours: default_idempotency_ttl(),
         }
     }
 }
@@ -124,6 +210,8 @@ pub struct AppConfig {
     pub redis: RedisConfig,
     pub kafka: KafkaConfig,
     pub observability: ObservabilityConfig,
+    #[serde(default)]
+    pub rules: RulesConfig,
 }
 
 impl AppConfig {
@@ -282,6 +370,24 @@ mod tests {
         // 测试通用服务名转换：my-custom-service -> MY_CUSTOM_SERVICE_PORT
         // 由于环境变量可能不存在，这里只测试函数不会 panic
         let _ = AppConfig::get_generic_service_port("my-custom-service");
+    }
+
+    #[test]
+    fn test_rules_config_defaults() {
+        let config = RulesConfig::default();
+        assert_eq!(config.refresh_interval_secs, 30);
+        assert_eq!(config.initial_load_timeout_secs, 10);
+        assert_eq!(config.idempotency_ttl_hours, 24);
+    }
+
+    #[test]
+    fn test_kafka_topics_config_defaults() {
+        let config = KafkaTopicsConfig::default();
+        assert_eq!(config.engagement_events, "badge.engagement.events");
+        assert_eq!(config.transaction_events, "badge.transaction.events");
+        assert_eq!(config.notifications, "badge.notifications");
+        assert_eq!(config.dead_letter_queue, "badge.dlq");
+        assert_eq!(config.rule_reload, "badge.rule.reload");
     }
 
     #[test]
