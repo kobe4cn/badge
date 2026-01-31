@@ -142,6 +142,86 @@ pub fn current_span_id() -> Option<String> {
     }
 }
 
+// ============================================================================
+// 追踪上下文传播
+// ============================================================================
+
+use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use std::collections::HashMap;
+
+/// HTTP Header 提取器
+struct HeaderExtractor<'a>(&'a HashMap<String, String>);
+
+impl<'a> Extractor for HeaderExtractor<'a> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).map(|s| s.as_str())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+/// HTTP Header 注入器
+struct HeaderInjector<'a>(&'a mut HashMap<String, String>);
+
+impl<'a> Injector for HeaderInjector<'a> {
+    fn set(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_string(), value);
+    }
+}
+
+/// 从 HTTP headers 提取追踪上下文
+///
+/// 用于在接收请求时恢复上游的追踪上下文，实现分布式追踪的链路串联。
+/// 支持 W3C Trace Context 标准（traceparent, tracestate）。
+///
+/// # 示例
+///
+/// ```ignore
+/// let headers = extract_headers_from_request(&request);
+/// let context = extract_from_headers(&headers);
+/// let span = tracing::info_span!("handle_request");
+/// span.set_parent(context);
+/// ```
+pub fn extract_from_headers(headers: &HashMap<String, String>) -> opentelemetry::Context {
+    let propagator = TraceContextPropagator::new();
+    propagator.extract(&HeaderExtractor(headers))
+}
+
+/// 将当前追踪上下文注入到 HTTP headers
+///
+/// 用于在发起下游请求时传播追踪上下文，实现分布式追踪的链路传递。
+/// 注入 W3C Trace Context 标准格式的 headers。
+///
+/// # 示例
+///
+/// ```ignore
+/// let mut headers = HashMap::new();
+/// inject_to_headers(&mut headers);
+/// // headers 现在包含 traceparent 和 tracestate
+/// ```
+pub fn inject_to_headers(headers: &mut HashMap<String, String>) {
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+    let span = tracing::Span::current();
+    let context = span.context();
+
+    let propagator = TraceContextPropagator::new();
+    propagator.inject_context(&context, &mut HeaderInjector(headers));
+}
+
+/// 从 HTTP headers 提取并设置当前 span 的父上下文
+///
+/// 这是 extract_from_headers 的便捷版本，直接设置当前 span 的父上下文。
+pub fn set_parent_from_headers(headers: &HashMap<String, String>) {
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+    let context = extract_from_headers(headers);
+    tracing::Span::current().set_parent(context);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +230,41 @@ mod tests {
     fn test_current_trace_id_without_init() {
         // 没有初始化时应该返回 None
         assert!(current_trace_id().is_none());
+    }
+
+    #[test]
+    fn test_extract_from_empty_headers() {
+        let headers = HashMap::new();
+        let context = extract_from_headers(&headers);
+        // 空 headers 应该返回空的 context，不应该 panic
+        assert!(!context.has_active_span());
+    }
+
+    #[test]
+    fn test_inject_to_headers_without_context() {
+        let mut headers = HashMap::new();
+        // 没有活动 span 时注入应该是安全的
+        inject_to_headers(&mut headers);
+        // 可能不会添加任何 header（因为没有有效的 span context）
+    }
+
+    #[test]
+    fn test_extract_with_traceparent() {
+        let mut headers = HashMap::new();
+        // 有效的 W3C Trace Context 格式
+        headers.insert(
+            "traceparent".to_string(),
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".to_string(),
+        );
+
+        let context = extract_from_headers(&headers);
+        // 应该成功提取 context
+        use opentelemetry::trace::TraceContextExt;
+        let span_context = context.span().span_context().clone();
+        assert!(span_context.is_valid());
+        assert_eq!(
+            span_context.trace_id().to_string(),
+            "0af7651916cd43dd8448eb211c80319c"
+        );
     }
 }
