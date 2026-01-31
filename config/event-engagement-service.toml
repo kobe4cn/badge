@@ -6,3 +6,8 @@ port = 50053
 
 [kafka]
 consumer_group = "event-engagement-service"
+
+[rules]
+refresh_interval_secs = 30
+initial_load_timeout_secs = 10
+idempotency_ttl_hours = 24

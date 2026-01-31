@@ -18,6 +18,18 @@ brokers = "localhost:9092"
 consumer_group = "badge-service"
 auto_offset_reset = "earliest"
 
+[kafka.topics]
+engagement_events = "badge.engagement.events"
+transaction_events = "badge.transaction.events"
+notifications = "badge.notifications"
+dead_letter_queue = "badge.dlq"
+rule_reload = "badge.rule.reload"
+
+[rules]
+refresh_interval_secs = 30
+initial_load_timeout_secs = 10
+idempotency_ttl_hours = 24
+
 [observability]
 log_level = "info"
 log_format = "pretty"
