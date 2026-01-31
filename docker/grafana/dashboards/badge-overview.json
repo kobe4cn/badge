@@ -15,6 +15,7 @@
       }
     ]
   },
+  "description": "Badge 系统核心指标监控仪表盘，包括 HTTP 请求、徽章发放、兑换、权益和级联评估等关键业务指标",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,

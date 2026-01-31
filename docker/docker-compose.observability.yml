@@ -1,5 +1,8 @@
 # 可观测性基础设施配置
 # 包含 Prometheus（指标）、Grafana（可视化）、Jaeger（追踪）
+#
+# 使用前请设置环境变量或创建 .env 文件：
+#   GRAFANA_ADMIN_PASSWORD=your-secure-password
 
 services:
   prometheus:
@@ -14,9 +17,15 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - badge-network
     restart: unless-stopped
@@ -25,22 +34,30 @@ services:
     image: grafana/grafana:10.3.0
     container_name: badge-grafana
     ports:
-      - "3001:3000"
+      - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_SERVER_ROOT_URL=http://localhost:3000
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
     networks:
       - badge-network
     restart: unless-stopped
 
+  # Jaeger 使用 all-in-one 模式，数据存储在内存中
+  # 生产环境建议使用 Elasticsearch/Cassandra 后端
   jaeger:
     image: jaegertracing/all-in-one:1.54
     container_name: badge-jaeger
@@ -51,6 +68,11 @@ services:
       - "14268:14268"  # Jaeger HTTP Thrift
     environment:
       - COLLECTOR_OTLP_ENABLED=true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:16686/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - badge-network
     restart: unless-stopped
