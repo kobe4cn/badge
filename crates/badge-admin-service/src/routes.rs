@@ -161,6 +161,23 @@ fn task_routes() -> Router<AppState> {
         .route("/tasks/{id}", get(handlers::batch_task::get_task))
 }
 
+/// 构建模板管理路由
+///
+/// 包含模板列表、详情、预览和从模板创建规则
+fn template_routes() -> Router<AppState> {
+    Router::new()
+        .route("/templates", get(handlers::template::list_templates))
+        .route("/templates/{code}", get(handlers::template::get_template))
+        .route(
+            "/templates/{code}/preview",
+            post(handlers::template::preview_template),
+        )
+        .route(
+            "/rules/from-template",
+            post(handlers::template::create_rule_from_template),
+        )
+}
+
 /// 构建完整的 API 路由
 ///
 /// 返回所有管理后台 API 路由（不含前缀，由调用方在 main.rs 中挂载）
@@ -175,6 +192,7 @@ pub fn api_routes() -> Router<AppState> {
         .merge(log_routes())
         .merge(task_routes())
         .merge(cache_routes())
+        .merge(template_routes())
 }
 
 #[cfg(test)]
@@ -192,6 +210,7 @@ mod tests {
         let _log = log_routes();
         let _task = task_routes();
         let _cache = cache_routes();
+        let _template = template_routes();
         let _api = api_routes();
     }
 }

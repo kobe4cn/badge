@@ -12,4 +12,5 @@ pub mod revoke;
 pub mod rule;
 pub mod series;
 pub mod stats;
+pub mod template;
 pub mod user_view;

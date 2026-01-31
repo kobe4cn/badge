@@ -15,6 +15,7 @@ path = "src/lib.rs"
 badge-proto = { path = "../proto" }
 badge-shared = { path = "../shared" }
 badge-management-service = { path = "../badge-management-service" }
+rule_engine = { package = "unified-rule-engine", path = "../unified-rule-engine" }
 tokio = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
