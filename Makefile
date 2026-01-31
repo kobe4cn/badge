@@ -1,4 +1,4 @@
-.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate kafka-init kafka-topics
+.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate kafka-init kafka-topics e2e-test e2e-cascade e2e-redemption e2e-refund
 
 # 默认目标
 all: build
@@ -132,6 +132,7 @@ db-migrate:
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250131_001_cascade_log.sql
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250201_001_user_badge_logs.sql
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250202_001_dynamic_rules.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250203_001_schema_alignment.sql
 	@echo "All migrations completed"
 
 db-reset:
@@ -139,7 +140,89 @@ db-reset:
 	podman exec -i badge-postgres psql -U badge -d badge_db -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 	$(MAKE) db-migrate
 
+# 初始化测试数据（执行测试前使用）
+db-init-test:
+	@echo "Initializing test data..."
+	podman exec -i badge-postgres psql -U badge -d badge_db < scripts/init_test_data.sql
+	@echo "Test data initialized"
+
+# 完整数据库初始化（迁移 + 测试数据）
+db-setup:
+	$(MAKE) db-migrate
+	$(MAKE) db-init-test
+
+# 完整数据库重置（清理 + 迁移 + 测试数据）
+db-reset-full:
+	$(MAKE) db-reset
+	$(MAKE) db-init-test
+
+# =============================================
+# E2E 测试
+# =============================================
+
+# 运行级联触发测试场景
+e2e-cascade:
+	@echo "Running cascade trigger E2E test..."
+	@echo "Step 1: Grant first_checkin badge (id=2)"
+	curl -s -X POST http://localhost:8080/api/admin/grants \
+		-H "Content-Type: application/json" \
+		-d '{"user_id": "e2e-cascade-$(shell date +%s)", "badge_id": 2, "source_type": "MANUAL"}' | jq .
+	@echo ""
+	@echo "Step 2: Grant social badge (id=6) - should trigger KOC cascade"
+	curl -s -X POST http://localhost:8080/api/admin/grants \
+		-H "Content-Type: application/json" \
+		-d '{"user_id": "e2e-cascade-$(shell date +%s)", "badge_id": 6, "source_type": "MANUAL"}' | jq .
+	@echo ""
+	@echo "Step 3: Query user badges"
+	curl -s "http://localhost:8080/api/admin/users/e2e-cascade-$(shell date +%s)/badges" | jq .
+
+# 运行兑换测试场景
+e2e-redemption:
+	@echo "Running redemption E2E test..."
+	@echo "This requires a user with KOC (8) and first_purchase (3) badges"
+	@echo "Use: make e2e-redemption USER=<user_id>"
+	@if [ -n "$(USER)" ]; then \
+		echo "Redeeming park_star for user $(USER)..." && \
+		curl -s -X POST "http://localhost:50052/badge.BadgeService/RedeemBadge" \
+			-H "Content-Type: application/json" \
+			-d '{"user_id": "$(USER)", "redemption_rule_id": 1}' | jq .; \
+	fi
+
+# 运行退款测试场景
+e2e-refund:
+	@echo "Running refund E2E test..."
+	@echo "Usage: make e2e-refund USER=<user_id> BADGES='[3,4]'"
+	@if [ -n "$(USER)" ] && [ -n "$(BADGES)" ]; then \
+		echo "Sending refund event for user $(USER)..." && \
+		echo '{"event_type": "refund", "user_id": "$(USER)", "order_id": "ORD-REFUND-$(shell date +%s)", "amount": 100.0, "badge_ids": $(BADGES)}' | \
+		podman exec -i badge-kafka kafka-console-producer --bootstrap-server localhost:9092 --topic badge.transaction.events && \
+		echo "Refund event sent. Check user badges status."; \
+	else \
+		echo "Example: make e2e-refund USER=test-user-001 BADGES='[3,4]'"; \
+	fi
+
+# 运行完整 E2E 测试套件
+e2e-test:
+	@echo "Running full E2E test suite..."
+	@echo ""
+	@echo "=== 1. Cascade Trigger Test ==="
+	$(MAKE) e2e-cascade
+	@echo ""
+	@echo "=== 2. Redemption Test (manual) ==="
+	@echo "Run: make e2e-redemption USER=<user_with_required_badges>"
+	@echo ""
+	@echo "=== 3. Refund Test (manual) ==="
+	@echo "Run: make e2e-refund USER=<user_id> BADGES='[3,4]'"
+	@echo ""
+	@echo "E2E test suite completed. Some tests require manual user setup."
+
+# 运行集成测试
+test-integration:
+	cargo test --workspace -- --ignored
+
+# =============================================
 # 代码检查
+# =============================================
 lint:
 	cargo clippy --workspace -- -D warnings
 	cd web/admin-ui && pnpm run lint
@@ -164,6 +247,7 @@ help:
 	@echo "  build            - Build all Rust crates"
 	@echo "  build-release    - Build release version"
 	@echo "  test             - Run all tests"
+	@echo "  test-integration - Run integration tests (--ignored)"
 	@echo "  clean            - Clean build artifacts"
 	@echo ""
 	@echo "Development:"
@@ -175,6 +259,12 @@ help:
 	@echo "  mock-server      - Start mock HTTP server with test data"
 	@echo "  mock-generate    - Generate events (TYPE=<type> [USER=<id>] [COUNT=<n>])"
 	@echo "  mock-scenario    - Run predefined scenario (NAME=<name> [USER=<id>])"
+	@echo ""
+	@echo "E2E Testing:"
+	@echo "  e2e-test         - Run full E2E test suite"
+	@echo "  e2e-cascade      - Test cascade trigger (首次签到+社交→KOC)"
+	@echo "  e2e-redemption   - Test badge redemption (USER=<id>)"
+	@echo "  e2e-refund       - Test refund flow (USER=<id> BADGES='[ids]')"
 	@echo ""
 	@echo "Infrastructure:"
 	@echo "  infra-up         - Start infrastructure (Podman)"
@@ -190,6 +280,9 @@ help:
 	@echo "Database:"
 	@echo "  db-migrate       - Run all database migrations"
 	@echo "  db-reset         - Reset database and run migrations"
+	@echo "  db-init-test     - Initialize test data only"
+	@echo "  db-setup         - Full setup (migrate + test data)"
+	@echo "  db-reset-full    - Full reset (clean + migrate + test data)"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  lint             - Run linters"
