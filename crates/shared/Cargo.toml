@@ -20,6 +20,8 @@ config = { workspace = true }
 async-trait = { workspace = true }
 tonic = { workspace = true }
 futures = { workspace = true }
+dashmap = { workspace = true }
+crossbeam-utils = "0.8"
 dotenvy = "0.15.7"
 
 [dev-dependencies]
