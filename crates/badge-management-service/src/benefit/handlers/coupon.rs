@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::benefit::dto::{BenefitGrantRequest, BenefitGrantResult, BenefitRevokeResult};
@@ -192,8 +192,11 @@ impl BenefitHandler for CouponHandler {
     async fn revoke(&self, grant_no: &str) -> Result<BenefitRevokeResult> {
         info!(grant_no = %grant_no, "撤销优惠券");
 
-        // TODO: 从数据库查询 external_ref（coupon_id）后调用撤销
-        // 目前使用 stub 实现
+        // TODO: 实际实现需要：
+        // 1. 从 benefit_grants 表查询 external_ref（coupon_id）
+        // 2. 使用查询到的 coupon_id 调用优惠券系统撤销 API
+        // 当前为 stub 实现，使用 grant_no 模拟调用
+        warn!("revoke() 当前为 stub 实现，生产环境需要从数据库查询 coupon_id");
         match self.revoke_coupon(grant_no).await {
             Ok(()) => Ok(BenefitRevokeResult::success(grant_no)),
             Err(e) => Ok(BenefitRevokeResult::failed(grant_no, e.to_string())),

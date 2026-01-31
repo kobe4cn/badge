@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::benefit::dto::{BenefitGrantRequest, BenefitGrantResult, BenefitRevokeResult};
@@ -188,8 +188,11 @@ impl BenefitHandler for PointsHandler {
     async fn revoke(&self, grant_no: &str) -> Result<BenefitRevokeResult> {
         info!(grant_no = %grant_no, "撤销积分");
 
-        // TODO: 从数据库查询 external_ref（transaction_id）和发放金额后调用撤销
-        // 目前使用 stub 实现，假设撤销 0 积分
+        // TODO: 实际实现需要：
+        // 1. 从 benefit_grants 表查询 payload（包含 point_amount）
+        // 2. 使用查询到的金额调用积分系统撤销 API
+        // 当前为 stub 实现，使用 0 作为占位符
+        warn!("revoke() 当前为 stub 实现，生产环境需要从数据库查询发放金额");
         match self.revoke_points(grant_no, 0).await {
             Ok(()) => Ok(BenefitRevokeResult::success(grant_no)),
             Err(e) => Ok(BenefitRevokeResult::failed(grant_no, e.to_string())),
