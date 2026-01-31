@@ -225,6 +225,7 @@ pub fn set_parent_from_headers(headers: &HashMap<String, String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use opentelemetry::trace::TraceContextExt;
 
     #[test]
     fn test_current_trace_id_without_init() {
