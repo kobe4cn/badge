@@ -9,3 +9,5 @@ export { default as TestPanel } from './TestPanel';
 export { default as TestResult } from './TestResult';
 export { default as RuleInfoPanel } from './RuleInfoPanel';
 export type { RuleInfo } from './RuleInfoPanel';
+export { default as TemplateSelector } from './TemplateSelector';
+export { default as ParameterForm } from './ParameterForm';

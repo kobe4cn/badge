@@ -12,6 +12,7 @@ export * from './series';
 export * from './badge';
 export * from './dependency';
 export * from './rule';
+export * from './template';
 export * from './grant';
 export * from './dashboard';
 export * from './member';
