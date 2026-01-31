@@ -19,7 +19,9 @@
 //! - `grpc`: gRPC 服务端实现
 //! - `cascade`: 级联触发模块
 //! - `lock`: 分布式锁模块
+//! - `benefit`: 权益处理模块
 
+pub mod benefit;
 pub mod cascade;
 pub mod error;
 pub mod grpc;
@@ -28,6 +30,7 @@ pub mod models;
 pub mod repository;
 pub mod service;
 
+pub use benefit::{BenefitGrantRequest, BenefitGrantResult, BenefitHandler, BenefitRevokeResult};
 pub use error::{BadgeError, Result};
 pub use grpc::BadgeManagementServiceImpl;
 pub use lock::{LockConfig, LockGuard, LockManager};

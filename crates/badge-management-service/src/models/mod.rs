@@ -10,8 +10,8 @@ pub mod user_badge;
 // 重新导出常用类型
 pub use badge::{Badge, BadgeAssets, BadgeCategory, BadgeRule, BadgeSeries, ValidityConfig};
 pub use enums::{
-    BadgeStatus, BadgeType, BenefitType, CategoryStatus, ChangeType, LogAction, OrderStatus,
-    SourceType, UserBadgeStatus, ValidityType,
+    BadgeStatus, BadgeType, BenefitType, CategoryStatus, ChangeType, GrantStatus, LogAction,
+    OrderStatus, RevokeReason, SourceType, UserBadgeStatus, ValidityType,
 };
 pub use redemption::{
     BadgeRedemptionRule, Benefit, BenefitInfo, FrequencyConfig, RedemptionDetail, RedemptionOrder,
