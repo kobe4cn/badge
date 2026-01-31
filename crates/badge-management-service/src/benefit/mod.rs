@@ -6,6 +6,7 @@
 //!
 //! - `dto`: 权益发放相关的数据传输对象
 //! - `handler`: BenefitHandler trait 定义
+//! - `handlers`: 各权益类型的具体 Handler 实现
 //!
 //! ## 设计说明
 //!
@@ -17,9 +18,10 @@
 //!
 //! ```ignore
 //! use badge_management::benefit::{BenefitHandler, BenefitGrantRequest, BenefitGrantResult};
+//! use badge_management::benefit::handlers::CouponHandler;
 //!
-//! // 获取对应的 Handler
-//! let handler = registry.get_handler(BenefitType::Coupon)?;
+//! // 创建处理器
+//! let handler = CouponHandler::new("http://coupon-service:8080");
 //!
 //! // 构造发放请求
 //! let request = BenefitGrantRequest::new(
@@ -35,7 +37,11 @@
 
 pub mod dto;
 pub mod handler;
+pub mod handlers;
 
 // Re-export commonly used types
 pub use dto::{BenefitGrantRequest, BenefitGrantResult, BenefitRevokeResult};
 pub use handler::BenefitHandler;
+
+// Re-export handlers for convenience
+pub use handlers::{CouponHandler, PhysicalHandler, PointsHandler};
