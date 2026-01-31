@@ -128,17 +128,80 @@ pub enum SourceType {
 
 /// 权益类型
 ///
-/// 定义徽章可兑换的权益种类
+/// 定义徽章可兑换的权益种类，不同类型有不同的发放和撤销特性
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BenefitType {
     /// 数字资产 - NFT、虚拟物品等
     DigitalAsset,
-    /// 优惠券 - 折扣券、满减券等
+    /// 优惠券 - 折扣券、满减券等，支持同步发放
     Coupon,
     /// 预约资格 - VIP 通道、优先预约等
     Reservation,
+    /// 积分 - 可累积使用，支持同步发放
+    Points,
+    /// 实物奖品 - 需要物流配送，发放后不可撤销
+    Physical,
+    /// 会员权益 - 会员等级、VIP 资格等
+    Membership,
+    /// 外部回调 - 通用接口，由外部系统处理具体逻辑
+    ExternalCallback,
+}
+
+impl BenefitType {
+    /// 判断该权益类型是否支持同步发放
+    ///
+    /// 同步类型可以在请求中立即完成发放，适合响应时间敏感的场景
+    pub fn is_sync(&self) -> bool {
+        matches!(self, Self::Coupon | Self::Points)
+    }
+
+    /// 判断该权益类型是否支持撤销
+    ///
+    /// 实物奖品一旦发出无法收回，其他虚拟权益均可撤销
+    pub fn is_revocable(&self) -> bool {
+        !matches!(self, Self::Physical)
+    }
+}
+
+/// 权益发放状态
+///
+/// 追踪单次权益发放的处理进度
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum GrantStatus {
+    /// 待处理 - 发放请求已接收，等待执行
+    #[default]
+    Pending,
+    /// 处理中 - 正在执行发放操作（异步场景）
+    Processing,
+    /// 成功 - 发放完成
+    Success,
+    /// 失败 - 发放失败（权益系统错误、用户状态异常等）
+    Failed,
+    /// 已撤销 - 发放后被撤回
+    Revoked,
+}
+
+/// 撤销原因
+///
+/// 记录权益被撤销的具体原因，用于审计和统计分析
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RevokeReason {
+    /// 用户主动退回 - 用户发起的退还请求
+    UserRequest,
+    /// 订单退款 - 关联订单退款触发的权益收回
+    OrderRefund,
+    /// 过期清理 - 权益有效期结束
+    Expiration,
+    /// 违规收回 - 用户违反使用规则
+    Violation,
+    /// 系统错误修正 - 发放错误后的人工修正
+    SystemError,
 }
 
 /// 兑换订单状态
@@ -216,5 +279,74 @@ mod tests {
     #[test]
     fn test_user_badge_status_default() {
         assert_eq!(UserBadgeStatus::default(), UserBadgeStatus::Active);
+    }
+
+    #[test]
+    fn test_benefit_type_is_sync() {
+        // 同步发放类型
+        assert!(BenefitType::Coupon.is_sync());
+        assert!(BenefitType::Points.is_sync());
+
+        // 异步发放类型
+        assert!(!BenefitType::DigitalAsset.is_sync());
+        assert!(!BenefitType::Reservation.is_sync());
+        assert!(!BenefitType::Physical.is_sync());
+        assert!(!BenefitType::Membership.is_sync());
+        assert!(!BenefitType::ExternalCallback.is_sync());
+    }
+
+    #[test]
+    fn test_benefit_type_is_revocable() {
+        // 可撤销类型
+        assert!(BenefitType::Coupon.is_revocable());
+        assert!(BenefitType::Points.is_revocable());
+        assert!(BenefitType::DigitalAsset.is_revocable());
+        assert!(BenefitType::Reservation.is_revocable());
+        assert!(BenefitType::Membership.is_revocable());
+        assert!(BenefitType::ExternalCallback.is_revocable());
+
+        // 不可撤销类型
+        assert!(!BenefitType::Physical.is_revocable());
+    }
+
+    #[test]
+    fn test_benefit_type_serialization() {
+        assert_eq!(
+            serde_json::to_string(&BenefitType::ExternalCallback).unwrap(),
+            "\"EXTERNAL_CALLBACK\""
+        );
+        assert_eq!(
+            serde_json::from_str::<BenefitType>("\"POINTS\"").unwrap(),
+            BenefitType::Points
+        );
+    }
+
+    #[test]
+    fn test_grant_status_default() {
+        assert_eq!(GrantStatus::default(), GrantStatus::Pending);
+    }
+
+    #[test]
+    fn test_grant_status_serialization() {
+        assert_eq!(
+            serde_json::to_string(&GrantStatus::Processing).unwrap(),
+            "\"PROCESSING\""
+        );
+        assert_eq!(
+            serde_json::from_str::<GrantStatus>("\"REVOKED\"").unwrap(),
+            GrantStatus::Revoked
+        );
+    }
+
+    #[test]
+    fn test_revoke_reason_serialization() {
+        assert_eq!(
+            serde_json::to_string(&RevokeReason::OrderRefund).unwrap(),
+            "\"ORDER_REFUND\""
+        );
+        assert_eq!(
+            serde_json::from_str::<RevokeReason>("\"SYSTEM_ERROR\"").unwrap(),
+            RevokeReason::SystemError
+        );
     }
 }
