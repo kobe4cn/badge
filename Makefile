@@ -1,4 +1,4 @@
-.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate kafka-init kafka-topics e2e-test e2e-cascade e2e-redemption e2e-refund
+.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate kafka-init kafka-topics e2e-test e2e-cascade e2e-redemption e2e-refund test-infra-up test-infra-down test-e2e test-e2e-backend test-e2e-frontend test-e2e-perf test-coverage test-clean
 
 # 默认目标
 all: build
@@ -241,6 +241,47 @@ fmt-check:
 proto:
 	cd crates/proto && cargo build
 
+# =============================================
+# 测试覆盖率与 E2E 自动化
+# =============================================
+
+.PHONY: test-e2e test-e2e-backend test-e2e-frontend test-e2e-perf test-coverage
+
+# 启动测试基础设施
+test-infra-up:
+	docker-compose -f docker-compose.test.yml up -d postgres redis kafka
+	@echo "等待服务就绪..."
+	@sleep 10
+
+# 停止测试基础设施
+test-infra-down:
+	docker-compose -f docker-compose.test.yml down -v
+
+# 运行后端 E2E 测试
+test-e2e-backend: test-infra-up
+	cargo test --test e2e -- --ignored --test-threads=1
+
+# 运行前端 E2E 测试
+test-e2e-frontend: test-infra-up
+	cd web/admin-ui && npm ci && npx playwright test
+
+# 运行性能测试
+test-e2e-perf: test-infra-up
+	cargo test --test performance -- --ignored --test-threads=1
+
+# 运行所有 E2E 测试
+test-e2e: test-infra-up test-e2e-backend test-e2e-frontend
+
+# 生成测试覆盖率报告
+test-coverage:
+	cargo llvm-cov --all-features --workspace --html --output-dir coverage-report
+	@echo "覆盖率报告已生成: coverage-report/html/index.html"
+
+# 清理测试产物
+test-clean:
+	rm -rf target/test-results coverage-report
+	cd web/admin-ui && rm -rf playwright-report test-results
+
 # 帮助
 help:
 	@echo "Available targets:"
@@ -268,6 +309,16 @@ help:
 	@echo "  e2e-cascade      - Test cascade trigger (首次签到+社交→KOC)"
 	@echo "  e2e-redemption   - Test badge redemption (USER=<id>)"
 	@echo "  e2e-refund       - Test refund flow (USER=<id> BADGES='[ids]')"
+	@echo ""
+	@echo "Test Coverage & Automation:"
+	@echo "  test-infra-up    - Start test infrastructure (Docker)"
+	@echo "  test-infra-down  - Stop test infrastructure"
+	@echo "  test-e2e         - Run all E2E tests (backend + frontend)"
+	@echo "  test-e2e-backend - Run backend E2E tests"
+	@echo "  test-e2e-frontend- Run frontend Playwright tests"
+	@echo "  test-e2e-perf    - Run performance tests"
+	@echo "  test-coverage    - Generate code coverage report"
+	@echo "  test-clean       - Clean test artifacts"
 	@echo ""
 	@echo "Infrastructure:"
 	@echo "  infra-up         - Start infrastructure (Podman)"

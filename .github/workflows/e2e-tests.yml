@@ -1,0 +1,301 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main, feature/*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - backend
+          - frontend
+          - performance
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  DATABASE_URL: postgres://badge:badge@localhost:5432/badge_test
+  REDIS_URL: redis://localhost:6379
+  KAFKA_BROKERS: localhost:9092
+
+jobs:
+  # 后端 E2E 测试
+  backend-e2e:
+    name: Backend E2E Tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'backend' || github.event.inputs.test_suite == '' }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: badge
+          POSTGRES_PASSWORD: badge
+          POSTGRES_DB: badge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      kafka:
+        image: confluentinc/cp-kafka:7.5.0
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:29093
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+
+      - name: Run database migrations
+        run: sqlx database create && sqlx migrate run
+
+      - name: Build all services
+        run: cargo build --workspace
+
+      - name: Start services
+        run: |
+          # 启动后台服务
+          cargo run --bin badge-admin-service &
+          cargo run --bin badge-management-service &
+          cargo run --bin rule-engine-service &
+          cargo run --bin event-engagement-service &
+          cargo run --bin event-transaction-service &
+          cargo run --bin notification-worker &
+
+          # 等待服务就绪
+          sleep 30
+
+      - name: Run E2E tests
+        run: cargo test --test e2e -- --ignored --test-threads=1
+        env:
+          ADMIN_SERVICE_URL: http://localhost:8080
+          RULE_ENGINE_ADDR: http://localhost:50051
+          BADGE_MANAGEMENT_ADDR: http://localhost:50052
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-e2e-results
+          path: target/test-results/
+
+  # 前端 E2E 测试
+  frontend-e2e:
+    name: Frontend E2E Tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'frontend' || github.event.inputs.test_suite == '' }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: badge
+          POSTGRES_PASSWORD: badge
+          POSTGRES_DB: badge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/admin-ui/package-lock.json
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+
+      - name: Run database migrations
+        run: sqlx database create && sqlx migrate run
+
+      - name: Build backend
+        run: cargo build --bin badge-admin-service
+
+      - name: Start backend
+        run: |
+          cargo run --bin badge-admin-service &
+          sleep 10
+
+      - name: Install frontend dependencies
+        run: cd web/admin-ui && npm ci
+
+      - name: Install Playwright browsers
+        run: cd web/admin-ui && npx playwright install --with-deps
+
+      - name: Start frontend dev server
+        run: |
+          cd web/admin-ui && npm run dev &
+          sleep 10
+
+      - name: Run Playwright tests
+        run: cd web/admin-ui && npx playwright test
+        env:
+          API_BASE_URL: http://localhost:8080
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: web/admin-ui/e2e/playwright-report/
+
+      - name: Upload test screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-screenshots
+          path: web/admin-ui/e2e/test-results/
+
+  # 性能测试（仅在手动触发时运行）
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.test_suite == 'performance' }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: badge
+          POSTGRES_PASSWORD: badge
+          POSTGRES_DB: badge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+      kafka:
+        image: confluentinc/cp-kafka:7.5.0
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:29093
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+
+      - name: Run database migrations
+        run: sqlx database create && sqlx migrate run
+
+      - name: Build and start services
+        run: |
+          cargo build --workspace --release
+          cargo run --release --bin badge-admin-service &
+          cargo run --release --bin badge-management-service &
+          cargo run --release --bin rule-engine-service &
+          cargo run --release --bin event-engagement-service &
+          sleep 30
+
+      - name: Run performance tests
+        run: cargo test --test performance -- --ignored --test-threads=1
+        env:
+          ADMIN_SERVICE_URL: http://localhost:8080
+          EVENT_ENGAGEMENT_URL: http://localhost:8081
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: target/performance-results/
