@@ -4,14 +4,12 @@
 //! 支持 OTLP 协议导出到 Jaeger/Tempo 等后端。
 
 use anyhow::Result;
-use opentelemetry::{trace::TracerProvider as _, KeyValue};
+use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-    runtime,
-    trace::{RandomIdGenerator, Sampler, TracerProvider},
+    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
     Resource,
 };
-use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
@@ -25,7 +23,7 @@ use super::ObservabilityConfig;
 ///
 /// 持有 TracerProvider，在 Drop 时优雅关闭并刷新待发送的 span。
 pub struct TracingGuard {
-    provider: Option<TracerProvider>,
+    provider: Option<SdkTracerProvider>,
 }
 
 impl Drop for TracingGuard {
@@ -87,16 +85,20 @@ pub fn init(config: &ObservabilityConfig) -> Result<TracingGuard> {
 }
 
 /// 初始化 OpenTelemetry TracerProvider
-fn init_tracer_provider(service_name: &str, endpoint: &str) -> Result<TracerProvider> {
-    let resource = Resource::new(vec![KeyValue::new(SERVICE_NAME, service_name.to_string())]);
+fn init_tracer_provider(service_name: &str, endpoint: &str) -> Result<SdkTracerProvider> {
+    // 使用 builder 模式创建 Resource
+    let resource = Resource::builder()
+        .with_service_name(service_name.to_string())
+        .build();
 
+    // 使用新的 OTLP exporter API
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint)
         .build()?;
 
-    let provider = TracerProvider::builder()
-        .with_batch_exporter(exporter, runtime::Tokio)
+    let provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
         .with_sampler(Sampler::AlwaysOn)
         .with_id_generator(RandomIdGenerator::default())
         .with_resource(resource)
@@ -219,7 +221,7 @@ pub fn set_parent_from_headers(headers: &HashMap<String, String>) {
     use tracing_opentelemetry::OpenTelemetrySpanExt;
 
     let context = extract_from_headers(headers);
-    tracing::Span::current().set_parent(context);
+    let _ = tracing::Span::current().set_parent(context);
 }
 
 #[cfg(test)]

@@ -136,14 +136,15 @@ impl KafkaProducer {
     ) -> Result<(i32, i64), BadgeError> {
         let record = FutureRecord::to(topic).key(key).payload(payload);
 
-        let (partition, offset) = self
+        // rdkafka 0.39+ 返回 Delivery 结构体而非元组
+        let delivery = self
             .producer
             .send(record, Duration::from_secs(5))
             .await
             .map_err(|(e, _)| BadgeError::Kafka(format!("发送消息失败: {e}")))?;
 
-        debug!(topic, key, partition, offset, "消息已发送");
-        Ok((partition, offset))
+        debug!(topic, key, partition = delivery.partition, offset = delivery.offset, "消息已发送");
+        Ok((delivery.partition, delivery.offset))
     }
 
     /// 将值序列化为 JSON 后发送

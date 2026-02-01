@@ -52,7 +52,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect }) 
     try {
       const res = await listTemplates(category);
       setTemplates(res.items);
-    } catch (error) {
+    } catch {
       message.error('加载模板失败');
     } finally {
       setLoading(false);

@@ -27,9 +27,9 @@ dotenvy = "0.15.7"
 # Observability
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
-opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = "0.27"
-tracing-opentelemetry = "0.28"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.31"
+tracing-opentelemetry = "0.32"
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 axum = { workspace = true }

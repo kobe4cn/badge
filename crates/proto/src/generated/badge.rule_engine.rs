@@ -59,7 +59,7 @@ pub struct EvaluateRequest {
     pub context: ::core::option::Option<::prost_types::Struct>,
 }
 /// 评估响应
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct EvaluateResponse {
     #[prost(bool, tag = "1")]
     pub matched: bool,
@@ -96,7 +96,7 @@ pub struct LoadRuleRequest {
     pub rule: ::core::option::Option<Rule>,
 }
 /// 加载规则响应
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LoadRuleResponse {
     #[prost(bool, tag = "1")]
     pub success: bool,
@@ -104,13 +104,13 @@ pub struct LoadRuleResponse {
     pub message: ::prost::alloc::string::String,
 }
 /// 删除规则请求
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteRuleRequest {
     #[prost(string, tag = "1")]
     pub rule_id: ::prost::alloc::string::String,
 }
 /// 删除规则响应
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteRuleResponse {
     #[prost(bool, tag = "1")]
     pub success: bool,
@@ -127,7 +127,7 @@ pub struct TestRuleRequest {
     pub context: ::core::option::Option<::prost_types::Struct>,
 }
 /// 测试规则响应
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TestRuleResponse {
     #[prost(bool, tag = "1")]
     pub matched: bool,
@@ -279,7 +279,7 @@ pub mod rule_engine_service_client {
     }
     impl<T> RuleEngineServiceClient<T>
     where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T: tonic::client::GrpcService<tonic::body::Body>,
         T::Error: Into<StdError>,
         T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
         <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
@@ -300,13 +300,13 @@ pub mod rule_engine_service_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
                 Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
                 >,
             >,
             <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
             >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             RuleEngineServiceClient::new(InterceptedService::new(inner, interceptor))
@@ -358,7 +358,7 @@ pub mod rule_engine_service_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/badge.rule_engine.RuleEngineService/Evaluate",
             );
@@ -385,7 +385,7 @@ pub mod rule_engine_service_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/badge.rule_engine.RuleEngineService/BatchEvaluate",
             );
@@ -415,7 +415,7 @@ pub mod rule_engine_service_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/badge.rule_engine.RuleEngineService/LoadRule",
             );
@@ -442,7 +442,7 @@ pub mod rule_engine_service_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/badge.rule_engine.RuleEngineService/DeleteRule",
             );
@@ -469,7 +469,7 @@ pub mod rule_engine_service_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/badge.rule_engine.RuleEngineService/TestRule",
             );
@@ -602,7 +602,7 @@ pub mod rule_engine_service_server {
         B: Body + std::marker::Send + 'static,
         B::Error: Into<StdError> + std::marker::Send + 'static,
     {
-        type Response = http::Response<tonic::body::BoxBody>;
+        type Response = http::Response<tonic::body::Body>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
         fn poll_ready(
@@ -643,7 +643,7 @@ pub mod rule_engine_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = EvaluateSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -689,7 +689,7 @@ pub mod rule_engine_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = BatchEvaluateSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -734,7 +734,7 @@ pub mod rule_engine_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = LoadRuleSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -779,7 +779,7 @@ pub mod rule_engine_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = DeleteRuleSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -824,7 +824,7 @@ pub mod rule_engine_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = TestRuleSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -841,7 +841,9 @@ pub mod rule_engine_service_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        let mut response = http::Response::new(empty_body());
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
                         let headers = response.headers_mut();
                         headers
                             .insert(
