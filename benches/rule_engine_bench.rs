@@ -6,11 +6,12 @@
 //! - 批量规则评估性能
 //! - 不同数据量下的性能曲线
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use rule_engine::{
     Condition, EvaluationContext, LogicalGroup, LogicalOperator, Operator, Rule, RuleCompiler,
     RuleExecutor, RuleNode, RuleStore,
 };
+use std::hint::black_box;
 use serde_json::json;
 
 /// 创建简单条件规则

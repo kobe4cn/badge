@@ -3,11 +3,11 @@
 //! 模拟高并发场景下的规则引擎性能。
 //! 此测试可独立运行，也可通过 criterion 框架运行。
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use rule_engine::{
-    Condition, EvaluationContext, LogicalGroup, Operator, Rule, RuleCompiler, RuleExecutor,
-    RuleNode, RuleStore,
+    Condition, EvaluationContext, LogicalGroup, Operator, Rule, RuleExecutor, RuleNode, RuleStore,
 };
+use std::hint::black_box;
 use serde_json::json;
 use std::sync::Arc;
 use std::thread;
@@ -22,6 +22,7 @@ struct ConcurrencyConfig {
 
 /// 并发测试结果
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ConcurrencyResult {
     total_evaluations: usize,
     total_duration: Duration,
@@ -101,7 +102,7 @@ fn run_concurrent_evaluation(config: ConcurrencyConfig) -> ConcurrencyResult {
                     let result = executor.execute(rule, &context);
                     let latency = iter_start.elapsed().as_micros() as u64;
                     latencies.push(latency);
-                    black_box(result);
+                    let _ = black_box(result);
                 }
             }
 
