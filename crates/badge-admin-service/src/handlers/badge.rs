@@ -432,6 +432,73 @@ pub async fn offline_badge(
     Ok(Json(ApiResponse::success(dto)))
 }
 
+/// 归档徽章
+///
+/// POST /api/admin/badges/:id/archive
+///
+/// 将已下线的徽章归档，归档后不再展示
+pub async fn archive_badge(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<ApiResponse<BadgeAdminDto>>, AdminError> {
+    // 只有下线状态才能归档
+    let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
+
+    let badge = badge.ok_or(AdminError::BadgeNotFound(id))?;
+
+    if badge.0 != BadgeStatus::Inactive {
+        return Err(AdminError::Validation(format!(
+            "只有已下线的徽章才能归档，当前状态: {:?}",
+            badge.0
+        )));
+    }
+
+    sqlx::query("UPDATE badges SET status = 'archived', updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+
+    info!(badge_id = id, "Badge archived");
+
+    let dto = fetch_badge_by_id(&state.pool, id).await?;
+    Ok(Json(ApiResponse::success(dto)))
+}
+
+/// 更新徽章排序
+///
+/// PATCH /api/admin/badges/:id/sort
+///
+/// 更新徽章的排序值
+pub async fn update_badge_sort(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateSortRequest>,
+) -> Result<Json<ApiResponse<()>>, AdminError> {
+    let result = sqlx::query(
+        "UPDATE badges SET sort_order = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(req.sort_order)
+    .execute(&state.pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AdminError::BadgeNotFound(id));
+    }
+
+    info!(badge_id = id, sort_order = req.sort_order, "Badge sort order updated");
+    Ok(Json(ApiResponse::<()>::success_empty()))
+}
+
+/// 排序更新请求
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateSortRequest {
+    pub sort_order: i32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

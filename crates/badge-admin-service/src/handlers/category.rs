@@ -357,6 +357,104 @@ pub async fn delete_category(
     Ok(Json(ApiResponse::<()>::success_empty()))
 }
 
+/// 更新分类状态
+///
+/// PATCH /api/admin/categories/:id/status
+pub async fn update_category_status(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateStatusRequest>,
+) -> Result<Json<ApiResponse<CategoryDto>>, AdminError> {
+    let result = sqlx::query(
+        "UPDATE badge_categories SET status = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(&req.status)
+    .execute(&state.pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AdminError::CategoryNotFound(id));
+    }
+
+    info!(category_id = id, status = ?req.status, "Category status updated");
+
+    // 重新查询完整信息
+    let row = sqlx::query_as::<_, CategoryWithCount>(
+        r#"
+        SELECT
+            c.id,
+            c.name,
+            c.icon_url,
+            c.sort_order,
+            c.status,
+            c.created_at,
+            c.updated_at,
+            COALESCE(badge_counts.count, 0) as badge_count
+        FROM badge_categories c
+        LEFT JOIN (
+            SELECT s.category_id, COUNT(b.id) as count
+            FROM badge_series s
+            LEFT JOIN badges b ON b.series_id = s.id
+            GROUP BY s.category_id
+        ) badge_counts ON badge_counts.category_id = c.id
+        WHERE c.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    let dto = CategoryDto {
+        id: row.id,
+        name: row.name,
+        icon_url: row.icon_url,
+        sort_order: row.sort_order,
+        status: row.status,
+        badge_count: row.badge_count,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    };
+
+    Ok(Json(ApiResponse::success(dto)))
+}
+
+/// 更新分类排序
+///
+/// PATCH /api/admin/categories/:id/sort
+pub async fn update_category_sort(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateSortRequest>,
+) -> Result<Json<ApiResponse<()>>, AdminError> {
+    let result = sqlx::query(
+        "UPDATE badge_categories SET sort_order = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(req.sort_order)
+    .execute(&state.pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AdminError::CategoryNotFound(id));
+    }
+
+    info!(category_id = id, sort_order = req.sort_order, "Category sort order updated");
+    Ok(Json(ApiResponse::<()>::success_empty()))
+}
+
+/// 状态更新请求
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateStatusRequest {
+    pub status: CategoryStatus,
+}
+
+/// 排序更新请求
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateSortRequest {
+    pub sort_order: i32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -4,7 +4,7 @@
 
 use axum::{
     Router,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 
 use crate::{handlers, state::AppState};
@@ -74,6 +74,14 @@ pub fn badge_routes() -> Router<AppState> {
             "/categories/{id}",
             delete(handlers::category::delete_category),
         )
+        .route(
+            "/categories/{id}/status",
+            patch(handlers::category::update_category_status),
+        )
+        .route(
+            "/categories/{id}/sort",
+            patch(handlers::category::update_category_sort),
+        )
         // 系列管理
         .route("/series", post(handlers::series::create_series))
         .route("/series", get(handlers::series::list_series))
@@ -81,6 +89,18 @@ pub fn badge_routes() -> Router<AppState> {
         .route("/series/{id}", get(handlers::series::get_series))
         .route("/series/{id}", put(handlers::series::update_series))
         .route("/series/{id}", delete(handlers::series::delete_series))
+        .route(
+            "/series/{id}/status",
+            patch(handlers::series::update_series_status),
+        )
+        .route(
+            "/series/{id}/sort",
+            patch(handlers::series::update_series_sort),
+        )
+        .route(
+            "/series/{id}/badges",
+            get(handlers::series::list_series_badges),
+        )
         // 徽章管理
         .route("/badges", post(handlers::badge::create_badge))
         .route("/badges", get(handlers::badge::list_badges))
@@ -89,6 +109,11 @@ pub fn badge_routes() -> Router<AppState> {
         .route("/badges/{id}", delete(handlers::badge::delete_badge))
         .route("/badges/{id}/publish", post(handlers::badge::publish_badge))
         .route("/badges/{id}/offline", post(handlers::badge::offline_badge))
+        .route("/badges/{id}/archive", post(handlers::badge::archive_badge))
+        .route(
+            "/badges/{id}/sort",
+            patch(handlers::badge::update_badge_sort),
+        )
         // 依赖关系管理
         .route(
             "/badges/{badge_id}/dependencies",

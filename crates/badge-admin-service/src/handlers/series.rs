@@ -339,6 +339,144 @@ pub async fn delete_series(
     Ok(Json(ApiResponse::<()>::success_empty()))
 }
 
+/// 更新系列状态
+///
+/// PATCH /api/admin/series/:id/status
+pub async fn update_series_status(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateStatusRequest>,
+) -> Result<Json<ApiResponse<SeriesDto>>, AdminError> {
+    let result = sqlx::query(
+        "UPDATE badge_series SET status = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(&req.status)
+    .execute(&state.pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AdminError::SeriesNotFound(id));
+    }
+
+    info!(series_id = id, status = ?req.status, "Series status updated");
+
+    let sql = format!("{} WHERE s.id = $1", SERIES_WITH_INFO_SQL);
+    let row = sqlx::query_as::<_, SeriesWithInfo>(&sql)
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?;
+
+    Ok(Json(ApiResponse::success(row.into())))
+}
+
+/// 更新系列排序
+///
+/// PATCH /api/admin/series/:id/sort
+pub async fn update_series_sort(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateSortRequest>,
+) -> Result<Json<ApiResponse<()>>, AdminError> {
+    let result = sqlx::query(
+        "UPDATE badge_series SET sort_order = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(req.sort_order)
+    .execute(&state.pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AdminError::SeriesNotFound(id));
+    }
+
+    info!(series_id = id, sort_order = req.sort_order, "Series sort order updated");
+    Ok(Json(ApiResponse::<()>::success_empty()))
+}
+
+/// 获取系列下的徽章列表
+///
+/// GET /api/admin/series/:id/badges
+pub async fn list_series_badges(
+    State(state): State<AppState>,
+    Path(series_id): Path<i64>,
+) -> Result<Json<ApiResponse<Vec<SeriesBadgeDto>>>, AdminError> {
+    // 验证系列存在
+    let exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badge_series WHERE id = $1)")
+        .bind(series_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .unwrap_or((false,));
+
+    if !exists.0 {
+        return Err(AdminError::SeriesNotFound(series_id));
+    }
+
+    let badges = sqlx::query_as::<_, SeriesBadgeRow>(
+        r#"
+        SELECT id, name, badge_type, status, issued_count, sort_order, created_at
+        FROM badges
+        WHERE series_id = $1
+        ORDER BY sort_order ASC, id ASC
+        "#,
+    )
+    .bind(series_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let items: Vec<SeriesBadgeDto> = badges.into_iter().map(Into::into).collect();
+    Ok(Json(ApiResponse::success(items)))
+}
+
+/// 状态更新请求
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateStatusRequest {
+    pub status: CategoryStatus,
+}
+
+/// 排序更新请求
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateSortRequest {
+    pub sort_order: i32,
+}
+
+/// 系列下徽章的简要信息
+#[derive(Debug, serde::Serialize)]
+pub struct SeriesBadgeDto {
+    pub id: i64,
+    pub name: String,
+    pub badge_type: crate::BadgeType,
+    pub status: crate::BadgeStatus,
+    pub issued_count: i64,
+    pub sort_order: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct SeriesBadgeRow {
+    id: i64,
+    name: String,
+    badge_type: crate::BadgeType,
+    status: crate::BadgeStatus,
+    issued_count: i64,
+    sort_order: i32,
+    created_at: DateTime<Utc>,
+}
+
+impl From<SeriesBadgeRow> for SeriesBadgeDto {
+    fn from(row: SeriesBadgeRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            badge_type: row.badge_type,
+            status: row.status,
+            issued_count: row.issued_count,
+            sort_order: row.sort_order,
+            created_at: row.created_at,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
