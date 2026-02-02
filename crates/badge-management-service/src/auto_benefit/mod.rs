@@ -10,17 +10,17 @@
 //! ## 模块结构
 //!
 //! - `dto`: 数据传输对象（配置、上下文、结果等）
+//! - `rule_cache`: 规则缓存层，按触发徽章索引自动兑换规则
 //!
 //! ## 后续扩展
 //!
-//! - `rule_cache`: 规则缓存层
 //! - `evaluator`: 规则评估器
 //! - `executor`: 权益发放执行器
 
 pub mod dto;
+pub mod rule_cache;
 
 // 后续任务会添加更多模块
-// pub mod rule_cache;
 // pub mod evaluator;
 // pub mod executor;
 // #[cfg(test)]
@@ -31,3 +31,4 @@ pub use dto::{
     AutoBenefitConfig, AutoBenefitContext, AutoBenefitEvaluationLog, AutoBenefitGrant,
     AutoBenefitResult, AutoBenefitStatus, NewAutoBenefitGrant, SkipReason, SkippedRule,
 };
+pub use rule_cache::{create_shared_cache, AutoBenefitRuleCache, CachedRule};
