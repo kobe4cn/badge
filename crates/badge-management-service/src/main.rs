@@ -3,13 +3,12 @@
 //! 提供徽章查询、兑换、展示等 C 端功能的 gRPC 服务入口。
 
 use anyhow::Result;
-use axum::middleware;
 use badge_proto::badge::badge_management_service_server::BadgeManagementServiceServer;
 use badge_shared::{
     cache::Cache,
     config::AppConfig,
     database::Database,
-    observability::{self, ObservabilityConfig, middleware as obs_middleware},
+    observability,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -18,12 +17,14 @@ use tonic::transport::Server;
 use tracing::info;
 
 use badge_management::{
+    auto_benefit::{AutoBenefitConfig, AutoBenefitEvaluator, AutoBenefitRuleCache},
     benefit::BenefitService,
     cascade::{CascadeConfig, CascadeEvaluator},
     grpc::BadgeManagementServiceImpl,
+    notification::{NotificationSender, NotificationService},
     repository::{
-        BadgeLedgerRepository, BadgeRepository, DependencyRepository, RedemptionRepository,
-        UserBadgeRepository,
+        AutoBenefitRepository, BadgeLedgerRepository, BadgeRepository, DependencyRepository,
+        RedemptionRepository, UserBadgeRepository,
     },
     service::{BadgeQueryService, GrantService, RedemptionService, RevokeService},
 };
@@ -33,39 +34,33 @@ use badge_management::{
 /// 从 AppConfig 中提取服务启动所需的地址配置
 struct ServiceConfig {
     grpc_addr: SocketAddr,
-    health_addr: SocketAddr,
 }
 
 impl ServiceConfig {
     fn from_app_config(config: &AppConfig) -> Self {
         let grpc_port = config.server.port;
-        // 健康检查端点使用 metrics_port（与规则引擎保持一致）
-        let health_port = config.observability.metrics_port;
 
         Self {
             grpc_addr: format!("{}:{}", config.server.host, grpc_port)
                 .parse()
                 .expect("Invalid gRPC address"),
-            health_addr: format!("{}:{}", config.server.host, health_port)
-                .parse()
-                .expect("Invalid health address"),
         }
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. 初始化可观测性（tracing + metrics）
-    let obs_config = ObservabilityConfig::from_env("badge-management-service");
-    let _guard = observability::init(&obs_config).await?;
-
-    info!("Starting badge-management-service...");
-
-    // 2. 加载配置
+    // 1. 统一加载配置：从 config/{service_name}.toml 加载，包含可观测性配置
     let config = AppConfig::load("badge-management-service").unwrap_or_else(|e| {
         tracing::warn!("Failed to load config, using defaults: {}", e);
         AppConfig::default()
     });
+
+    // 2. 从 AppConfig 中提取可观测性配置并注入服务名
+    let obs_config = config.observability.clone().with_service_name(&config.service_name);
+    let _guard = observability::init(&obs_config).await?;
+
+    info!("Starting badge-management-service...");
     info!(
         environment = %config.environment,
         "Configuration loaded"
@@ -106,9 +101,18 @@ async fn main() -> Result<()> {
         pool.clone(),
     ));
 
-    let revoke_service = Arc::new(RevokeService::new(cache.clone(), pool.clone()));
+    let revoke_service = Arc::new(RevokeService::new(
+        cache.clone(),
+        pool.clone(),
+        badge_repo.clone(),
+    ));
 
-    // 6.1 初始化权益服务（使用默认的 Handler 注册表）
+    // 6.1 初始化通知服务
+    let notification_service = Arc::new(NotificationService::with_defaults());
+    let notification_sender = Arc::new(NotificationSender::new(notification_service.clone()));
+    info!("Notification service initialized");
+
+    // 6.2 初始化权益服务（使用默认的 Handler 注册表）
     let benefit_service = Arc::new(BenefitService::with_defaults());
     info!("Benefit service initialized with default handlers");
 
@@ -116,8 +120,23 @@ async fn main() -> Result<()> {
         redemption_repo.clone(),
         cache.clone(),
         pool.clone(),
-        benefit_service,
+        benefit_service.clone(),
     ));
+
+    // 6.3 初始化自动权益评估器
+    let auto_benefit_rule_cache = Arc::new(AutoBenefitRuleCache::new(pool.clone()));
+    let auto_benefit_repo = Arc::new(AutoBenefitRepository::new(pool.clone()));
+    let auto_benefit_evaluator = Arc::new(AutoBenefitEvaluator::new(
+        AutoBenefitConfig::default(),
+        auto_benefit_rule_cache.clone(),
+        auto_benefit_repo,
+        user_badge_repo.clone(),
+    ));
+    // 预热规则缓存
+    if let Err(e) = auto_benefit_rule_cache.warmup().await {
+        tracing::warn!("Auto benefit rule cache warmup failed: {}", e);
+    }
+    info!("Auto benefit evaluator initialized");
 
     // 7. 初始化级联评估器（解决循环依赖：CascadeEvaluator 需要 GrantService，GrantService 需要 CascadeEvaluator）
     let dependency_repo = Arc::new(DependencyRepository::new(pool.clone()));
@@ -129,9 +148,34 @@ async fn main() -> Result<()> {
     ));
 
     // 互相注入：打破循环依赖
-    cascade_evaluator.set_grant_service(grant_service.clone()).await;
-    grant_service.set_cascade_evaluator(cascade_evaluator.clone()).await;
+    cascade_evaluator
+        .set_grant_service(grant_service.clone())
+        .await;
+    grant_service
+        .set_cascade_evaluator(cascade_evaluator.clone())
+        .await;
     info!("Cascade evaluator initialized");
+
+    // 注入自动权益评估器的依赖
+    auto_benefit_evaluator
+        .set_benefit_service(benefit_service.clone())
+        .await;
+    grant_service
+        .set_auto_benefit_evaluator(auto_benefit_evaluator.clone())
+        .await;
+    info!("Auto benefit evaluator dependencies injected");
+
+    // 设置通知发送器
+    grant_service
+        .set_notification_sender(notification_sender.clone())
+        .await;
+    revoke_service
+        .set_notification_sender(notification_sender.clone())
+        .await;
+    redemption_service
+        .set_notification_sender(notification_sender.clone())
+        .await;
+    info!("Notification senders configured");
 
     info!("Services initialized");
 
@@ -142,18 +186,11 @@ async fn main() -> Result<()> {
         revoke_service,
         redemption_service,
         pool.clone(),
+        Some(cascade_evaluator),
     );
 
-    // 8. 启动健康检查端点（HTTP）
-    let health_addr = service_config.health_addr;
-    let health_db = db.clone();
-    let health_cache = cache.clone();
-    tokio::spawn(async move {
-        run_health_server(health_addr, health_db, health_cache).await;
-    });
-    info!("Health server listening on {}", health_addr);
-
-    // 9. 启动 gRPC 服务
+    // 8. 启动 gRPC 服务
+    // 健康检查端点已由 observability 模块在 metrics_port 上提供
     info!("gRPC server listening on {}", service_config.grpc_addr);
 
     Server::builder()
@@ -163,72 +200,6 @@ async fn main() -> Result<()> {
 
     info!("Service shutdown complete");
     Ok(())
-}
-
-/// 健康检查服务器
-///
-/// 提供 /health 和 /ready 端点，用于 Kubernetes 健康探针
-async fn run_health_server(addr: SocketAddr, db: Database, cache: Arc<Cache>) {
-    use axum::{Json, Router, routing::get};
-    use serde::Serialize;
-
-    #[derive(Serialize)]
-    struct HealthResponse {
-        status: String,
-        service: String,
-    }
-
-    #[derive(Serialize)]
-    struct ReadyResponse {
-        ready: bool,
-        database: String,
-        redis: String,
-    }
-
-    let db_ready = db.clone();
-    let cache_ready = cache.clone();
-
-    let app = Router::new()
-        .route(
-            "/health",
-            get(|| async {
-                Json(HealthResponse {
-                    status: "healthy".to_string(),
-                    service: "badge-management-service".to_string(),
-                })
-            }),
-        )
-        .route(
-            "/ready",
-            get(move || {
-                let db = db_ready.clone();
-                let cache = cache_ready.clone();
-                async move {
-                    let db_status = match db.health_check().await {
-                        Ok(_) => "connected",
-                        Err(_) => "disconnected",
-                    };
-                    let redis_status = match cache.health_check().await {
-                        Ok(_) => "connected",
-                        Err(_) => "disconnected",
-                    };
-
-                    let ready = db_status == "connected" && redis_status == "connected";
-
-                    Json(ReadyResponse {
-                        ready,
-                        database: db_status.to_string(),
-                        redis: redis_status.to_string(),
-                    })
-                }
-            }),
-        )
-        // 可观测性中间件：请求追踪和指标收集
-        .layer(middleware::from_fn(obs_middleware::http_tracing))
-        .layer(middleware::from_fn(obs_middleware::request_id));
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
 }
 
 /// 优雅关闭信号处理
