@@ -18,10 +18,10 @@
 //! - `executor`: 权益发放执行器
 
 pub mod dto;
+pub mod evaluator;
 pub mod rule_cache;
 
 // 后续任务会添加更多模块
-// pub mod evaluator;
 // pub mod executor;
 // #[cfg(test)]
 // mod tests;
@@ -31,4 +31,5 @@ pub use dto::{
     AutoBenefitConfig, AutoBenefitContext, AutoBenefitEvaluationLog, AutoBenefitGrant,
     AutoBenefitResult, AutoBenefitStatus, NewAutoBenefitGrant, SkipReason, SkippedRule,
 };
+pub use evaluator::AutoBenefitEvaluator;
 pub use rule_cache::{create_shared_cache, AutoBenefitRuleCache, CachedRule};

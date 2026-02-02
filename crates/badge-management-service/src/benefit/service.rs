@@ -144,7 +144,11 @@ pub struct GrantBenefitResponse {
 
 impl GrantBenefitResponse {
     /// 从 Handler 返回的结果构建响应
-    fn from_result(result: BenefitGrantResult, benefit_type: BenefitType, duration_ms: u64) -> Self {
+    fn from_result(
+        result: BenefitGrantResult,
+        benefit_type: BenefitType,
+        duration_ms: u64,
+    ) -> Self {
         Self {
             grant_no: result.grant_no,
             status: result.status,
@@ -202,7 +206,11 @@ impl RevokeResult {
     }
 
     /// 创建失败的撤销结果
-    fn failed(grant_no: impl Into<String>, reason: RevokeReason, message: impl Into<String>) -> Self {
+    fn failed(
+        grant_no: impl Into<String>,
+        reason: RevokeReason,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             grant_no: grant_no.into(),
             success: false,
@@ -272,11 +280,17 @@ impl BenefitService {
             benefit_id = request.benefit_id
         )
     )]
-    pub async fn grant_benefit(&self, request: GrantBenefitRequest) -> Result<GrantBenefitResponse> {
+    pub async fn grant_benefit(
+        &self,
+        request: GrantBenefitRequest,
+    ) -> Result<GrantBenefitResponse> {
         let start = Instant::now();
 
         // 生成或使用提供的流水号
-        let grant_no = request.grant_no.clone().unwrap_or_else(Self::generate_grant_no);
+        let grant_no = request
+            .grant_no
+            .clone()
+            .unwrap_or_else(Self::generate_grant_no);
 
         info!(grant_no = %grant_no, "开始发放权益");
 
@@ -313,8 +327,12 @@ impl BenefitService {
         })?;
 
         // 构建 Handler 请求
-        let mut handler_request =
-            BenefitGrantRequest::new(&grant_no, &request.user_id, request.benefit_id, request.benefit_config.clone());
+        let mut handler_request = BenefitGrantRequest::new(
+            &grant_no,
+            &request.user_id,
+            request.benefit_id,
+            request.benefit_config.clone(),
+        );
 
         if let Some(order_id) = request.redemption_order_id {
             handler_request = handler_request.with_redemption_order(order_id);
@@ -390,11 +408,7 @@ impl BenefitService {
             Some(r) => r,
             None => {
                 warn!("发放记录不存在");
-                return Ok(RevokeResult::failed(
-                    grant_no,
-                    reason,
-                    "发放记录不存在",
-                ));
+                return Ok(RevokeResult::failed(grant_no, reason, "发放记录不存在"));
             }
         };
 
@@ -425,10 +439,7 @@ impl BenefitService {
 
         // 获取 Handler
         let handler = self.registry.get(record.benefit_type).ok_or_else(|| {
-            BadgeError::Internal(format!(
-                "未注册权益类型 {:?} 的处理器",
-                record.benefit_type
-            ))
+            BadgeError::Internal(format!("未注册权益类型 {:?} 的处理器", record.benefit_type))
         })?;
 
         // 调用 Handler 撤销
@@ -534,10 +545,7 @@ impl BenefitService {
     /// 在发放前验证配置的合法性
     pub fn validate_config(&self, benefit_type: BenefitType, config: &Value) -> Result<()> {
         let handler = self.registry.get(benefit_type).ok_or_else(|| {
-            BadgeError::Internal(format!(
-                "未注册权益类型 {:?} 的处理器",
-                benefit_type
-            ))
+            BadgeError::Internal(format!("未注册权益类型 {:?} 的处理器", benefit_type))
         })?;
 
         handler.validate_config(config)
@@ -551,6 +559,76 @@ impl BenefitService {
     /// 检查是否支持指定的权益类型
     pub fn supports(&self, benefit_type: BenefitType) -> bool {
         self.registry.contains(benefit_type)
+    }
+
+    /// 为自动权益规则发放权益
+    ///
+    /// 当用户获得徽章触发自动权益规则时调用此方法。
+    /// 与 `grant_benefit` 不同，此方法直接使用 benefit_id 查找权益配置，
+    /// 无需调用者提供完整的权益配置信息。
+    ///
+    /// # Arguments
+    /// * `user_id` - 用户 ID
+    /// * `rule_id` - 自动权益规则 ID（用于日志追踪）
+    /// * `benefit_id` - 权益定义 ID
+    /// * `idempotency_key` - 幂等键（防止重复发放）
+    ///
+    /// # Returns
+    /// * `Ok(i64)` - 成功发放后返回发放记录 ID（模拟）
+    /// * `Err(_)` - 发放失败
+    ///
+    /// # Note
+    /// 当前实现为演示版本，使用内存存储。生产环境需要：
+    /// 1. 通过 RedemptionRepository 获取权益定义
+    /// 2. 将发放记录持久化到数据库
+    /// 3. 返回真实的数据库记录 ID
+    #[instrument(skip(self), fields(user_id = %user_id, rule_id = rule_id, benefit_id = benefit_id))]
+    pub async fn grant_benefit_for_auto_rule(
+        &self,
+        user_id: &str,
+        rule_id: i64,
+        benefit_id: i64,
+        idempotency_key: &str,
+    ) -> Result<i64> {
+        info!(
+            "自动权益发放: rule_id={}, benefit_id={}",
+            rule_id, benefit_id
+        );
+
+        // 演示实现：使用默认的 Coupon 类型和配置
+        // 生产环境应从数据库获取权益定义并使用真实配置
+        let request = GrantBenefitRequest::new(
+            user_id,
+            BenefitType::Coupon,
+            benefit_id,
+            serde_json::json!({
+                "coupon_template_id": format!("auto_rule_{}", rule_id),
+                "quantity": 1,
+                "source": "auto_benefit"
+            }),
+        )
+        .with_grant_no(idempotency_key);
+
+        let response = self.grant_benefit(request).await?;
+
+        if response.is_success() {
+            // 使用 benefit_id 作为模拟的 grant_id
+            // 生产环境应返回数据库生成的真实 ID
+            info!(
+                "自动权益发放成功: grant_no={}",
+                response.grant_no
+            );
+            Ok(benefit_id)
+        } else {
+            let error_msg = response
+                .error_message
+                .unwrap_or_else(|| "未知错误".to_string());
+            warn!("自动权益发放失败: {}", error_msg);
+            Err(BadgeError::Internal(format!(
+                "自动权益发放失败: {}",
+                error_msg
+            )))
+        }
     }
 }
 
@@ -865,15 +943,19 @@ mod tests {
 
         // 有效的优惠券配置
         let valid_config = json!({"coupon_template_id": "tpl-001"});
-        assert!(service
-            .validate_config(BenefitType::Coupon, &valid_config)
-            .is_ok());
+        assert!(
+            service
+                .validate_config(BenefitType::Coupon, &valid_config)
+                .is_ok()
+        );
 
         // 无效的优惠券配置
         let invalid_config = json!({});
-        assert!(service
-            .validate_config(BenefitType::Coupon, &invalid_config)
-            .is_err());
+        assert!(
+            service
+                .validate_config(BenefitType::Coupon, &invalid_config)
+                .is_err()
+        );
     }
 
     #[test]

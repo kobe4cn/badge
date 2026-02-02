@@ -99,6 +99,26 @@ impl UserBadgeRepository {
         Ok(badges)
     }
 
+    /// 获取用户所有有效徽章的 ID 列表
+    ///
+    /// 只返回 status=Active 且未过期的徽章 ID，用于自动权益评估时的条件检查
+    pub async fn list_active_badge_ids(&self, user_id: &str) -> Result<Vec<i64>> {
+        let badge_ids = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT badge_id
+            FROM user_badges
+            WHERE user_id = $1
+              AND status = 'ACTIVE'
+              AND (expires_at IS NULL OR expires_at > NOW())
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(badge_ids)
+    }
+
     // ==================== 写入操作 ====================
 
     /// 创建用户徽章记录
