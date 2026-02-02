@@ -14,6 +14,7 @@ import {
   UserOutlined,
   FileTextOutlined,
   ShoppingOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 
 import type { RouteConfig } from './routeConfig';
@@ -35,6 +36,8 @@ const BenefitsListPage = React.lazy(() => import('@/pages/benefits/List'));
 const BenefitGrantsPage = React.lazy(() => import('@/pages/benefits/Grants'));
 const RedemptionRulesPage = React.lazy(() => import('@/pages/redemptions/Rules'));
 const RedemptionRecordsPage = React.lazy(() => import('@/pages/redemptions/Records'));
+const SystemUsersPage = React.lazy(() => import('@/pages/system/Users'));
+const SystemRolesPage = React.lazy(() => import('@/pages/system/Roles'));
 
 /**
  * 404 页面组件
@@ -186,6 +189,23 @@ export const routes: RouteConfig[] = [
         path: '/members/search',
         name: '用户查询',
         component: MemberSearchPage,
+      },
+    ],
+  },
+  {
+    path: '/system',
+    name: '系统管理',
+    icon: <SettingOutlined />,
+    children: [
+      {
+        path: '/system/users',
+        name: '用户管理',
+        component: SystemUsersPage,
+      },
+      {
+        path: '/system/roles',
+        name: '角色管理',
+        component: SystemRolesPage,
       },
     ],
   },

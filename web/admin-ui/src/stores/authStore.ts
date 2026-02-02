@@ -17,8 +17,10 @@ export interface AdminUser {
   username: string;
   /** 显示名称 */
   displayName: string;
-  /** 角色 */
-  role: 'admin' | 'operator' | 'viewer';
+  /** 角色列表 */
+  roles: string[];
+  /** 权限列表 */
+  permissions: string[];
   /** 头像 URL */
   avatar?: string;
 }

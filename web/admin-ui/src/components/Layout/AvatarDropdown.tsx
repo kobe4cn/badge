@@ -26,7 +26,11 @@ const AvatarDropdown: React.FC = () => {
 
   // 获取用户显示信息
   const displayName = user?.displayName || user?.username || '管理员';
-  const userRole = user?.role === 'admin' ? '管理员' : user?.role === 'operator' ? '操作员' : '访客';
+  const userRole = user?.roles?.includes('admin')
+    ? '管理员'
+    : user?.roles?.includes('operator')
+      ? '操作员'
+      : '访客';
   const avatarUrl = user?.avatar;
 
   // 处理退出登录

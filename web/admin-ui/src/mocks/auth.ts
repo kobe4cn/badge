@@ -18,7 +18,8 @@ export const mockUsers: Record<string, { password: string; user: AdminUser }> = 
       id: '1',
       username: 'admin',
       displayName: '系统管理员',
-      role: 'admin',
+      roles: ['admin'],
+      permissions: ['*'],
       avatar: undefined,
     },
   },
@@ -28,7 +29,8 @@ export const mockUsers: Record<string, { password: string; user: AdminUser }> = 
       id: '2',
       username: 'operator',
       displayName: '运营人员',
-      role: 'operator',
+      roles: ['operator'],
+      permissions: ['badge:view', 'badge:create', 'rule:view', 'grant:view', 'user:view'],
       avatar: undefined,
     },
   },
@@ -38,7 +40,8 @@ export const mockUsers: Record<string, { password: string; user: AdminUser }> = 
       id: '3',
       username: 'viewer',
       displayName: '访客',
-      role: 'viewer',
+      roles: ['viewer'],
+      permissions: ['badge:view', 'rule:view', 'user:view'],
       avatar: undefined,
     },
   },
@@ -53,7 +56,8 @@ export function generateMockToken(user: AdminUser): string {
   const payload = {
     sub: user.id,
     username: user.username,
-    role: user.role,
+    roles: user.roles,
+    permissions: user.permissions,
     exp: Date.now() + 24 * 60 * 60 * 1000, // 24 小时后过期
   };
   return `mock.${btoa(JSON.stringify(payload))}.signature`;
