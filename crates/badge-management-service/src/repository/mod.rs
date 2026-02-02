@@ -9,6 +9,7 @@
 //! - 事务控制由调用方（服务层）决定
 //! - 定义 trait 接口以支持 mock 测试
 
+mod auto_benefit_repo;
 mod badge_repo;
 mod dependency_repo;
 mod ledger_repo;
@@ -16,9 +17,11 @@ mod redemption_repo;
 mod traits;
 mod user_badge_repo;
 
+pub use auto_benefit_repo::AutoBenefitRepository;
 pub use badge_repo::BadgeRepository;
 pub use dependency_repo::{
     BadgeDependencyRow, CascadeEvaluationLog, CreateDependencyRequest, DependencyRepository,
+    UpdateDependencyRequest,
 };
 pub use ledger_repo::BadgeLedgerRepository;
 pub use redemption_repo::RedemptionRepository;

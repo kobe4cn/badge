@@ -53,6 +53,7 @@ pub use notification::{
     NotificationSender, NotificationService, TemplateEngine,
 };
 pub use repository::{
-    BadgeLedgerRepository, BadgeRepository, RedemptionRepository, UserBadgeRepository,
+    AutoBenefitRepository, BadgeLedgerRepository, BadgeRepository, RedemptionRepository,
+    UserBadgeRepository,
 };
 pub use service::{BadgeQueryService, GrantService, RedemptionService, RevokeService, dto};
