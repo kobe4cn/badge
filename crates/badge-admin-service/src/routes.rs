@@ -249,12 +249,24 @@ fn log_routes() -> Router<AppState> {
 
 /// 构建批量任务路由
 ///
-/// 包含任务创建、列表查询和详情/进度查询
+/// 包含任务创建、列表查询、详情/进度查询、取消和结果下载
 fn task_routes() -> Router<AppState> {
     Router::new()
         .route("/tasks", post(handlers::batch_task::create_task))
         .route("/tasks", get(handlers::batch_task::list_tasks))
         .route("/tasks/{id}", get(handlers::batch_task::get_task))
+        .route(
+            "/tasks/{id}/cancel",
+            post(handlers::batch_task::cancel_task),
+        )
+        .route(
+            "/tasks/{id}/failures",
+            get(handlers::batch_task::get_task_failures),
+        )
+        .route(
+            "/tasks/{id}/result",
+            get(handlers::batch_task::get_task_result),
+        )
 }
 
 /// 构建模板管理路由

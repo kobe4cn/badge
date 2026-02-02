@@ -207,6 +207,191 @@ pub async fn get_task(
     Ok(Json(ApiResponse::success(row.into())))
 }
 
+/// 取消批量任务
+///
+/// POST /api/admin/tasks/:id/cancel
+///
+/// 只有 pending 或 running 状态的任务可以取消
+#[instrument(skip(state))]
+pub async fn cancel_task(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<ApiResponse<BatchTaskDto>>, AdminError> {
+    // 检查任务状态
+    let task: Option<(String,)> = sqlx::query_as("SELECT status FROM batch_tasks WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
+
+    let task = task.ok_or(AdminError::TaskNotFound(id))?;
+
+    if task.0 != "pending" && task.0 != "running" {
+        return Err(AdminError::Validation(format!(
+            "只有待执行或执行中的任务可以取消，当前状态: {}",
+            task.0
+        )));
+    }
+
+    let now = Utc::now();
+    let row = sqlx::query_as::<_, BatchTaskRow>(
+        r#"
+        UPDATE batch_tasks
+        SET status = 'cancelled', error_message = '用户取消', updated_at = $2
+        WHERE id = $1
+        RETURNING id, task_type, status, total_count, success_count, failure_count,
+                  progress, file_url, result_file_url, error_message, created_by,
+                  created_at, updated_at
+        "#,
+    )
+    .bind(id)
+    .bind(now)
+    .fetch_one(&state.pool)
+    .await?;
+
+    info!(task_id = id, "Batch task cancelled");
+    Ok(Json(ApiResponse::success(row.into())))
+}
+
+/// 获取批量任务失败明细
+///
+/// GET /api/admin/tasks/:id/failures
+///
+/// 返回任务执行过程中失败的记录列表
+#[instrument(skip(state))]
+pub async fn get_task_failures(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(pagination): Query<PaginationParams>,
+) -> Result<Json<ApiResponse<PageResponse<TaskFailureDto>>>, AdminError> {
+    // 验证任务存在
+    let exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM batch_tasks WHERE id = $1)")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .unwrap_or((false,));
+
+    if !exists.0 {
+        return Err(AdminError::TaskNotFound(id));
+    }
+
+    let offset = pagination.offset();
+    let limit = pagination.limit();
+
+    // 查询总数
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM batch_task_failures WHERE task_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    if total.0 == 0 {
+        return Ok(Json(ApiResponse::success(PageResponse::empty(
+            pagination.page,
+            pagination.page_size,
+        ))));
+    }
+
+    let rows = sqlx::query_as::<_, TaskFailureRow>(
+        r#"
+        SELECT id, task_id, row_number, user_id, error_code, error_message, created_at
+        FROM batch_task_failures
+        WHERE task_id = $1
+        ORDER BY row_number ASC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let items: Vec<TaskFailureDto> = rows.into_iter().map(Into::into).collect();
+    let response = PageResponse::new(items, total.0, pagination.page, pagination.page_size);
+    Ok(Json(ApiResponse::success(response)))
+}
+
+/// 下载批量任务结果
+///
+/// GET /api/admin/tasks/:id/result
+///
+/// 返回结果文件的下载 URL
+#[instrument(skip(state))]
+pub async fn get_task_result(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<ApiResponse<TaskResultDto>>, AdminError> {
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT status, result_file_url FROM batch_tasks WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let row = row.ok_or(AdminError::TaskNotFound(id))?;
+
+    if row.0 != "completed" {
+        return Err(AdminError::Validation(format!(
+            "任务未完成，当前状态: {}",
+            row.0
+        )));
+    }
+
+    let result = TaskResultDto {
+        task_id: id,
+        result_file_url: row.1,
+    };
+
+    Ok(Json(ApiResponse::success(result)))
+}
+
+/// 任务失败记录 DTO
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskFailureDto {
+    pub id: i64,
+    pub task_id: i64,
+    pub row_number: i32,
+    pub user_id: Option<String>,
+    pub error_code: String,
+    pub error_message: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct TaskFailureRow {
+    id: i64,
+    task_id: i64,
+    row_number: i32,
+    user_id: Option<String>,
+    error_code: String,
+    error_message: String,
+    created_at: DateTime<Utc>,
+}
+
+impl From<TaskFailureRow> for TaskFailureDto {
+    fn from(row: TaskFailureRow) -> Self {
+        Self {
+            id: row.id,
+            task_id: row.task_id,
+            row_number: row.row_number,
+            user_id: row.user_id,
+            error_code: row.error_code,
+            error_message: row.error_message,
+            created_at: row.created_at,
+        }
+    }
+}
+
+/// 任务结果 DTO
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskResultDto {
+    pub task_id: i64,
+    pub result_file_url: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
