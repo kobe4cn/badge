@@ -18,6 +18,44 @@ pub fn auth_routes() -> Router<AppState> {
         .route("/auth/refresh", post(handlers::auth::refresh_token))
 }
 
+/// 构建系统管理路由
+///
+/// 包含用户、角色、权限管理
+fn system_routes() -> Router<AppState> {
+    Router::new()
+        // 用户管理
+        .route("/system/users", get(handlers::system_user::list_users))
+        .route("/system/users", post(handlers::system_user::create_user))
+        .route("/system/users/{id}", get(handlers::system_user::get_user))
+        .route("/system/users/{id}", put(handlers::system_user::update_user))
+        .route(
+            "/system/users/{id}",
+            delete(handlers::system_user::delete_user),
+        )
+        .route(
+            "/system/users/{id}/reset-password",
+            post(handlers::system_user::reset_password),
+        )
+        // 角色管理
+        .route("/system/roles", get(handlers::system_role::list_roles))
+        .route("/system/roles", post(handlers::system_role::create_role))
+        .route("/system/roles/{id}", get(handlers::system_role::get_role))
+        .route("/system/roles/{id}", put(handlers::system_role::update_role))
+        .route(
+            "/system/roles/{id}",
+            delete(handlers::system_role::delete_role),
+        )
+        // 权限管理
+        .route(
+            "/system/permissions",
+            get(handlers::system_role::list_permissions),
+        )
+        .route(
+            "/system/permissions/tree",
+            get(handlers::system_role::get_permission_tree),
+        )
+}
+
 /// 构建徽章管理相关的路由
 ///
 /// 包含分类、系列、徽章的 CRUD 操作路由
@@ -281,6 +319,7 @@ fn redemption_routes() -> Router<AppState> {
 pub fn api_routes() -> Router<AppState> {
     Router::new()
         .merge(auth_routes())
+        .merge(system_routes())
         .merge(badge_routes())
         .merge(rule_routes())
         .merge(grant_routes())
@@ -302,6 +341,7 @@ mod tests {
     #[test]
     fn test_routes_construction() {
         let _auth = auth_routes();
+        let _system = system_routes();
         let _badge = badge_routes();
         let _rule = rule_routes();
         let _grant = grant_routes();

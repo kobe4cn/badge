@@ -4,6 +4,8 @@
 
 pub mod auth;
 pub mod badge;
+pub mod system_role;
+pub mod system_user;
 pub mod batch_task;
 pub mod benefit;
 pub mod category;
