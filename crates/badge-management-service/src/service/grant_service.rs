@@ -4,14 +4,19 @@
 //! - 徽章有效性检查
 //! - 库存检查与扣减
 //! - 用户获取上限检查
+//! - 前置条件检查（依赖关系）
+//! - 互斥组检查
 //! - 事务性写入（用户徽章、账本流水）
 //! - 幂等处理
 //! - 级联触发（发放后自动评估依赖此徽章的其他徽章）
+//! - 自动权益评估（发放后触发关联的权益自动发放）
 //!
 //! ## 发放流程
 //!
-//! 1. 幂等检查 -> 2. 徽章有效性 -> 3. 库存检查 -> 4. 用户限制检查
-//!    -> 5. 事务写入 -> 6. 缓存失效 -> 7. 级联评估（异步，失败不影响主流程）
+//! 1. 幂等检查 -> 2. 徽章有效性 -> 3. 前置条件检查 -> 4. 互斥组检查
+//!    -> 5. 库存检查 -> 6. 用户限制检查 -> 7. 事务写入 -> 8. 缓存失效
+//!    -> 9. 级联评估（异步，失败不影响主流程）
+//!    -> 10. 自动权益评估（异步，失败不影响主流程）
 
 use std::sync::Arc;
 
@@ -23,8 +28,10 @@ use tracing::{info, instrument, warn};
 
 use badge_shared::cache::Cache;
 
+use crate::auto_benefit::{AutoBenefitContext, AutoBenefitEvaluator};
 use crate::cascade::{BadgeGranter, CascadeEvaluator};
 use crate::error::{BadgeError, Result};
+use crate::notification::NotificationSender;
 use crate::models::{
     BadgeLedger, BadgeStatus, ChangeType, LogAction, SourceType, UserBadge, UserBadgeStatus,
     ValidityConfig, ValidityType,
@@ -43,6 +50,14 @@ mod cache_keys {
     }
 }
 
+/// 前置条件行（用于查询）
+#[derive(sqlx::FromRow)]
+struct PrerequisiteRow {
+    depends_on_badge_id: i64,
+    required_quantity: i32,
+    dependency_group_id: String,
+}
+
 /// 徽章发放服务
 ///
 /// 负责徽章发放的完整流程，包括验证、事务处理、缓存管理和级联触发。
@@ -52,6 +67,11 @@ mod cache_keys {
 /// 当徽章发放成功且来源类型不是 `SourceType::Cascade` 时，会自动触发级联评估。
 /// 级联评估器会检查是否有其他徽章依赖此徽章，并在条件满足时自动发放。
 /// 级联评估失败不影响主发放流程，仅记录警告日志。
+///
+/// ## 自动权益评估
+///
+/// 徽章发放成功后会触发自动权益评估，检查是否有关联的权益规则，
+/// 满足条件时自动发放权益。评估失败不影响主发放流程。
 pub struct GrantService<BR>
 where
     BR: BadgeRepositoryTrait,
@@ -61,6 +81,10 @@ where
     pool: PgPool,
     /// 级联评估器（延迟注入，避免循环依赖）
     cascade_evaluator: RwLock<Option<Arc<CascadeEvaluator>>>,
+    /// 通知发送器（可选，用于发送徽章获取通知）
+    notification_sender: RwLock<Option<Arc<NotificationSender>>>,
+    /// 自动权益评估器（延迟注入，解决循环依赖）
+    auto_benefit_evaluator: RwLock<Option<Arc<AutoBenefitEvaluator>>>,
 }
 
 impl<BR> GrantService<BR>
@@ -73,6 +97,8 @@ where
             cache,
             pool,
             cascade_evaluator: RwLock::new(None),
+            notification_sender: RwLock::new(None),
+            auto_benefit_evaluator: RwLock::new(None),
         }
     }
 
@@ -86,21 +112,51 @@ where
         info!("GrantService 级联评估器已设置");
     }
 
+    /// 设置通知发送器
+    ///
+    /// 在服务初始化后注入通知发送器，用于发送徽章获取通知。
+    pub async fn set_notification_sender(&self, sender: Arc<NotificationSender>) {
+        let mut guard = self.notification_sender.write().await;
+        *guard = Some(sender);
+        info!("GrantService 通知发送器已设置");
+    }
+
+    /// 设置自动权益评估器
+    ///
+    /// 延迟注入以解决与 AutoBenefitEvaluator 之间的循环依赖。
+    /// 服务初始化完成后调用此方法注入评估器。
+    pub async fn set_auto_benefit_evaluator(&self, evaluator: Arc<AutoBenefitEvaluator>) {
+        let mut guard = self.auto_benefit_evaluator.write().await;
+        *guard = Some(evaluator);
+        info!("GrantService 自动权益评估器已设置");
+    }
+
     /// 发放徽章给用户（公开接口）
     ///
     /// 完整的发放流程：
     /// 1. 幂等检查（如果有 idempotency_key）
     /// 2. 徽章有效性检查
-    /// 3. 库存检查
-    /// 4. 用户限制检查
-    /// 5. 事务内写入
-    /// 6. 清除缓存
-    /// 7. 级联评估（仅非级联来源触发，失败不影响主流程）
+    /// 3. 前置条件检查（仅非级联来源）
+    /// 4. 互斥组检查（仅非级联来源）
+    /// 5. 库存检查
+    /// 6. 用户限制检查
+    /// 7. 事务内写入
+    /// 8. 清除缓存
+    /// 9. 级联评估（仅非级联来源触发，失败不影响主流程）
+    /// 10. 自动权益评估（异步，失败不影响主流程）
+    /// 11. 发送通知（异步，失败不影响主流程）
     #[instrument(skip(self), fields(user_id = %request.user_id, badge_id = %request.badge_id))]
     pub async fn grant_badge(&self, request: GrantBadgeRequest) -> Result<GrantBadgeResponse> {
         let user_id = request.user_id.clone();
         let badge_id = request.badge_id;
         let source_type = request.source_type;
+
+        // 仅对非级联来源检查前置条件和互斥组
+        // 级联来源的检查已由 CascadeEvaluator 完成
+        if source_type != SourceType::Cascade {
+            self.check_prerequisites(&user_id, badge_id).await?;
+            self.check_exclusive_conflict(&user_id, badge_id).await?;
+        }
 
         // 调用内部发放逻辑
         let response = self.grant_badge_internal(request).await?;
@@ -110,7 +166,31 @@ where
             self.trigger_cascade(&user_id, badge_id).await;
         }
 
+        // 触发自动权益评估（异步执行，不阻塞主流程）
+        self.trigger_auto_benefit(&user_id, badge_id, response.user_badge_id)
+            .await;
+
+        // 发送徽章获取通知（异步，不阻塞主流程）
+        self.send_grant_notification(&user_id, badge_id).await;
+
         Ok(response)
+    }
+
+    /// 发送徽章获取通知
+    ///
+    /// 异步发送通知，失败不影响主发放流程
+    async fn send_grant_notification(&self, user_id: &str, badge_id: i64) {
+        let sender = {
+            let guard = self.notification_sender.read().await;
+            guard.clone()
+        };
+
+        if let Some(sender) = sender {
+            // 获取徽章名称用于通知
+            if let Ok(Some(badge)) = self.badge_repo.get_badge(badge_id).await {
+                sender.send_badge_granted(user_id, badge_id, &badge.name);
+            }
+        }
     }
 
     /// 内部发放逻辑（不触发级联）
@@ -177,6 +257,61 @@ where
                 error = %e,
                 "级联评估失败，但不影响主发放流程"
             );
+        }
+    }
+
+    /// 触发自动权益评估
+    ///
+    /// 在徽章发放成功后调用，评估是否有关联的权益规则需要触发。
+    /// 根据配置可选择异步执行（不阻塞主流程）或同步执行。
+    /// 评估失败不影响主发放流程，仅记录错误日志。
+    async fn trigger_auto_benefit(&self, user_id: &str, badge_id: i64, user_badge_id: i64) {
+        let evaluator = {
+            let guard = self.auto_benefit_evaluator.read().await;
+            guard.clone()
+        };
+
+        if let Some(evaluator) = evaluator {
+            if evaluator.config().async_execution {
+                // 异步执行，不阻塞主流程
+                let evaluator = evaluator.clone();
+                let user_id = user_id.to_string();
+
+                tokio::spawn(async move {
+                    let context = AutoBenefitContext::new(
+                        user_id.clone(),
+                        badge_id,
+                        user_badge_id,
+                        vec![], // evaluator 内部会查询用户徽章列表
+                    );
+                    if let Err(e) = evaluator.evaluate(context).await {
+                        tracing::error!(
+                            user_id = %user_id,
+                            badge_id = badge_id,
+                            user_badge_id = user_badge_id,
+                            error = %e,
+                            "自动权益评估失败"
+                        );
+                    }
+                });
+            } else {
+                // 同步执行
+                let context = AutoBenefitContext::new(
+                    user_id.to_string(),
+                    badge_id,
+                    user_badge_id,
+                    vec![],
+                );
+                if let Err(e) = evaluator.evaluate(context).await {
+                    tracing::error!(
+                        user_id = %user_id,
+                        badge_id = badge_id,
+                        user_badge_id = user_badge_id,
+                        error = %e,
+                        "自动权益评估失败"
+                    );
+                }
+            }
         }
     }
 
@@ -312,6 +447,170 @@ where
         }
 
         Ok(())
+    }
+
+    /// 检查前置条件
+    ///
+    /// 查询徽章的所有前置条件依赖，验证用户是否满足。
+    /// 依赖组逻辑：同一 dependency_group_id 的条件是 AND 关系，不同组是 OR 关系。
+    async fn check_prerequisites(&self, user_id: &str, badge_id: i64) -> Result<()> {
+        // 获取徽章的所有前置条件
+        let prerequisites = sqlx::query_as::<_, PrerequisiteRow>(
+            r#"
+            SELECT depends_on_badge_id, required_quantity, dependency_group_id
+            FROM badge_dependencies
+            WHERE badge_id = $1 AND dependency_type = 'prerequisite' AND enabled = true
+            ORDER BY dependency_group_id ASC
+            "#,
+        )
+        .bind(badge_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // 无前置条件，直接返回
+        if prerequisites.is_empty() {
+            return Ok(());
+        }
+
+        // 获取用户当前持有的徽章数量
+        let user_badges = self.get_user_badge_quantities(user_id).await?;
+
+        // 按依赖组分组
+        let mut groups: std::collections::HashMap<&str, Vec<&PrerequisiteRow>> =
+            std::collections::HashMap::new();
+        for prereq in &prerequisites {
+            groups
+                .entry(&prereq.dependency_group_id)
+                .or_default()
+                .push(prereq);
+        }
+
+        // OR 逻辑：只要有一个组满足即可
+        let mut any_group_satisfied = false;
+        let mut all_missing: Vec<i64> = vec![];
+
+        for (_group_id, deps) in groups {
+            // AND 逻辑：组内所有条件都要满足
+            let mut group_satisfied = true;
+            let mut group_missing: Vec<i64> = vec![];
+
+            for dep in deps {
+                let user_qty = user_badges
+                    .get(&dep.depends_on_badge_id)
+                    .copied()
+                    .unwrap_or(0);
+                if user_qty < dep.required_quantity {
+                    group_satisfied = false;
+                    group_missing.push(dep.depends_on_badge_id);
+                }
+            }
+
+            if group_satisfied {
+                any_group_satisfied = true;
+                break;
+            } else {
+                all_missing.extend(group_missing);
+            }
+        }
+
+        if !any_group_satisfied {
+            all_missing.sort();
+            all_missing.dedup();
+            return Err(BadgeError::PrerequisiteNotMet {
+                badge_id,
+                missing: all_missing,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// 检查互斥组冲突
+    ///
+    /// 检查用户是否已持有与目标徽章互斥的其他徽章
+    async fn check_exclusive_conflict(&self, user_id: &str, badge_id: i64) -> Result<()> {
+        // 获取目标徽章所属的互斥组
+        let exclusive_groups = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT DISTINCT exclusive_group_id
+            FROM badge_dependencies
+            WHERE badge_id = $1 AND exclusive_group_id IS NOT NULL AND enabled = true
+            "#,
+        )
+        .bind(badge_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // 无互斥组，直接返回
+        if exclusive_groups.is_empty() {
+            return Ok(());
+        }
+
+        // 对于每个互斥组，检查用户是否已持有组内其他徽章
+        for group_id in exclusive_groups {
+            // 获取组内所有徽章
+            let group_badges = sqlx::query_scalar::<_, i64>(
+                r#"
+                SELECT DISTINCT badge_id
+                FROM badge_dependencies
+                WHERE exclusive_group_id = $1 AND enabled = true
+                "#,
+            )
+            .bind(&group_id)
+            .fetch_all(&self.pool)
+            .await?;
+
+            // 检查用户是否持有组内其他徽章
+            for &other_badge_id in &group_badges {
+                if other_badge_id == badge_id {
+                    continue; // 跳过目标徽章自身
+                }
+
+                let has_badge = sqlx::query_scalar::<_, bool>(
+                    r#"
+                    SELECT EXISTS(
+                        SELECT 1 FROM user_badges
+                        WHERE user_id = $1 AND badge_id = $2 AND UPPER(status) = 'ACTIVE'
+                    )
+                    "#,
+                )
+                .bind(user_id)
+                .bind(other_badge_id)
+                .fetch_one(&self.pool)
+                .await?;
+
+                if has_badge {
+                    return Err(BadgeError::ExclusiveConflict {
+                        target: badge_id,
+                        conflicting: other_badge_id,
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 获取用户所有有效徽章的数量映射
+    async fn get_user_badge_quantities(&self, user_id: &str) -> Result<std::collections::HashMap<i64, i32>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT badge_id, quantity
+            FROM user_badges
+            WHERE user_id = $1 AND UPPER(status) = 'ACTIVE'
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result = std::collections::HashMap::new();
+        for row in rows {
+            let badge_id: i64 = row.get("badge_id");
+            let quantity: i32 = row.get("quantity");
+            result.insert(badge_id, quantity);
+        }
+        Ok(result)
     }
 
     /// 获取用户某徽章的当前持有数量
@@ -487,12 +786,7 @@ where
     /// * `Ok(true)` - 发放成功
     /// * `Ok(false)` - 发放被跳过（如用户已持有且已达上限）
     /// * `Err(_)` - 发放失败
-    async fn grant_cascade(
-        &self,
-        user_id: &str,
-        badge_id: i64,
-        triggered_by: i64,
-    ) -> Result<bool> {
+    async fn grant_cascade(&self, user_id: &str, badge_id: i64, triggered_by: i64) -> Result<bool> {
         let request = GrantBadgeRequest {
             user_id: user_id.to_string(),
             badge_id,
