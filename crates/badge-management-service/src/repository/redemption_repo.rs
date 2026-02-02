@@ -27,8 +27,10 @@ impl RedemptionRepository {
     pub async fn get_benefit(&self, id: i64) -> Result<Option<Benefit>> {
         let benefit = sqlx::query_as::<_, Benefit>(
             r#"
-            SELECT id, benefit_type, name, description, icon_url, config,
-                   total_stock, redeemed_count, enabled, created_at, updated_at
+            SELECT id, code, name, description, benefit_type,
+                   external_id, external_system, total_stock, remaining_stock,
+                   status, config, icon_url, redeemed_count, enabled,
+                   created_at, updated_at
             FROM benefits
             WHERE id = $1
             "#,
@@ -44,8 +46,10 @@ impl RedemptionRepository {
     pub async fn list_benefits(&self) -> Result<Vec<Benefit>> {
         let benefits = sqlx::query_as::<_, Benefit>(
             r#"
-            SELECT id, benefit_type, name, description, icon_url, config,
-                   total_stock, redeemed_count, enabled, created_at, updated_at
+            SELECT id, code, name, description, benefit_type,
+                   external_id, external_system, total_stock, remaining_stock,
+                   status, config, icon_url, redeemed_count, enabled,
+                   created_at, updated_at
             FROM benefits
             WHERE enabled = true
             ORDER BY id ASC
@@ -153,6 +157,56 @@ impl RedemptionRepository {
             ORDER BY id ASC
             "#,
         )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rules)
+    }
+
+    /// 列出所有自动兑换规则
+    ///
+    /// 返回 auto_redeem=true 且 status='active' 的规则，供自动权益评估器使用
+    pub async fn list_auto_redeem_rules(&self) -> Result<Vec<BadgeRedemptionRule>> {
+        let rules = sqlx::query_as::<_, BadgeRedemptionRule>(
+            r#"
+            SELECT id, name, description, benefit_id, required_badges,
+                   frequency_config, start_time, end_time, enabled,
+                   created_at, updated_at
+            FROM badge_redemption_rules
+            WHERE auto_redeem = true AND status = 'active'
+            ORDER BY id ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rules)
+    }
+
+    /// 列出包含指定徽章作为条件的自动兑换规则
+    ///
+    /// 通过 required_badges JSONB 字段查询，用于快速定位某徽章触发的规则
+    pub async fn list_auto_redeem_rules_by_badge(
+        &self,
+        badge_id: i64,
+    ) -> Result<Vec<BadgeRedemptionRule>> {
+        let rules = sqlx::query_as::<_, BadgeRedemptionRule>(
+            r#"
+            SELECT id, name, description, benefit_id, required_badges,
+                   frequency_config, start_time, end_time, enabled,
+                   created_at, updated_at
+            FROM badge_redemption_rules
+            WHERE auto_redeem = true
+              AND status = 'active'
+              AND EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(required_badges) AS elem
+                  WHERE (elem->>'badgeId')::bigint = $1
+                     OR (elem->>'badge_id')::bigint = $1
+              )
+            ORDER BY id ASC
+            "#,
+        )
+        .bind(badge_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -498,6 +552,14 @@ impl RedemptionRepositoryTrait for RedemptionRepository {
         self.list_active_rules().await
     }
 
+    async fn list_auto_redeem_rules(&self) -> Result<Vec<BadgeRedemptionRule>> {
+        self.list_auto_redeem_rules().await
+    }
+
+    async fn list_auto_redeem_rules_by_badge(&self, badge_id: i64) -> Result<Vec<BadgeRedemptionRule>> {
+        self.list_auto_redeem_rules_by_badge(badge_id).await
+    }
+
     async fn create_order(&self, order: &RedemptionOrder) -> Result<i64> {
         self.create_order(order).await
     }
@@ -545,7 +607,8 @@ impl RedemptionRepositoryTrait for RedemptionRepository {
         redemption_rule_id: i64,
         since: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<i64> {
-        self.count_user_redemptions(user_id, redemption_rule_id, since).await
+        self.count_user_redemptions(user_id, redemption_rule_id, since)
+            .await
     }
 
     async fn create_detail(&self, detail: &RedemptionDetail) -> Result<i64> {

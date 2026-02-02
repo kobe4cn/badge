@@ -78,6 +78,8 @@ pub trait RedemptionRepositoryTrait: Send + Sync {
     async fn get_redemption_rule(&self, id: i64) -> Result<Option<BadgeRedemptionRule>>;
     async fn list_rules_by_badge(&self, badge_id: i64) -> Result<Vec<BadgeRedemptionRule>>;
     async fn list_active_rules(&self) -> Result<Vec<BadgeRedemptionRule>>;
+    async fn list_auto_redeem_rules(&self) -> Result<Vec<BadgeRedemptionRule>>;
+    async fn list_auto_redeem_rules_by_badge(&self, badge_id: i64) -> Result<Vec<BadgeRedemptionRule>>;
 
     // 兑换订单
     async fn create_order(&self, order: &RedemptionOrder) -> Result<i64>;
