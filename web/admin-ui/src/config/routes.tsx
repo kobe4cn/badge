@@ -12,26 +12,39 @@ import {
   ApartmentOutlined,
   GiftOutlined,
   UserOutlined,
+  FileTextOutlined,
+  ShoppingOutlined,
 } from '@ant-design/icons';
 
 import type { RouteConfig } from './routeConfig';
 
 // 使用 React.lazy 按需加载页面组件，减少首屏体积
+const LoginPage = React.lazy(() => import('@/pages/auth/Login'));
 const DashboardPage = React.lazy(() => import('@/pages/dashboard'));
 const CategoriesPage = React.lazy(() => import('@/pages/badges/Categories'));
 const SeriesPage = React.lazy(() => import('@/pages/badges/Series'));
 const DefinitionsPage = React.lazy(() => import('@/pages/badges/Definitions'));
 const DependenciesPage = React.lazy(() => import('@/pages/badges/Dependencies'));
 const CanvasPage = React.lazy(() => import('@/pages/rules/Canvas'));
+const TemplatesPage = React.lazy(() => import('@/pages/rules/Templates'));
 const ManualGrantPage = React.lazy(() => import('@/pages/grants/Manual'));
 const BatchGrantPage = React.lazy(() => import('@/pages/grants/Batch'));
 const GrantLogsPage = React.lazy(() => import('@/pages/grants/Logs'));
 const MemberSearchPage = React.lazy(() => import('@/pages/members/Search'));
+const BenefitsListPage = React.lazy(() => import('@/pages/benefits/List'));
+const BenefitGrantsPage = React.lazy(() => import('@/pages/benefits/Grants'));
+const RedemptionRulesPage = React.lazy(() => import('@/pages/redemptions/Rules'));
+const RedemptionRecordsPage = React.lazy(() => import('@/pages/redemptions/Records'));
 
 /**
  * 404 页面组件
  */
 export const NotFoundPage = React.lazy(() => import('@/pages/404'));
+
+/**
+ * 登录页面组件（独立导出，不需要 Layout 包裹）
+ */
+export { LoginPage };
 
 /**
  * 路由配置表
@@ -83,6 +96,63 @@ export const routes: RouteConfig[] = [
         name: '规则画布',
         component: CanvasPage,
       },
+      {
+        path: '/rules/templates',
+        name: '规则模板',
+        component: TemplatesPage,
+      },
+      {
+        path: '/rules/create',
+        name: '创建规则',
+        component: CanvasPage,
+        hideInMenu: true,
+      },
+      {
+        path: '/rules/:ruleId/edit',
+        name: '编辑规则',
+        component: CanvasPage,
+        hideInMenu: true,
+      },
+    ],
+  },
+  {
+    path: '/benefits',
+    name: '权益管理',
+    icon: <FileTextOutlined />,
+    children: [
+      {
+        path: '/benefits',
+        name: '权益列表',
+        component: BenefitsListPage,
+        hideInMenu: true,
+      },
+      {
+        path: '/benefits/list',
+        name: '权益列表',
+        component: BenefitsListPage,
+      },
+      {
+        path: '/benefits/grants',
+        name: '发放记录',
+        component: BenefitGrantsPage,
+      },
+    ],
+  },
+  {
+    path: '/redemptions',
+    name: '兑换管理',
+    icon: <ShoppingOutlined />,
+    children: [
+      {
+        path: '/redemptions/rules',
+        name: '兑换规则',
+        component: RedemptionRulesPage,
+      },
+      {
+        path: '/redemptions/records',
+        name: '兑换记录',
+        component: RedemptionRecordsPage,
+      },
     ],
   },
   {
@@ -119,6 +189,18 @@ export const routes: RouteConfig[] = [
       },
     ],
   },
+];
+
+/**
+ * 重定向路由配置
+ *
+ * 用于兼容旧 URL 或提供简短 URL
+ */
+export const redirectRoutes: Array<{ from: string; to: string }> = [
+  { from: '/categories', to: '/badges/categories' },
+  { from: '/series', to: '/badges/series' },
+  { from: '/badges', to: '/badges/definitions' },
+  { from: '/templates', to: '/rules/templates' },
 ];
 
 // 重新导出辅助函数

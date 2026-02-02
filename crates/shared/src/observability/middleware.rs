@@ -5,12 +5,8 @@
 
 use std::time::Instant;
 
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
-use tracing::{info_span, Instrument};
+use axum::{extract::Request, middleware::Next, response::Response};
+use tracing::{Instrument, info_span};
 
 use super::metrics;
 
@@ -108,18 +104,12 @@ fn looks_like_id(segment: &str) -> bool {
     }
 
     // UUID 格式（带连字符）
-    if segment.len() == 36
-        && segment
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '-')
-    {
+    if segment.len() == 36 && segment.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
         return true;
     }
 
     // 短 UUID 或混合 ID（8-32 字符的十六进制）
-    if (8..=32).contains(&segment.len())
-        && segment.chars().all(|c| c.is_ascii_hexdigit())
-    {
+    if (8..=32).contains(&segment.len()) && segment.chars().all(|c| c.is_ascii_hexdigit()) {
         return true;
     }
 
@@ -148,14 +138,18 @@ pub async fn request_id(mut request: Request, next: Next) -> Response {
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // 将请求 ID 存入 extensions 供后续使用
-    request.extensions_mut().insert(RequestId(request_id.clone()));
+    request
+        .extensions_mut()
+        .insert(RequestId(request_id.clone()));
 
     let mut response = next.run(request).await;
 
     // 在响应头中返回请求 ID
     response.headers_mut().insert(
         "x-request-id",
-        request_id.parse().unwrap_or_else(|_| "unknown".parse().unwrap()),
+        request_id
+            .parse()
+            .unwrap_or_else(|_| "unknown".parse().unwrap()),
     );
 
     response
@@ -245,7 +239,10 @@ mod tests {
     #[test]
     fn test_normalize_path_numeric_id() {
         assert_eq!(normalize_path("/api/users/123"), "/api/users/:id");
-        assert_eq!(normalize_path("/api/badges/456/grants"), "/api/badges/:id/grants");
+        assert_eq!(
+            normalize_path("/api/badges/456/grants"),
+            "/api/badges/:id/grants"
+        );
     }
 
     #[test]
@@ -263,7 +260,10 @@ mod tests {
 
     #[test]
     fn test_normalize_path_prefixed_id() {
-        assert_eq!(normalize_path("/api/orders/ORD-2024-001"), "/api/orders/:id");
+        assert_eq!(
+            normalize_path("/api/orders/ORD-2024-001"),
+            "/api/orders/:id"
+        );
         assert_eq!(normalize_path("/api/grants/BG250131ABC"), "/api/grants/:id");
     }
 

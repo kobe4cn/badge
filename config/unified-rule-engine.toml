@@ -6,3 +6,6 @@ port = 50051
 
 [kafka]
 consumer_group = "unified-rule-engine"
+
+[observability]
+metrics_port = 9990

@@ -25,9 +25,11 @@
 //! - 数据验证：validator
 //! - 序列化：serde (camelCase)
 
+pub mod auth;
 pub mod dto;
 pub mod error;
 pub mod handlers;
+pub mod middleware;
 pub mod models;
 pub mod routes;
 pub mod state;

@@ -325,24 +325,25 @@ impl AutoBenefitEvaluator {
                 .await
             {
                 Ok(benefit_grant_id) => {
+                    // benefit_grant_id 可能为 None（演示模式下没有持久化）
                     self.auto_benefit_repo
                         .update_status(
                             grant.id,
                             AutoBenefitStatus::Success,
-                            Some(benefit_grant_id),
+                            benefit_grant_id,
                             None,
                         )
                         .await?;
 
                     info!(
-                        "自动权益发放成功: rule_id={}, benefit_grant_id={}",
+                        "自动权益发放成功: rule_id={}, benefit_grant_id={:?}",
                         rule.rule_id, benefit_grant_id
                     );
 
                     Ok(Some(AutoBenefitGrant {
                         id: grant.id,
                         rule_id: rule.rule_id,
-                        benefit_grant_id: Some(benefit_grant_id),
+                        benefit_grant_id,
                         status: AutoBenefitStatus::Success,
                     }))
                 }

@@ -22,11 +22,11 @@ impl DbVerifier {
         let records = sqlx::query_as::<_, UserBadgeRecord>(
             r#"
             SELECT ub.id, ub.user_id, ub.badge_id, b.name as badge_name,
-                   ub.status, ub.quantity, ub.acquired_at, ub.expires_at, ub.source_type
+                   ub.status, ub.quantity, ub.first_acquired_at as acquired_at, ub.expires_at, ub.source_type
             FROM user_badges ub
             JOIN badges b ON ub.badge_id = b.id
             WHERE ub.user_id = $1
-            ORDER BY ub.acquired_at DESC
+            ORDER BY ub.first_acquired_at DESC
             "#,
         )
         .bind(user_id)
@@ -37,9 +37,12 @@ impl DbVerifier {
     }
 
     /// 检查用户是否拥有指定徽章
+    ///
+    /// 注意：badge-management-service 使用 sqlx 枚举写入 'ACTIVE'（大写），
+    /// 而 badge-admin-service 直接写入 'active'（小写），故使用 ILIKE 不区分大小写比较。
     pub async fn user_has_badge(&self, user_id: &str, badge_id: i64) -> Result<bool> {
         let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM user_badges WHERE user_id = $1 AND badge_id = $2 AND status = 'active'",
+            "SELECT COUNT(*) FROM user_badges WHERE user_id = $1 AND badge_id = $2 AND UPPER(status) = 'ACTIVE'",
         )
         .bind(user_id)
         .bind(badge_id)
@@ -52,7 +55,7 @@ impl DbVerifier {
     /// 获取用户徽章数量
     pub async fn get_user_badge_count(&self, user_id: &str, badge_id: i64) -> Result<i32> {
         let result: Option<(i32,)> = sqlx::query_as(
-            "SELECT quantity FROM user_badges WHERE user_id = $1 AND badge_id = $2 AND status = 'active'",
+            "SELECT quantity FROM user_badges WHERE user_id = $1 AND badge_id = $2 AND UPPER(status) = 'ACTIVE'",
         )
         .bind(user_id)
         .bind(badge_id)
@@ -72,7 +75,8 @@ impl DbVerifier {
     ) -> Result<Vec<LedgerRecord>> {
         let records = sqlx::query_as::<_, LedgerRecord>(
             r#"
-            SELECT id, user_id, badge_id, delta, balance, action, reason, created_at
+            SELECT id, user_id, badge_id, quantity as delta, balance_after as balance,
+                   UPPER(change_type) as action, remark as reason, created_at
             FROM badge_ledger
             WHERE badge_id = $1 AND user_id = $2
             ORDER BY created_at DESC
@@ -89,7 +93,7 @@ impl DbVerifier {
     /// 获取用户徽章余额
     pub async fn get_badge_balance(&self, user_id: &str, badge_id: i64) -> Result<i32> {
         let result: Option<(i32,)> = sqlx::query_as(
-            "SELECT balance FROM badge_ledger WHERE user_id = $1 AND badge_id = $2 ORDER BY created_at DESC LIMIT 1",
+            "SELECT balance_after FROM badge_ledger WHERE user_id = $1 AND badge_id = $2 ORDER BY created_at DESC LIMIT 1",
         )
         .bind(user_id)
         .bind(badge_id)
@@ -139,8 +143,8 @@ impl DbVerifier {
     pub async fn get_rule(&self, rule_id: i64) -> Result<Option<RuleRecord>> {
         let record = sqlx::query_as::<_, RuleRecord>(
             r#"
-            SELECT id, badge_id, rule_code, name, event_type, rule_json,
-                   enabled, global_quota, global_granted
+            SELECT id, badge_id, rule_code, event_type, rule_json,
+                   enabled, global_quota, COALESCE(global_granted, 0) as global_granted
             FROM badge_rules
             WHERE id = $1
             "#,
@@ -195,7 +199,7 @@ impl DbVerifier {
     /// 获取徽章统计信息
     pub async fn get_badge_stats(&self, badge_id: i64) -> Result<BadgeStats> {
         let granted_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM user_badges WHERE badge_id = $1 AND status = 'active'",
+            "SELECT COUNT(*) FROM user_badges WHERE badge_id = $1 AND UPPER(status) = 'ACTIVE'",
         )
         .bind(badge_id)
         .fetch_one(&self.pool)
@@ -220,9 +224,9 @@ impl DbVerifier {
     pub async fn get_cascade_logs(&self, user_id: &str) -> Result<Vec<CascadeLogRecord>> {
         let records = sqlx::query_as::<_, CascadeLogRecord>(
             r#"
-            SELECT id, user_id, trigger_badge_id, evaluated_badge_id,
-                   result, evaluation_time_ms, created_at
-            FROM cascade_logs
+            SELECT id, user_id, trigger_badge_id, result_status,
+                   granted_badges, blocked_badges, duration_ms, created_at
+            FROM cascade_evaluation_logs
             WHERE user_id = $1
             ORDER BY created_at DESC
             "#,
@@ -296,9 +300,8 @@ pub struct BenefitGrantRecord {
 pub struct RuleRecord {
     pub id: i64,
     pub badge_id: i64,
-    pub rule_code: String,
-    pub name: String,
-    pub event_type: String,
+    pub rule_code: Option<String>,
+    pub event_type: Option<String>,
     pub rule_json: serde_json::Value,
     pub enabled: bool,
     pub global_quota: Option<i32>,
@@ -321,10 +324,55 @@ pub struct CascadeLogRecord {
     pub id: i64,
     pub user_id: String,
     pub trigger_badge_id: i64,
-    pub evaluated_badge_id: i64,
-    pub result: String,
-    pub evaluation_time_ms: i64,
+    pub result_status: String,
+    pub granted_badges: Option<serde_json::Value>,
+    pub blocked_badges: Option<serde_json::Value>,
+    pub duration_ms: i32,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl CascadeLogRecord {
+    /// 检查某个徽章是否在本次级联评估中被发放
+    pub fn has_granted_badge(&self, badge_id: i64) -> bool {
+        if let Some(ref badges) = self.granted_badges {
+            if let Some(arr) = badges.as_array() {
+                return arr.iter().any(|b| {
+                    b.get("badge_id")
+                        .and_then(|id| id.as_i64())
+                        .map(|id| id == badge_id)
+                        .unwrap_or(false)
+                });
+            }
+        }
+        false
+    }
+
+    /// 检查某个徽章是否在本次级联评估中被阻止
+    pub fn has_blocked_badge(&self, badge_id: i64) -> bool {
+        if let Some(ref badges) = self.blocked_badges {
+            if let Some(arr) = badges.as_array() {
+                return arr.iter().any(|b| {
+                    b.get("badge_id")
+                        .and_then(|id| id.as_i64())
+                        .map(|id| id == badge_id)
+                        .unwrap_or(false)
+                });
+            }
+        }
+        false
+    }
+
+    /// 检查评估是否成功
+    ///
+    /// evaluator 使用 "completed" 表示成功完成的级联评估
+    pub fn is_success(&self) -> bool {
+        self.result_status == "completed"
+    }
+
+    /// 检查是否检测到循环
+    pub fn is_cycle_detected(&self) -> bool {
+        self.result_status == "cycle_detected"
+    }
 }
 
 /// 徽章统计信息

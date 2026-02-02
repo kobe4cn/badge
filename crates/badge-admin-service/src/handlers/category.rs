@@ -12,7 +12,10 @@ use validator::Validate;
 
 use crate::{
     CategoryStatus,
-    dto::{ApiResponse, CategoryDto, CreateCategoryRequest, PageResponse, PaginationParams, UpdateCategoryRequest},
+    dto::{
+        ApiResponse, CategoryDto, CreateCategoryRequest, PageResponse, PaginationParams,
+        UpdateCategoryRequest,
+    },
     error::AdminError,
     state::AppState,
 };

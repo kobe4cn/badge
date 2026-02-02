@@ -135,7 +135,10 @@ impl CompetitiveRedemptionService {
     /// 4. 在事务中执行扣减和发放
     /// 5. 释放分布式锁
     #[instrument(skip(self), fields(user_id = %request.user_id, target = %request.target_badge_id))]
-    pub async fn redeem(&self, request: CompetitiveRedeemRequest) -> Result<CompetitiveRedeemResponse> {
+    pub async fn redeem(
+        &self,
+        request: CompetitiveRedeemRequest,
+    ) -> Result<CompetitiveRedeemResponse> {
         // 1. 获取分布式锁，防止同一用户同时发起多次兑换
         let lock_key = format!("redeem:{}:{}", request.user_id, request.target_badge_id);
         let lock_guard = self.lock_manager.acquire(&lock_key, None).await?;
@@ -160,7 +163,10 @@ impl CompetitiveRedemptionService {
         }
 
         // 3. 检查互斥组约束
-        if let Err(e) = self.check_exclusive_constraints(&request.user_id, &consume_deps).await {
+        if let Err(e) = self
+            .check_exclusive_constraints(&request.user_id, &consume_deps)
+            .await
+        {
             lock_guard.release().await?;
             return Err(e);
         }
@@ -208,7 +214,10 @@ impl CompetitiveRedemptionService {
 
     /// 检查用户是否持有指定徽章
     async fn user_has_badge(&self, user_id: &str, badge_id: i64) -> Result<bool> {
-        let user_badge = self.user_badge_repo.get_user_badge(user_id, badge_id).await?;
+        let user_badge = self
+            .user_badge_repo
+            .get_user_badge(user_id, badge_id)
+            .await?;
 
         match user_badge {
             Some(ub) => Ok(ub.quantity > 0),
@@ -238,7 +247,7 @@ impl CompetitiveRedemptionService {
                 r#"
                 SELECT id, user_id, badge_id, quantity, status::text as status
                 FROM user_badges
-                WHERE user_id = $1 AND badge_id = $2 AND status = 'ACTIVE'
+                WHERE user_id = $1 AND badge_id = $2 AND UPPER(status) = 'ACTIVE'
                 FOR UPDATE NOWAIT
                 "#,
             )
@@ -249,8 +258,8 @@ impl CompetitiveRedemptionService {
             .map_err(|e| {
                 // PostgreSQL 在 NOWAIT 失败时返回特定错误码
                 let err_str = e.to_string();
-                if err_str.contains("could not obtain lock")
-                    || err_str.contains("55P03") // lock_not_available
+                if err_str.contains("could not obtain lock") || err_str.contains("55P03")
+                // lock_not_available
                 {
                     BadgeError::LockConflict {
                         resource: format!("user_badge:{}:{}", user_id, dep.depends_on_badge_id),
@@ -349,7 +358,10 @@ impl CompetitiveRedemptionService {
         // 提交事务
         tx.commit().await?;
 
-        Ok(CompetitiveRedeemResponse::success(target_badge_id, consumed))
+        Ok(CompetitiveRedeemResponse::success(
+            target_badge_id,
+            consumed,
+        ))
     }
 }
 
@@ -368,8 +380,7 @@ mod tests {
     #[test]
     fn test_competitive_redeem_request_with_rule_id() {
         let badge_id = 200;
-        let request = CompetitiveRedeemRequest::new("user-123", badge_id)
-            .with_rule_id("rule-001");
+        let request = CompetitiveRedeemRequest::new("user-123", badge_id).with_rule_id("rule-001");
         assert_eq!(request.user_id, "user-123");
         assert_eq!(request.target_badge_id, badge_id);
         assert_eq!(request.rule_id, Some("rule-001".to_string()));
@@ -379,8 +390,8 @@ mod tests {
     fn test_competitive_redeem_request_builder_pattern() {
         // 测试链式调用的 builder 模式
         let badge_id = 300;
-        let request = CompetitiveRedeemRequest::new("user-456", badge_id)
-            .with_rule_id("complex-rule-id");
+        let request =
+            CompetitiveRedeemRequest::new("user-456", badge_id).with_rule_id("complex-rule-id");
 
         assert_eq!(request.user_id, "user-456");
         assert_eq!(request.target_badge_id, badge_id);
@@ -435,7 +446,11 @@ mod tests {
 
         let response = CompetitiveRedeemResponse::success(
             target_badge_id,
-            vec![consumed_badge_1.clone(), consumed_badge_2.clone(), consumed_badge_3.clone()],
+            vec![
+                consumed_badge_1.clone(),
+                consumed_badge_2.clone(),
+                consumed_badge_3.clone(),
+            ],
         );
 
         assert!(response.success);
@@ -476,10 +491,14 @@ mod tests {
         let response1 = CompetitiveRedeemResponse::failure(badge_id, "缺少必需徽章");
         assert_eq!(response1.failure_reason, Some("缺少必需徽章".to_string()));
 
-        let response2 = CompetitiveRedeemResponse::failure(badge_id, format!("徽章 {} 数量不足: 需要 5, 拥有 2", badge_id));
+        let response2 = CompetitiveRedeemResponse::failure(
+            badge_id,
+            format!("徽章 {} 数量不足: 需要 5, 拥有 2", badge_id),
+        );
         assert!(response2.failure_reason.unwrap().contains("数量不足"));
 
-        let response3 = CompetitiveRedeemResponse::failure(badge_id, "互斥冲突：用户已持有互斥组中的徽章");
+        let response3 =
+            CompetitiveRedeemResponse::failure(badge_id, "互斥冲突：用户已持有互斥组中的徽章");
         assert!(response3.failure_reason.unwrap().contains("互斥冲突"));
     }
 
@@ -601,6 +620,12 @@ mod tests {
         let response = CompetitiveRedeemResponse::failure(badge_id_b, &error_message);
         assert!(!response.success);
         assert_eq!(response.target_badge_id, badge_id_b);
-        assert!(response.failure_reason.as_ref().unwrap().contains("互斥冲突"));
+        assert!(
+            response
+                .failure_reason
+                .as_ref()
+                .unwrap()
+                .contains("互斥冲突")
+        );
     }
 }

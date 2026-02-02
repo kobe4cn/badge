@@ -3,12 +3,12 @@
 //! 模拟高并发场景下的规则引擎性能。
 //! 此测试可独立运行，也可通过 criterion 框架运行。
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rule_engine::{
     Condition, EvaluationContext, LogicalGroup, Operator, Rule, RuleExecutor, RuleNode, RuleStore,
 };
-use std::hint::black_box;
 use serde_json::json;
+use std::hint::black_box;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -249,12 +249,16 @@ fn bench_concurrent_store(c: &mut Criterion) {
     let mut group = c.benchmark_group("concurrent_store_access");
 
     for threads in [1, 2, 4, 8].iter() {
-        group.bench_with_input(BenchmarkId::new("threads", threads), threads, |b, threads| {
-            b.iter(|| {
-                let duration = run_concurrent_store_access(*threads, 100);
-                black_box(duration)
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("threads", threads),
+            threads,
+            |b, threads| {
+                b.iter(|| {
+                    let duration = run_concurrent_store_access(*threads, 100);
+                    black_box(duration)
+                })
+            },
+        );
     }
 
     group.finish();
@@ -414,7 +418,10 @@ fn main() {
 
         println!("  总评估次数:    {:>10}", result.total_evaluations);
         println!("  总耗时:        {:>10.2?}", result.total_duration);
-        println!("  吞吐量:        {:>10.0} ops/sec", result.throughput_per_sec);
+        println!(
+            "  吞吐量:        {:>10.0} ops/sec",
+            result.throughput_per_sec
+        );
         println!("  平均延迟:      {:>10.2} us", result.avg_latency_us);
         println!("  最小延迟:      {:>10} us", result.min_latency_us);
         println!("  最大延迟:      {:>10} us", result.max_latency_us);

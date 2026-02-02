@@ -356,14 +356,17 @@ mod config_tests {
         assert_eq!(config.service_name, "unknown-service");
         assert_eq!(config.metrics_port, 9090);
         assert_eq!(config.log_level, "info");
-        assert!(!config.json_logs);
-        assert!(config.otlp_endpoint.is_none());
+        assert_eq!(config.log_format, "pretty");
+        assert!(!config.json_logs());
+        assert!(config.otlp_endpoint().is_none());
+        assert!(!config.tracing_enabled);
+        assert!(config.metrics_enabled);
     }
 
     #[test]
-    fn test_config_from_env() {
-        // 测试从环境加载（使用默认值，因为环境变量可能未设置）
-        let config = ObservabilityConfig::from_env("test-service");
+    fn test_config_with_service_name() {
+        // 测试通过 with_service_name 设置服务名
+        let config = ObservabilityConfig::default().with_service_name("test-service");
         assert_eq!(config.service_name, "test-service");
     }
 
@@ -371,17 +374,59 @@ mod config_tests {
     fn test_custom_config() {
         let config = ObservabilityConfig {
             service_name: "my-service".to_string(),
-            otlp_endpoint: Some("http://localhost:4317".to_string()),
-            metrics_port: 9091,
             log_level: "debug".to_string(),
-            json_logs: true,
+            log_format: "json".to_string(),
+            metrics_enabled: true,
+            metrics_port: 9091,
+            tracing_enabled: true,
+            tracing_endpoint: Some("http://localhost:4317".to_string()),
         };
 
         assert_eq!(config.service_name, "my-service");
-        assert_eq!(config.otlp_endpoint, Some("http://localhost:4317".to_string()));
-        assert_eq!(config.metrics_port, 9091);
         assert_eq!(config.log_level, "debug");
-        assert!(config.json_logs);
+        assert!(config.json_logs());
+        assert_eq!(
+            config.otlp_endpoint(),
+            Some("http://localhost:4317")
+        );
+        assert_eq!(config.metrics_port, 9091);
+        assert!(config.tracing_enabled);
+    }
+
+    #[test]
+    fn test_json_logs_method() {
+        // log_format = "json" 时返回 true
+        let config = ObservabilityConfig {
+            log_format: "json".to_string(),
+            ..Default::default()
+        };
+        assert!(config.json_logs());
+
+        // log_format = "pretty" 时返回 false
+        let config = ObservabilityConfig {
+            log_format: "pretty".to_string(),
+            ..Default::default()
+        };
+        assert!(!config.json_logs());
+    }
+
+    #[test]
+    fn test_otlp_endpoint_method() {
+        // tracing_enabled = false 时返回 None
+        let config = ObservabilityConfig {
+            tracing_enabled: false,
+            tracing_endpoint: Some("http://localhost:4317".to_string()),
+            ..Default::default()
+        };
+        assert!(config.otlp_endpoint().is_none());
+
+        // tracing_enabled = true 时返回 endpoint
+        let config = ObservabilityConfig {
+            tracing_enabled: true,
+            tracing_endpoint: Some("http://localhost:4317".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.otlp_endpoint(), Some("http://localhost:4317"));
     }
 }
 

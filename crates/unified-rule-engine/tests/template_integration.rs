@@ -9,7 +9,7 @@ use rule_engine::template::{
     CompileError, ParameterDef, ParameterType, RuleTemplate, TemplateCategory, TemplateCompiler,
 };
 use rule_engine::{EvaluationContext, RuleCompiler, RuleExecutor};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 // ==================== 辅助函数 ====================
@@ -393,8 +393,7 @@ fn test_parameter_out_of_range_too_high() {
     // 验证参数值超过最大值时返回错误
     let template_compiler = TemplateCompiler::new();
     let template = create_purchase_gte_template();
-    let params: HashMap<String, Value> =
-        [("threshold".to_string(), json!(200000))].into(); // 超过 max=100000
+    let params: HashMap<String, Value> = [("threshold".to_string(), json!(200000))].into(); // 超过 max=100000
 
     let result = template_compiler.compile(&template, &params);
 
@@ -408,8 +407,7 @@ fn test_parameter_out_of_range_too_low() {
     // 验证参数值低于最小值时返回错误
     let template_compiler = TemplateCompiler::new();
     let template = create_purchase_gte_template();
-    let params: HashMap<String, Value> =
-        [("threshold".to_string(), json!(-100))].into(); // 低于 min=0
+    let params: HashMap<String, Value> = [("threshold".to_string(), json!(-100))].into(); // 低于 min=0
 
     let result = template_compiler.compile(&template, &params);
 
@@ -423,8 +421,7 @@ fn test_parameter_type_mismatch() {
     // 验证参数类型不匹配时返回错误
     let template_compiler = TemplateCompiler::new();
     let template = create_purchase_gte_template();
-    let params: HashMap<String, Value> =
-        [("threshold".to_string(), json!("not a number"))].into(); // 应该是数值
+    let params: HashMap<String, Value> = [("threshold".to_string(), json!("not a number"))].into(); // 应该是数值
 
     let result = template_compiler.compile(&template, &params);
 

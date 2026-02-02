@@ -6,3 +6,6 @@ port = 50055
 
 [kafka]
 consumer_group = "notification-worker"
+
+[observability]
+metrics_port = 9995

@@ -10,13 +10,19 @@ use super::environment::TestEnvConfig;
 
 /// 服务端口配置（与实际服务保持一致）
 pub mod ports {
+    // HTTP/gRPC 服务端口
     pub const ADMIN_SERVICE: u16 = 8080;
     pub const RULE_ENGINE_GRPC: u16 = 50051;
     pub const BADGE_MANAGEMENT_GRPC: u16 = 50052;
-    pub const EVENT_ENGAGEMENT: u16 = 8081;
-    pub const EVENT_TRANSACTION: u16 = 8082;
-    pub const NOTIFICATION_WORKER: u16 = 8083;
     pub const MOCK_SERVICES: u16 = 8090;
+
+    // Observability metrics_port（提供 /health 端点）
+    pub const RULE_ENGINE_METRICS: u16 = 9990;
+    pub const ADMIN_SERVICE_METRICS: u16 = 9991;
+    pub const BADGE_MANAGEMENT_METRICS: u16 = 9992;
+    pub const EVENT_ENGAGEMENT_METRICS: u16 = 9993;
+    pub const EVENT_TRANSACTION_METRICS: u16 = 9994;
+    pub const NOTIFICATION_WORKER_METRICS: u16 = 9995;
 }
 
 /// 服务健康状态
@@ -39,7 +45,8 @@ pub struct ServiceManager {
 impl ServiceManager {
     pub fn new(config: &TestEnvConfig) -> Self {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .connect_timeout(Duration::from_secs(5))
             .build()
             .expect("创建 HTTP 客户端失败");
 
@@ -130,8 +137,8 @@ impl ServiceManager {
     /// 检查规则引擎
     async fn check_rule_engine(&self) -> ServiceHealth {
         // gRPC 健康检查：通过 TCP 连接验证端口可达
-        match tokio::net::TcpStream::connect(format!("localhost:{}", ports::RULE_ENGINE_GRPC)).await
-        {
+        let addr = format!("127.0.0.1:{}", ports::RULE_ENGINE_GRPC);
+        match tokio::net::TcpStream::connect(&addr).await {
             Ok(_) => ServiceHealth::Healthy,
             Err(_) => ServiceHealth::Unreachable,
         }
@@ -139,7 +146,7 @@ impl ServiceManager {
 
     /// 检查徽章管理服务
     async fn check_badge_management(&self) -> ServiceHealth {
-        match tokio::net::TcpStream::connect(format!("localhost:{}", ports::BADGE_MANAGEMENT_GRPC))
+        match tokio::net::TcpStream::connect(format!("127.0.0.1:{}", ports::BADGE_MANAGEMENT_GRPC))
             .await
         {
             Ok(_) => ServiceHealth::Healthy,
@@ -147,21 +154,21 @@ impl ServiceManager {
         }
     }
 
-    /// 检查行为事件服务
+    /// 检查行为事件服务（通过 observability metrics_port 的 /health 端点）
     async fn check_event_engagement(&self) -> ServiceHealth {
-        let url = format!("http://localhost:{}/health", ports::EVENT_ENGAGEMENT);
+        let url = format!("http://127.0.0.1:{}/health", ports::EVENT_ENGAGEMENT_METRICS);
         self.check_http_health(&url).await
     }
 
-    /// 检查交易事件服务
+    /// 检查交易事件服务（通过 observability metrics_port 的 /health 端点）
     async fn check_event_transaction(&self) -> ServiceHealth {
-        let url = format!("http://localhost:{}/health", ports::EVENT_TRANSACTION);
+        let url = format!("http://127.0.0.1:{}/health", ports::EVENT_TRANSACTION_METRICS);
         self.check_http_health(&url).await
     }
 
-    /// 检查通知服务
+    /// 检查通知服务（通过 observability metrics_port 的 /health 端点）
     async fn check_notification_worker(&self) -> ServiceHealth {
-        let url = format!("http://localhost:{}/health", ports::NOTIFICATION_WORKER);
+        let url = format!("http://127.0.0.1:{}/health", ports::NOTIFICATION_WORKER_METRICS);
         self.check_http_health(&url).await
     }
 
@@ -207,7 +214,10 @@ impl ServiceManager {
         match self.client.get(url).send().await {
             Ok(resp) if resp.status().is_success() => ServiceHealth::Healthy,
             Ok(resp) => ServiceHealth::Unhealthy(format!("状态码: {}", resp.status())),
-            Err(_) => ServiceHealth::Unreachable,
+            Err(e) => {
+                tracing::debug!("健康检查失败 {}: {}", url, e);
+                ServiceHealth::Unreachable
+            }
         }
     }
 }

@@ -168,9 +168,10 @@ impl TemplateCompiler {
                     && caps.get(0).map(|m| m.as_str()) == Some(s.as_str())
                 {
                     let param_name = &caps[1];
-                    return params.get(param_name).cloned().ok_or_else(|| {
-                        CompileError::MissingParameter(param_name.to_string())
-                    });
+                    return params
+                        .get(param_name)
+                        .cloned()
+                        .ok_or_else(|| CompileError::MissingParameter(param_name.to_string()));
                 }
 
                 // 混合字符串中的占位符替换

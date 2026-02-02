@@ -44,25 +44,26 @@ impl Default for TestEnvConfig {
     fn default() -> Self {
         Self {
             database_url: std::env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "postgres://badge:badge@localhost:5432/badge_test".into()),
+                .unwrap_or_else(|_| "postgres://badge:badge_secret@localhost:5432/badge_db".into()),
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:6379".into()),
             kafka_brokers: std::env::var("KAFKA_BROKERS")
                 .unwrap_or_else(|_| "localhost:9092".into()),
+            // 使用 127.0.0.1 而非 localhost，避免 IPv6 连接问题
             admin_service_url: std::env::var("ADMIN_SERVICE_URL")
-                .unwrap_or_else(|_| "http://localhost:8080".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:8080".into()),
             rule_engine_addr: std::env::var("RULE_ENGINE_ADDR")
-                .unwrap_or_else(|_| "http://localhost:50051".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:50051".into()),
             badge_management_addr: std::env::var("BADGE_MANAGEMENT_ADDR")
-                .unwrap_or_else(|_| "http://localhost:50052".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:50052".into()),
             event_engagement_url: std::env::var("EVENT_ENGAGEMENT_URL")
-                .unwrap_or_else(|_| "http://localhost:8081".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:8081".into()),
             event_transaction_url: std::env::var("EVENT_TRANSACTION_URL")
-                .unwrap_or_else(|_| "http://localhost:8082".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:8082".into()),
             notification_worker_url: std::env::var("NOTIFICATION_WORKER_URL")
-                .unwrap_or_else(|_| "http://localhost:8083".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:8083".into()),
             mock_services_url: std::env::var("MOCK_SERVICES_URL")
-                .unwrap_or_else(|_| "http://localhost:8090".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:8090".into()),
             service_ready_timeout: Duration::from_secs(30),
             skip_health_check: std::env::var("SKIP_HEALTH_CHECK")
                 .map(|v| v == "true" || v == "1")
@@ -185,7 +186,8 @@ impl TestEnvironment {
     /// 等待规则热加载完成
     pub async fn wait_for_rule_reload(&self) -> Result<()> {
         // 发送规则刷新消息后等待一段时间
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // 增加到 2 秒以确保规则在 Kafka 消费者和 gRPC 服务之间完成同步
+        tokio::time::sleep(Duration::from_secs(2)).await;
         Ok(())
     }
 
@@ -272,8 +274,15 @@ impl TestEnvironment {
     }
 
     /// 执行测试前的数据准备
+    ///
+    /// 1. 清理测试数据
+    /// 2. 刷新 badge-management-service 的依赖图缓存（清除旧依赖数据的缓存）
     pub async fn prepare_test_data(&self) -> Result<()> {
         self.cleanup.clean_all().await?;
+        // 刷新依赖图缓存，确保 badge-management-service 不会使用旧的依赖数据
+        if let Err(e) = self.api.refresh_dependency_cache().await {
+            tracing::warn!("刷新依赖缓存失败（可能不影响测试）: {}", e);
+        }
         Ok(())
     }
 

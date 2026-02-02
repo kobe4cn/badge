@@ -157,10 +157,11 @@ impl std::fmt::Display for SkipReason {
 }
 
 /// 自动发放状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "VARCHAR", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AutoBenefitStatus {
     /// 待处理
+    #[default]
     Pending,
     /// 处理中
     Processing,
@@ -184,11 +185,6 @@ impl std::fmt::Display for AutoBenefitStatus {
     }
 }
 
-impl Default for AutoBenefitStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
 
 /// 新建自动发放记录请求
 pub struct NewAutoBenefitGrant {

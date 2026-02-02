@@ -139,10 +139,7 @@ impl HandlerRegistry {
             &config.physical_shipment_topic,
         )));
 
-        info!(
-            handler_count = registry.len(),
-            "自定义权益处理器初始化完成"
-        );
+        info!(handler_count = registry.len(), "自定义权益处理器初始化完成");
 
         registry
     }
@@ -186,7 +183,7 @@ mod tests {
     use crate::benefit::dto::{BenefitGrantRequest, BenefitGrantResult};
     use crate::models::GrantStatus;
     use async_trait::async_trait;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     /// 测试用的 Mock Handler
     struct MockHandler {

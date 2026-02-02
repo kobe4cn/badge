@@ -64,10 +64,25 @@ impl KafkaHelper {
     }
 
     /// 发送规则刷新消息
+    ///
+    /// 使用 RuleReloadEvent 格式，与 badge_shared::rules::RuleReloadEvent 一致。
     pub async fn send_rule_reload(&self) -> Result<()> {
         let msg = serde_json::json!({
-            "action": "reload",
-            "timestamp": chrono::Utc::now().to_rfc3339()
+            "service_group": null,
+            "event_type": null,
+            "trigger_source": "test-harness",
+            "triggered_at": chrono::Utc::now().to_rfc3339()
+        });
+        self.send_event(topics::RULE_RELOAD, "reload", &msg).await
+    }
+
+    /// 发送针对特定服务组的规则刷新消息
+    pub async fn send_rule_reload_for_group(&self, service_group: &str) -> Result<()> {
+        let msg = serde_json::json!({
+            "service_group": service_group,
+            "event_type": null,
+            "trigger_source": "test-harness",
+            "triggered_at": chrono::Utc::now().to_rfc3339()
         });
         self.send_event(topics::RULE_RELOAD, "reload", &msg).await
     }
@@ -157,102 +172,197 @@ impl KafkaHelper {
 // ========== 事件类型定义 ==========
 
 /// 行为事件
+///
+/// 采用 camelCase 序列化格式，与 badge_shared::events::EventPayload 保持一致。
+/// event_type 使用 SCREAMING_SNAKE_CASE 格式（如 CHECK_IN）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EngagementEvent {
     pub event_id: String,
     pub event_type: String,
     pub user_id: String,
     pub timestamp: String,
-    #[serde(flatten)]
     pub data: serde_json::Value,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
 }
 
 impl EngagementEvent {
     pub fn checkin(user_id: &str) -> Self {
         Self {
             event_id: Uuid::now_v7().to_string(),
-            event_type: "checkin".to_string(),
+            event_type: "CHECK_IN".to_string(),
             user_id: user_id.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             data: serde_json::json!({
                 "consecutive_days": 1
             }),
+            source: "test-harness".to_string(),
+            trace_id: None,
+        }
+    }
+
+    /// 创建带指定连续签到天数的签到事件
+    pub fn checkin_with_days(user_id: &str, consecutive_days: i32) -> Self {
+        Self {
+            event_id: Uuid::now_v7().to_string(),
+            event_type: "CHECK_IN".to_string(),
+            user_id: user_id.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            data: serde_json::json!({
+                "consecutive_days": consecutive_days
+            }),
+            source: "test-harness".to_string(),
+            trace_id: None,
         }
     }
 
     pub fn share(user_id: &str, content_id: &str) -> Self {
         Self {
             event_id: Uuid::now_v7().to_string(),
-            event_type: "share".to_string(),
+            event_type: "SHARE".to_string(),
             user_id: user_id.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             data: serde_json::json!({
                 "content_id": content_id,
                 "platform": "wechat"
             }),
+            source: "test-harness".to_string(),
+            trace_id: None,
         }
     }
 
     pub fn page_view(user_id: &str, page_id: &str) -> Self {
         Self {
             event_id: Uuid::now_v7().to_string(),
-            event_type: "page_view".to_string(),
+            event_type: "PAGE_VIEW".to_string(),
             user_id: user_id.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             data: serde_json::json!({
                 "page_id": page_id,
                 "duration_ms": 5000
             }),
+            source: "test-harness".to_string(),
+            trace_id: None,
         }
     }
 }
 
 /// 交易事件
+///
+/// 采用 camelCase 序列化格式，与 badge_shared::events::EventPayload 保持一致。
+/// event_type 使用 SCREAMING_SNAKE_CASE 格式（如 PURCHASE）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransactionEvent {
     pub event_id: String,
     pub event_type: String,
     pub user_id: String,
-    pub order_id: String,
     pub timestamp: String,
-    #[serde(flatten)]
     pub data: serde_json::Value,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
 }
 
 impl TransactionEvent {
+    /// 创建购买事件
+    ///
+    /// `total_amount` 默认等于 `amount`，表示单笔购买场景下累计消费等于订单金额。
+    /// 如需指定不同的累计金额，使用 `purchase_with_total`。
     pub fn purchase(user_id: &str, order_id: &str, amount: i64) -> Self {
         Self {
             event_id: Uuid::now_v7().to_string(),
-            event_type: "purchase".to_string(),
+            event_type: "PURCHASE".to_string(),
             user_id: user_id.to_string(),
-            order_id: order_id.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             data: serde_json::json!({
                 "amount": amount,
+                "order_id": order_id,
+                "total_amount": amount,
                 "currency": "CNY",
                 "items": []
             }),
+            source: "test-harness".to_string(),
+            trace_id: None,
+        }
+    }
+
+    /// 创建带累计金额的购买事件
+    ///
+    /// 用于测试累计消费规则场景，`total_amount` 表示用户的历史累计消费金额。
+    pub fn purchase_with_total(
+        user_id: &str,
+        order_id: &str,
+        amount: i64,
+        total_amount: i64,
+    ) -> Self {
+        Self {
+            event_id: Uuid::now_v7().to_string(),
+            event_type: "PURCHASE".to_string(),
+            user_id: user_id.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            data: serde_json::json!({
+                "amount": amount,
+                "order_id": order_id,
+                "total_amount": total_amount,
+                "currency": "CNY",
+                "items": []
+            }),
+            source: "test-harness".to_string(),
+            trace_id: None,
         }
     }
 
     pub fn refund(user_id: &str, order_id: &str, original_order_id: &str, amount: i64) -> Self {
         Self {
             event_id: Uuid::now_v7().to_string(),
-            event_type: "refund".to_string(),
+            event_type: "REFUND".to_string(),
             user_id: user_id.to_string(),
-            order_id: order_id.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             data: serde_json::json!({
+                "order_id": order_id,
                 "original_order_id": original_order_id,
                 "refund_amount": amount,
                 "refund_reason": "test refund"
             }),
+            source: "test-harness".to_string(),
+            trace_id: None,
+        }
+    }
+
+    /// 带有徽章撤销列表的退款事件
+    pub fn refund_with_badges(
+        user_id: &str,
+        order_id: &str,
+        original_order_id: &str,
+        amount: i64,
+        badge_ids: &[i64],
+    ) -> Self {
+        Self {
+            event_id: Uuid::now_v7().to_string(),
+            event_type: "REFUND".to_string(),
+            user_id: user_id.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            data: serde_json::json!({
+                "order_id": order_id,
+                "original_order_id": original_order_id,
+                "refund_amount": amount,
+                "refund_reason": "test refund",
+                "badge_ids_to_revoke": badge_ids
+            }),
+            source: "test-harness".to_string(),
+            trace_id: None,
         }
     }
 }
 
 /// 通知消息
+///
+/// 使用 camelCase 序列化格式，与 badge_shared::events::NotificationEvent 保持一致。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NotificationMessage {
     pub notification_id: String,
     pub notification_type: String,
@@ -266,5 +376,24 @@ pub struct NotificationMessage {
 impl Default for TransactionEvent {
     fn default() -> Self {
         Self::purchase("test_user", "test_order", 100)
+    }
+}
+
+impl TransactionEvent {
+    /// 创建带自定义 order_id 的订单取消事件
+    pub fn order_cancel(user_id: &str, order_id: &str, original_order_id: &str) -> Self {
+        Self {
+            event_id: Uuid::now_v7().to_string(),
+            event_type: "ORDER_CANCEL".to_string(),
+            user_id: user_id.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            data: serde_json::json!({
+                "order_id": order_id,
+                "original_order_id": original_order_id,
+                "cancel_reason": "test cancel"
+            }),
+            source: "test-harness".to_string(),
+            trace_id: None,
+        }
     }
 }

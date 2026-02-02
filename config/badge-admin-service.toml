@@ -6,3 +6,6 @@ port = 8080
 
 [kafka]
 consumer_group = "badge-admin-service"
+
+[observability]
+metrics_port = 9991

@@ -11,3 +11,6 @@ consumer_group = "event-engagement-service"
 refresh_interval_secs = 30
 initial_load_timeout_secs = 10
 idempotency_ttl_hours = 24
+
+[observability]
+metrics_port = 9993

@@ -302,6 +302,7 @@ mod notification_trigger_tests {
                 category_id: category.id,
                 name: "Test限时活动".to_string(),
                 description: Some("限时活动测试".to_string()),
+                cover_url: None,
                 theme: Some("red".to_string()),
             })
             .await
@@ -309,19 +310,15 @@ mod notification_trigger_tests {
 
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test限时徽章".to_string(),
-                description: Some("限时徽章，即将过期".to_string()),
-                badge_type: "limited".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test限时徽章", "LIMITED")
+                    .with_description("限时徽章，即将过期"),
+            )
             .await
             .unwrap();
 
         // 创建规则
-        let _rule = env
+        let rule = env
             .api
             .create_rule(&CreateRuleRequest {
                 badge_id: badge.id,
@@ -330,7 +327,7 @@ mod notification_trigger_tests {
                 event_type: "purchase".to_string(),
                 rule_json: serde_json::json!({
                     "type": "condition",
-                    "field": "order.amount",
+                    "field": "amount",
                     "operator": "gte",
                     "value": 50
                 }),
@@ -341,6 +338,9 @@ mod notification_trigger_tests {
             })
             .await
             .unwrap();
+
+        // 发布规则使其生效
+        env.api.publish_rule(rule.id).await.unwrap();
 
         env.api
             .update_badge_status(badge.id, "active")

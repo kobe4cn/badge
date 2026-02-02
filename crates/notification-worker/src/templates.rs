@@ -27,8 +27,10 @@ impl NotificationTemplateEngine {
             NotificationType::BadgeGranted => "恭喜获得新徽章".to_string(),
             NotificationType::BadgeExpiring => "徽章即将过期".to_string(),
             NotificationType::BadgeRevoked => "徽章已被回收".to_string(),
+            NotificationType::BadgeUnlocked => "徽章已解锁".to_string(),
             NotificationType::RedemptionSuccess => "兑换成功".to_string(),
             NotificationType::RedemptionFailed => "兑换失败".to_string(),
+            NotificationType::BenefitGranted => "权益已发放".to_string(),
         }
     }
 
@@ -52,6 +54,10 @@ impl NotificationTemplateEngine {
                 let reason = extract_str(data, "reason", "未知原因");
                 format!("您的「{badge_name}」徽章已被回收，原因：{reason}")
             }
+            NotificationType::BadgeUnlocked => {
+                let badge_name = extract_str(data, "badge_name", "未知徽章");
+                format!("恭喜！您的「{badge_name}」徽章已解锁，快去查看吧！")
+            }
             NotificationType::RedemptionSuccess => {
                 let badge_name = extract_str(data, "badge_name", "未知徽章");
                 let benefit_name = extract_str(data, "benefit_name", "未知权益");
@@ -60,6 +66,10 @@ impl NotificationTemplateEngine {
             NotificationType::RedemptionFailed => {
                 let reason = extract_str(data, "reason", "未知原因");
                 format!("您的兑换请求未能成功，原因：{reason}")
+            }
+            NotificationType::BenefitGranted => {
+                let benefit_name = extract_str(data, "benefit_name", "未知权益");
+                format!("您已获得「{benefit_name}」权益，快去使用吧！")
             }
         }
     }

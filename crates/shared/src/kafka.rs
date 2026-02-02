@@ -143,7 +143,13 @@ impl KafkaProducer {
             .await
             .map_err(|(e, _)| BadgeError::Kafka(format!("发送消息失败: {e}")))?;
 
-        debug!(topic, key, partition = delivery.partition, offset = delivery.offset, "消息已发送");
+        debug!(
+            topic,
+            key,
+            partition = delivery.partition,
+            offset = delivery.offset,
+            "消息已发送"
+        );
         Ok((delivery.partition, delivery.offset))
     }
 

@@ -114,7 +114,7 @@ const TodayCard: React.FC<TodayCardProps> = ({
   loading,
 }) => {
   return (
-    <Card hoverable>
+    <Card hoverable className="stat-card">
       <Spin spinning={loading}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div
@@ -177,7 +177,7 @@ const SummaryCard: React.FC<SummaryCardProps> = ({
   loading,
 }) => {
   return (
-    <Card hoverable>
+    <Card hoverable className="stat-card">
       <Spin spinning={loading}>
         <Statistic
           title={

@@ -151,10 +151,18 @@ apiClient.interceptors.response.use(
     // 根据 HTTP 状态码进行统一处理
     switch (status) {
       case 401:
-        apiError.code = 'UNAUTHORIZED';
-        apiError.message = '登录已过期，请重新登录';
-        message.error(apiError.message);
-        clearAuthAndRedirect();
+        // 登录接口返回 401 表示凭据错误，不清除认证状态
+        // 其他接口返回 401 表示 token 过期
+        if (error.config?.url?.includes('/auth/login')) {
+          // 登录失败，保留服务端返回的错误消息
+          apiError.code = serverError?.code || 'INVALID_CREDENTIALS';
+          apiError.message = serverError?.message || '用户名或密码错误';
+        } else {
+          apiError.code = 'UNAUTHORIZED';
+          apiError.message = serverError?.message || '登录已过期，请重新登录';
+          message.error(apiError.message);
+          clearAuthAndRedirect();
+        }
         break;
 
       case 403:

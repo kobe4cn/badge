@@ -6,9 +6,8 @@ import { BasePage } from './BasePage';
  */
 export class BadgeListPage extends BasePage {
   readonly createButton = this.page.locator('button:has-text("新建徽章")');
-  readonly searchInput = this.page.locator('.ant-pro-table-search input[placeholder*="搜索"]');
   readonly table = this.page.locator('.ant-table');
-  readonly tableRows = this.page.locator('.ant-table-tbody tr');
+  readonly tableRows = this.page.locator('.ant-table-tbody tr[class*="ant-table-row"]');
   readonly pagination = this.page.locator('.ant-pagination');
 
   constructor(page: Page) {
@@ -19,18 +18,36 @@ export class BadgeListPage extends BasePage {
    * 导航到徽章列表
    */
   async goto(): Promise<void> {
-    await this.page.goto('/badges');
+    await this.page.goto('/badges/definitions');
     await this.waitForPageLoad();
     await this.waitForLoading();
   }
 
   /**
-   * 搜索徽章
+   * 搜索徽章 - 使用表单中的徽章名称输入框和查询按钮
    */
   async search(keyword: string): Promise<void> {
-    await this.searchInput.fill(keyword);
-    await this.page.keyboard.press('Enter');
+    // 找到搜索表单中的徽章名称输入框
+    const searchInput = this.page.locator('.ant-form-item').filter({ hasText: '徽章名称' }).locator('input');
+    await searchInput.fill(keyword);
+
+    // 等待 API 响应完成
+    const responsePromise = this.page.waitForResponse(
+      (response) => response.url().includes('/api/admin/badges') && response.status() === 200,
+      { timeout: 30000 }
+    );
+
+    // 点击查询按钮
+    await this.clickButton('查询');
+
+    // 等待 API 响应
+    await responsePromise;
+
+    // 等待表格加载完成
     await this.waitForLoading();
+
+    // 额外等待一下确保数据刷新
+    await this.page.waitForTimeout(500);
   }
 
   /**
@@ -38,6 +55,8 @@ export class BadgeListPage extends BasePage {
    */
   async clickCreate(): Promise<void> {
     await this.createButton.click();
+    // 等待抽屉打开
+    await this.page.locator('.ant-drawer').waitFor({ state: 'visible', timeout: 10000 });
   }
 
   /**
@@ -49,11 +68,16 @@ export class BadgeListPage extends BasePage {
   }
 
   /**
-   * 点击删除按钮
+   * 点击删除按钮 - 删除在 more 下拉菜单中
    */
   async clickDelete(badgeName: string): Promise<void> {
     const row = this.page.locator(`tr:has-text("${badgeName}")`);
-    await row.locator('button:has-text("删除")').click();
+    // 点击 more 按钮打开下拉菜单
+    await row.locator('button[class*="ant-btn"]').filter({ has: this.page.locator('span[aria-label="more"]') }).click();
+    // 等待下拉菜单出现
+    await this.page.locator('.ant-dropdown').waitFor({ state: 'visible' });
+    // 点击删除选项
+    await this.page.locator('.ant-dropdown-menu-item:has-text("删除")').click();
   }
 
   /**
@@ -73,13 +97,16 @@ export class BadgeListPage extends BasePage {
    * 验证徽章存在
    */
   async expectBadgeExists(badgeName: string): Promise<void> {
-    await expect(this.page.locator(`tr:has-text("${badgeName}")`)).toBeVisible();
+    // 使用 getByRole 匹配表格行，更可靠
+    const row = this.page.getByRole('row', { name: new RegExp(badgeName) });
+    await expect(row.first()).toBeVisible({ timeout: 15000 });
   }
 
   /**
    * 验证徽章不存在
    */
   async expectBadgeNotExists(badgeName: string): Promise<void> {
-    await expect(this.page.locator(`tr:has-text("${badgeName}")`)).not.toBeVisible();
+    const row = this.page.getByRole('row', { name: new RegExp(badgeName) });
+    await expect(row).toHaveCount(0, { timeout: 5000 });
   }
 }

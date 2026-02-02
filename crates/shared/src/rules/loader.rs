@@ -157,7 +157,8 @@ impl RuleLoader {
                 r.end_time,
                 r.max_count_per_user,
                 r.global_quota,
-                r.global_granted
+                r.global_granted,
+                r.rule_json
             FROM badge_rules r
             JOIN badges b ON r.badge_id = b.id
             JOIN event_types et ON r.event_type = et.code
@@ -177,7 +178,9 @@ impl RuleLoader {
             .into_iter()
             .filter_map(|row| {
                 // rule_code 为空时使用 rule_id 生成默认值
-                let rule_code = row.rule_code.unwrap_or_else(|| format!("rule_{}", row.rule_id));
+                let rule_code = row
+                    .rule_code
+                    .unwrap_or_else(|| format!("rule_{}", row.rule_id));
 
                 Some(BadgeGrant {
                     rule_id: row.rule_id,
@@ -191,6 +194,7 @@ impl RuleLoader {
                     max_count_per_user: row.max_count_per_user,
                     global_quota: row.global_quota,
                     global_granted: row.global_granted,
+                    rule_json: row.rule_json,
                 })
             })
             .collect();
@@ -212,4 +216,5 @@ struct RuleRow {
     max_count_per_user: Option<i32>,
     global_quota: Option<i32>,
     global_granted: i32,
+    rule_json: Option<serde_json::Value>,
 }

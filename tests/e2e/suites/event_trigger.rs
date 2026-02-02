@@ -31,9 +31,10 @@ mod purchase_event_tests {
         env.kafka.send_rule_reload().await.unwrap();
         env.wait_for_rule_reload().await.unwrap();
 
-        // 发送购买事件 (600元，应触发 500 元徽章)
+        // 发送购买事件 (600元，累计 600 元，应触发 500 元徽章)
         let user_id = UserGenerator::user_id();
-        let event = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 600);
+        let event =
+            TransactionEvent::purchase_with_total(&user_id, &OrderGenerator::order_id(), 600, 600);
         env.kafka.send_transaction_event(event).await.unwrap();
 
         // 等待异步处理完成
@@ -57,7 +58,7 @@ mod purchase_event_tests {
             .unwrap();
         assert!(!ledger.is_empty(), "应该有账本记录");
         assert_eq!(ledger[0].delta, 1);
-        assert_eq!(ledger[0].action, "grant");
+        assert_eq!(ledger[0].action, "ACQUIRE");
 
         env.cleanup().await.unwrap();
     }
@@ -78,20 +79,22 @@ mod purchase_event_tests {
 
         let user_id = UserGenerator::user_id();
 
-        // 第一笔 600 元
-        let event1 = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 600);
+        // 第一笔 600 元，累计 600 元
+        let event1 =
+            TransactionEvent::purchase_with_total(&user_id, &OrderGenerator::order_id(), 600, 600);
         env.kafka.send_transaction_event(event1).await.unwrap();
         env.wait_for_processing(Duration::from_secs(3))
             .await
             .unwrap();
 
-        // 应该获得 500 元徽章
+        // 应该获得 500 元徽章 (累计 600 >= 500)
         assert!(
             env.db
                 .user_has_badge(&user_id, scenario.badge_500.id)
                 .await
                 .unwrap()
         );
+        // 不应该获得 1000 元徽章 (累计 600 < 1000)
         assert!(
             !env.db
                 .user_has_badge(&user_id, scenario.badge_1000.id)
@@ -99,20 +102,26 @@ mod purchase_event_tests {
                 .unwrap()
         );
 
-        // 第二笔 500 元 (累计 1100 元)
-        let event2 = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 500);
+        // 第二笔 500 元，累计 1100 元
+        let event2 = TransactionEvent::purchase_with_total(
+            &user_id,
+            &OrderGenerator::order_id(),
+            500,
+            1100,
+        );
         env.kafka.send_transaction_event(event2).await.unwrap();
         env.wait_for_processing(Duration::from_secs(3))
             .await
             .unwrap();
 
-        // 应该获得 1000 元徽章
+        // 应该获得 1000 元徽章 (累计 1100 >= 1000)
         assert!(
             env.db
                 .user_has_badge(&user_id, scenario.badge_1000.id)
                 .await
                 .unwrap()
         );
+        // 不应该获得 5000 元徽章 (累计 1100 < 5000)
         assert!(
             !env.db
                 .user_has_badge(&user_id, scenario.badge_5000.id)
@@ -142,22 +151,21 @@ mod purchase_event_tests {
             .unwrap();
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test大额订单".to_string(),
-                description: Some("单笔消费满 500 元".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test大额订单", "NORMAL")
+                    .with_description("单笔消费满 500 元"),
+            )
             .await
             .unwrap();
 
-        let _rule = env
+        let rule = env
             .api
             .create_rule(&TestRules::single_order(badge.id, 500))
             .await
             .unwrap();
+        // 启用规则
+        env.api.publish_rule(rule.id).await.unwrap();
+        // 上线徽章
         env.api
             .update_badge_status(badge.id, "active")
             .await
@@ -210,13 +218,7 @@ mod checkin_event_tests {
         let user_id = UserGenerator::user_id();
 
         // 连续签到 6 天，未达到阈值不应触发
-        let event6 = EngagementEvent {
-            event_id: EventGenerator::event_id(),
-            event_type: "checkin".to_string(),
-            user_id: user_id.clone(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            data: serde_json::json!({"consecutive_days": 6}),
-        };
+        let event6 = EngagementEvent::checkin_with_days(&user_id, 6);
         env.kafka.send_engagement_event(event6).await.unwrap();
         env.wait_for_processing(Duration::from_secs(3))
             .await
@@ -229,13 +231,7 @@ mod checkin_event_tests {
         );
 
         // 连续签到 7 天，达到阈值应触发徽章发放
-        let event7 = EngagementEvent {
-            event_id: EventGenerator::event_id(),
-            event_type: "checkin".to_string(),
-            user_id: user_id.clone(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            data: serde_json::json!({"consecutive_days": 7}),
-        };
+        let event7 = EngagementEvent::checkin_with_days(&user_id, 7);
         env.kafka.send_engagement_event(event7).await.unwrap();
         env.wait_for_processing(Duration::from_secs(3))
             .await
@@ -278,13 +274,19 @@ mod idempotency_tests {
         let order_id = OrderGenerator::order_id();
 
         // 使用相同 event_id 构建事件，模拟网络重试场景
+        // 累计 600 元，应触发 500 元徽章
         let event = TransactionEvent {
             event_id: event_id.clone(),
-            event_type: "purchase".to_string(),
+            event_type: "PURCHASE".to_string(),
             user_id: user_id.clone(),
-            order_id: order_id.clone(),
             timestamp: chrono::Utc::now().to_rfc3339(),
-            data: serde_json::json!({"amount": 600}),
+            data: serde_json::json!({
+                "amount": 600,
+                "total_amount": 600,
+                "order_id": order_id
+            }),
+            source: "test-harness".to_string(),
+            trace_id: None,
         };
 
         // 首次发送事件
@@ -348,8 +350,13 @@ mod quota_tests {
 
             let user_id = UserGenerator::user_id();
 
-            // 第一次购买，应获得徽章
-            let event1 = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 600);
+            // 第一次购买（累计 600 元），应获得徽章
+            let event1 = TransactionEvent::purchase_with_total(
+                &user_id,
+                &OrderGenerator::order_id(),
+                600,
+                600,
+            );
             env.kafka.send_transaction_event(event1).await.unwrap();
             env.wait_for_processing(Duration::from_secs(3))
                 .await
@@ -361,8 +368,13 @@ mod quota_tests {
                     .unwrap()
             );
 
-            // 第二次购买，用户配额应阻止再次发放
-            let event2 = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 600);
+            // 第二次购买（累计 1200 元），用户配额应阻止再次发放 500 元徽章
+            let event2 = TransactionEvent::purchase_with_total(
+                &user_id,
+                &OrderGenerator::order_id(),
+                600,
+                1200,
+            );
             env.kafka.send_transaction_event(event2).await.unwrap();
             env.wait_for_processing(Duration::from_secs(3))
                 .await
@@ -452,7 +464,9 @@ mod notification_tests {
         env.kafka.drain_topic(topics::NOTIFICATIONS).await.unwrap();
 
         let user_id = UserGenerator::user_id();
-        let event = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 600);
+        // 累计 600 元，应触发 500 元徽章
+        let event =
+            TransactionEvent::purchase_with_total(&user_id, &OrderGenerator::order_id(), 600, 600);
         env.kafka.send_transaction_event(event).await.unwrap();
 
         env.wait_for_processing(Duration::from_secs(5))

@@ -160,11 +160,10 @@ impl TemplateRepository {
     /// # Returns
     /// 是否成功删除（false 表示模板不存在或为系统模板）
     pub async fn delete(&self, id: i64) -> Result<bool, sqlx::Error> {
-        let result =
-            sqlx::query("DELETE FROM rule_templates WHERE id = $1 AND is_system = FALSE")
-                .bind(id)
-                .execute(&self.pool)
-                .await?;
+        let result = sqlx::query("DELETE FROM rule_templates WHERE id = $1 AND is_system = FALSE")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -176,13 +175,12 @@ impl TemplateRepository {
     /// # Returns
     /// 是否成功更新
     pub async fn set_enabled(&self, id: i64, enabled: bool) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            "UPDATE rule_templates SET enabled = $2, updated_at = NOW() WHERE id = $1",
-        )
-        .bind(id)
-        .bind(enabled)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("UPDATE rule_templates SET enabled = $2, updated_at = NOW() WHERE id = $1")
+                .bind(id)
+                .bind(enabled)
+                .execute(&self.pool)
+                .await?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -191,10 +189,11 @@ impl TemplateRepository {
     ///
     /// 用于创建模板前的唯一性校验
     pub async fn exists_by_code(&self, code: &str) -> Result<bool, sqlx::Error> {
-        let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM rule_templates WHERE code = $1) AS exists")
-            .bind(code)
-            .fetch_one(&self.pool)
-            .await?;
+        let row =
+            sqlx::query("SELECT EXISTS(SELECT 1 FROM rule_templates WHERE code = $1) AS exists")
+                .bind(code)
+                .fetch_one(&self.pool)
+                .await?;
 
         Ok(row.get("exists"))
     }

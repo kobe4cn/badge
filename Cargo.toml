@@ -81,9 +81,14 @@ async-trait = "0.1"
 futures = "0.3"
 dashmap = "6.0"
 parking_lot = "0.12"
+regex = "1.11"
 
 # Validation
 validator = { version = "0.20.0", features = ["derive"] }
+
+# Authentication
+jsonwebtoken = "9.3"
+bcrypt = "0.17"
 
 # Testing
 mockall = "0.14.0"
@@ -104,6 +109,30 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+# E2E 测试依赖
+tokio = { workspace = true }
+anyhow = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+rdkafka = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+rand = "0.9"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio-stream = "0.1"
+futures = { workspace = true }
+
+# 测试入口
+[[test]]
+name = "e2e"
+path = "tests/e2e/mod.rs"
+
+[[test]]
+name = "performance"
+path = "tests/performance/mod.rs"
 
 [features]
 standalone = []

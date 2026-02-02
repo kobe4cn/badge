@@ -138,8 +138,8 @@ pub trait BenefitHandler: Send + Sync {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     /// 测试用的 Mock Handler
     struct MockCouponHandler {
@@ -210,8 +210,7 @@ mod tests {
         }
 
         async fn grant(&self, request: BenefitGrantRequest) -> Result<BenefitGrantResult> {
-            Ok(BenefitGrantResult::processing(request.grant_no)
-                .with_message("实物奖品已提交发货"))
+            Ok(BenefitGrantResult::processing(request.grant_no).with_message("实物奖品已提交发货"))
         }
 
         async fn query_status(&self, _grant_no: &str) -> Result<GrantStatus> {

@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use sqlx::PgPool;
+use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
@@ -23,6 +24,7 @@ use badge_shared::cache::Cache;
 
 use crate::benefit::{BenefitService, GrantBenefitRequest};
 use crate::error::{BadgeError, Result};
+use crate::notification::NotificationSender;
 use crate::models::{
     BadgeLedger, BadgeRedemptionRule, Benefit, ChangeType, LogAction, OrderStatus,
     RedemptionDetail, RedemptionOrder, RequiredBadge, SourceType, UserBadgeStatus,
@@ -52,6 +54,8 @@ pub struct RedemptionService {
     pool: PgPool,
     /// 权益服务（可选，用于渐进式迁移到新的权益发放机制）
     benefit_service: Option<Arc<BenefitService>>,
+    /// 通知发送器（延迟注入，支持运行时设置）
+    notification_sender: RwLock<Option<Arc<NotificationSender>>>,
 }
 
 impl RedemptionService {
@@ -65,6 +69,7 @@ impl RedemptionService {
             cache,
             pool,
             benefit_service: None,
+            notification_sender: RwLock::new(None),
         }
     }
 
@@ -82,12 +87,20 @@ impl RedemptionService {
             cache,
             pool,
             benefit_service: Some(benefit_service),
+            notification_sender: RwLock::new(None),
         }
     }
 
     /// 设置 BenefitService（允许运行时注入）
     pub fn set_benefit_service(&mut self, benefit_service: Arc<BenefitService>) {
         self.benefit_service = Some(benefit_service);
+    }
+
+    /// 设置通知发送器（支持延迟注入）
+    pub async fn set_notification_sender(&self, sender: Arc<NotificationSender>) {
+        let mut guard = self.notification_sender.write().await;
+        *guard = Some(sender);
+        info!("RedemptionService 通知发送器已设置");
     }
 
     /// 兑换徽章换取权益
@@ -151,6 +164,19 @@ impl RedemptionService {
             benefit_name = %benefit.name,
             "徽章兑换成功"
         );
+
+        // 13. 发送兑换成功通知（异步，不阻塞主流程）
+        {
+            let guard = self.notification_sender.read().await;
+            if let Some(ref sender) = *guard {
+                sender.send_redemption_success(
+                    &request.user_id,
+                    order_id,
+                    &order_no,
+                    &benefit.name,
+                );
+            }
+        }
 
         Ok(RedeemBadgeResponse::success(
             order_id,
@@ -244,7 +270,7 @@ impl RedemptionService {
             user_id,
             benefit.benefit_type,
             benefit.id,
-            benefit.config.clone(),
+            benefit.config.clone().unwrap_or_default(),
         )
         .with_grant_no(format!("RG-{}", order_no))
         .with_redemption_order(order_id);
@@ -595,7 +621,7 @@ fn generate_order_no() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::BenefitType;
+    use crate::models::{BenefitStatus, BenefitType};
     use serde_json::json;
 
     #[test]
@@ -693,12 +719,17 @@ mod tests {
     fn create_test_benefit() -> Benefit {
         Benefit {
             id: 1,
-            benefit_type: BenefitType::Coupon,
+            code: "TEST_COUPON_001".to_string(),
             name: "测试优惠券".to_string(),
             description: Some("测试描述".to_string()),
-            icon_url: None,
-            config: json!({"couponId": "coupon-001"}),
+            benefit_type: BenefitType::Coupon,
+            external_id: None,
+            external_system: None,
             total_stock: Some(100),
+            remaining_stock: Some(100),
+            status: BenefitStatus::Active,
+            config: Some(json!({"couponId": "coupon-001"})),
+            icon_url: None,
             redeemed_count: 0,
             enabled: true,
             created_at: Utc::now(),
@@ -719,7 +750,7 @@ mod tests {
 
         // 启用但无库存
         benefit.enabled = true;
-        benefit.redeemed_count = 100;
+        benefit.remaining_stock = Some(0);
         assert!(!benefit.is_redeemable());
     }
 }

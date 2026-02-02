@@ -21,11 +21,11 @@ use chrono::Utc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use super::DependencyGraph;
 use super::dto::{
     BadgeDependency, BlockReason, BlockedBadge, CascadeConfig, CascadeContext, CascadeResult,
     DependencyType, GrantedBadge,
 };
-use super::DependencyGraph;
 use crate::error::{BadgeError, Result};
 use crate::models::UserBadgeStatus;
 use crate::repository::{CascadeEvaluationLog, DependencyRepository, UserBadgeRepository};
@@ -47,12 +47,7 @@ pub trait BadgeGranter: Send + Sync {
     /// * `Ok(true)` - 发放成功
     /// * `Ok(false)` - 发放被跳过（如用户已达上限）
     /// * `Err(_)` - 发放失败
-    async fn grant_cascade(
-        &self,
-        user_id: &str,
-        badge_id: i64,
-        triggered_by: i64,
-    ) -> Result<bool>;
+    async fn grant_cascade(&self, user_id: &str, badge_id: i64, triggered_by: i64) -> Result<bool>;
 }
 
 /// 依赖图缓存
@@ -160,8 +155,14 @@ impl CascadeEvaluator {
 
         // 记录评估日志
         let error_msg = eval_result.as_ref().err().map(|e| e.to_string());
-        self.log_evaluation(user_id, trigger_badge_id, &context, &result, error_msg.as_deref())
-            .await;
+        self.log_evaluation(
+            user_id,
+            trigger_badge_id,
+            &context,
+            &result,
+            error_msg.as_deref(),
+        )
+        .await;
 
         // 即使出错也返回已成功发放的结果
         if let Err(e) = eval_result {
@@ -435,7 +436,10 @@ impl CascadeEvaluator {
             let mut group_missing: Vec<i64> = vec![];
 
             for dep in deps {
-                let user_qty = user_badges.get(&dep.depends_on_badge_id).copied().unwrap_or(0);
+                let user_qty = user_badges
+                    .get(&dep.depends_on_badge_id)
+                    .copied()
+                    .unwrap_or(0);
                 if user_qty < dep.required_quantity {
                     group_satisfied = false;
                     group_missing.push(dep.depends_on_badge_id);
@@ -528,12 +532,7 @@ impl CascadeEvaluator {
     /// 发放徽章
     ///
     /// 通过 BadgeGranter trait 调用实际的发放逻辑
-    async fn grant_badge(
-        &self,
-        user_id: &str,
-        badge_id: i64,
-        triggered_by: i64,
-    ) -> Result<bool> {
+    async fn grant_badge(&self, user_id: &str, badge_id: i64, triggered_by: i64) -> Result<bool> {
         let guard = self.grant_service.read().await;
         let service = guard
             .as_ref()
@@ -553,8 +552,7 @@ impl CascadeEvaluator {
         result: &CascadeResult,
         error: Option<&str>,
     ) {
-        let started_at = Utc::now()
-            - chrono::Duration::milliseconds(context.elapsed_ms() as i64);
+        let started_at = Utc::now() - chrono::Duration::milliseconds(context.elapsed_ms() as i64);
         let completed_at = Utc::now();
         let duration_ms = context.elapsed_ms() as i32;
 
@@ -718,7 +716,8 @@ mod tests {
         let badge_b = next_test_id();
 
         // B 依赖 A，且 auto_trigger = true
-        let dep = create_test_dependency_row(badge_b, badge_a, "prerequisite", true, "group1", None, 1);
+        let dep =
+            create_test_dependency_row(badge_b, badge_a, "prerequisite", true, "group1", None, 1);
         let graph = DependencyGraph::from_rows(vec![dep]);
 
         // 当 A 被发放时，应该触发检查 B
@@ -735,7 +734,8 @@ mod tests {
         let badge_b = next_test_id();
 
         // B 依赖 A，但 auto_trigger = false
-        let dep = create_test_dependency_row(badge_b, badge_a, "prerequisite", false, "group1", None, 1);
+        let dep =
+            create_test_dependency_row(badge_b, badge_a, "prerequisite", false, "group1", None, 1);
         let graph = DependencyGraph::from_rows(vec![dep]);
 
         // auto_trigger=false 时，不应自动触发
@@ -862,7 +862,13 @@ mod tests {
 
         // A -> A（自引用循环）
         let deps = vec![create_test_dependency_row(
-            badge_a, badge_a, "prerequisite", true, "g1", None, 1,
+            badge_a,
+            badge_a,
+            "prerequisite",
+            true,
+            "g1",
+            None,
+            1,
         )];
         let graph = DependencyGraph::from_rows(deps);
 
@@ -1115,7 +1121,8 @@ mod tests {
         let badge_b = next_test_id();
 
         // B 需要 3 个 A
-        let dep = create_test_dependency_row(badge_b, badge_a, "prerequisite", true, "group1", None, 3);
+        let dep =
+            create_test_dependency_row(badge_b, badge_a, "prerequisite", true, "group1", None, 3);
 
         assert_eq!(dep.required_quantity, 3);
 
@@ -1166,7 +1173,10 @@ mod tests {
         assert_eq!(prereqs.len(), 2);
 
         // 验证依赖组 ID 不同
-        let group_ids: Vec<&str> = prereqs.iter().map(|p| p.dependency_group_id.as_str()).collect();
+        let group_ids: Vec<&str> = prereqs
+            .iter()
+            .map(|p| p.dependency_group_id.as_str())
+            .collect();
         assert!(group_ids.contains(&"group1"));
         assert!(group_ids.contains(&"group2"));
     }
@@ -1373,13 +1383,16 @@ mod tests {
         let badge_b3 = next_test_id();
 
         // 创建具有不同优先级的依赖
-        let mut row1 = create_test_dependency_row(badge_b1, badge_a, "prerequisite", true, "g1", None, 1);
+        let mut row1 =
+            create_test_dependency_row(badge_b1, badge_a, "prerequisite", true, "g1", None, 1);
         row1.priority = 3;
 
-        let mut row2 = create_test_dependency_row(badge_b2, badge_a, "prerequisite", true, "g1", None, 1);
+        let mut row2 =
+            create_test_dependency_row(badge_b2, badge_a, "prerequisite", true, "g1", None, 1);
         row2.priority = 1;
 
-        let mut row3 = create_test_dependency_row(badge_b3, badge_a, "prerequisite", true, "g1", None, 1);
+        let mut row3 =
+            create_test_dependency_row(badge_b3, badge_a, "prerequisite", true, "g1", None, 1);
         row3.priority = 2;
 
         let graph = DependencyGraph::from_rows(vec![row1, row2, row3]);

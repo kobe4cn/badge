@@ -12,27 +12,40 @@ use anyhow::Result;
 use serde::Deserialize;
 
 /// 可观测性配置
+///
+/// 支持从 toml 配置文件反序列化，字段命名与 `config/default.toml` 中的 `[observability]` 保持一致。
+/// 服务启动时通过 `AppConfig::load()` 加载后，使用 `with_service_name()` 注入服务名。
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     /// 服务名称，用于标识追踪和指标的来源
+    /// 通常由 AppConfig 在加载后自动设置，toml 中无需配置
+    #[serde(default)]
     pub service_name: String,
-
-    /// OpenTelemetry OTLP 端点（如 Jaeger）
-    /// 为空时禁用分布式追踪导出
-    pub otlp_endpoint: Option<String>,
-
-    /// Prometheus 指标导出端口
-    /// 默认 9090
-    #[serde(default = "default_metrics_port")]
-    pub metrics_port: u16,
 
     /// 日志级别（如 "info", "debug"）
     #[serde(default = "default_log_level")]
     pub log_level: String,
 
-    /// 是否启用 JSON 格式日志
+    /// 日志输出格式：json（结构化）或 pretty（人类可读）
+    /// 当为 "json" 时等价于 json_logs = true
+    #[serde(default = "default_log_format")]
+    pub log_format: String,
+
+    /// 是否启用 Prometheus 指标
+    #[serde(default = "default_metrics_enabled")]
+    pub metrics_enabled: bool,
+
+    /// Prometheus 指标导出端口，默认 9090
+    #[serde(default = "default_metrics_port")]
+    pub metrics_port: u16,
+
+    /// 是否启用分布式追踪
     #[serde(default)]
-    pub json_logs: bool,
+    pub tracing_enabled: bool,
+
+    /// OpenTelemetry OTLP 端点（如 Jaeger），为空时禁用追踪导出
+    #[serde(default)]
+    pub tracing_endpoint: Option<String>,
 }
 
 fn default_metrics_port() -> u16 {
@@ -43,32 +56,48 @@ fn default_log_level() -> String {
     "info".to_string()
 }
 
+fn default_log_format() -> String {
+    "pretty".to_string()
+}
+
+fn default_metrics_enabled() -> bool {
+    true
+}
+
 impl Default for ObservabilityConfig {
     fn default() -> Self {
         Self {
             service_name: "unknown-service".to_string(),
-            otlp_endpoint: None,
-            metrics_port: default_metrics_port(),
             log_level: default_log_level(),
-            json_logs: false,
+            log_format: default_log_format(),
+            metrics_enabled: default_metrics_enabled(),
+            metrics_port: default_metrics_port(),
+            tracing_enabled: false,
+            tracing_endpoint: None,
         }
     }
 }
 
 impl ObservabilityConfig {
-    /// 从环境变量加载配置
-    pub fn from_env(service_name: &str) -> Self {
-        Self {
-            service_name: service_name.to_string(),
-            otlp_endpoint: std::env::var("OTLP_ENDPOINT").ok(),
-            metrics_port: std::env::var("METRICS_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_metrics_port),
-            log_level: std::env::var("RUST_LOG").unwrap_or_else(|_| default_log_level()),
-            json_logs: std::env::var("JSON_LOGS")
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false),
+    /// 设置服务名称，返回新的配置实例
+    ///
+    /// 从 `AppConfig` 加载后调用此方法注入服务名称
+    pub fn with_service_name(mut self, service_name: &str) -> Self {
+        self.service_name = service_name.to_string();
+        self
+    }
+
+    /// 是否使用 JSON 格式日志
+    pub fn json_logs(&self) -> bool {
+        self.log_format == "json"
+    }
+
+    /// 获取 OTLP 端点（兼容旧 API）
+    pub fn otlp_endpoint(&self) -> Option<&str> {
+        if self.tracing_enabled {
+            self.tracing_endpoint.as_deref()
+        } else {
+            None
         }
     }
 }
@@ -127,7 +156,7 @@ pub async fn init(config: &ObservabilityConfig) -> Result<ObservabilityGuard> {
     info!(
         service = %config.service_name,
         metrics_port = %config.metrics_port,
-        otlp_endpoint = ?config.otlp_endpoint,
+        otlp_endpoint = ?config.otlp_endpoint(),
         "Observability initialized"
     );
 
@@ -149,6 +178,6 @@ mod tests {
         let config = ObservabilityConfig::default();
         assert_eq!(config.metrics_port, 9090);
         assert_eq!(config.log_level, "info");
-        assert!(!config.json_logs);
+        assert!(!config.json_logs()); 
     }
 }

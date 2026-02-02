@@ -14,9 +14,14 @@ use badge_proto::badge::{
     GetUserBadgesRequest, GetUserBadgesResponse, GrantBadgeRequest as ProtoGrantBadgeRequest,
     GrantBadgeResponse as ProtoGrantBadgeResponse, PinBadgeRequest, PinBadgeResponse,
     RedeemBadgeRequest as ProtoRedeemBadgeRequest, RedeemBadgeResponse as ProtoRedeemBadgeResponse,
+    RefreshAutoBenefitCacheRequest, RefreshAutoBenefitCacheResponse,
+    RefreshDependencyCacheRequest, RefreshDependencyCacheResponse,
     RevokeBadgeRequest as ProtoRevokeBadgeRequest, RevokeBadgeResponse as ProtoRevokeBadgeResponse,
     UserBadge as ProtoUserBadge, badge_management_service_server::BadgeManagementService,
 };
+
+use crate::auto_benefit::AutoBenefitRuleCache;
+use crate::cascade::CascadeEvaluator;
 
 use crate::error::BadgeError;
 use crate::models::{BadgeType, SourceType, UserBadgeStatus};
@@ -61,10 +66,10 @@ impl From<BadgeError> for Status {
             BadgeError::Redis(_) => Status::internal(err.to_string()),
             BadgeError::Internal(_) => Status::internal(err.to_string()),
             BadgeError::ConcurrencyConflict => Status::aborted(err.to_string()),
-            // 级联评估相关错误
-            BadgeError::CascadeDepthExceeded { .. } => {
-                Status::resource_exhausted(err.to_string())
-            }
+            // 依赖关系和级联评估相关错误
+            BadgeError::PrerequisiteNotMet { .. } => Status::failed_precondition(err.to_string()),
+            BadgeError::ExclusiveConflict { .. } => Status::failed_precondition(err.to_string()),
+            BadgeError::CascadeDepthExceeded { .. } => Status::resource_exhausted(err.to_string()),
             BadgeError::CascadeTimeout { .. } => Status::deadline_exceeded(err.to_string()),
             BadgeError::CascadeGrantServiceNotSet => Status::internal(err.to_string()),
             // 锁相关错误
@@ -151,9 +156,13 @@ where
 {
     query_service: Arc<BadgeQueryService<BR, UBR, RR, LR>>,
     grant_service: Arc<GrantService<BR>>,
-    revoke_service: Arc<RevokeService>,
+    revoke_service: Arc<RevokeService<BR>>,
     redemption_service: Arc<RedemptionService>,
     pool: PgPool,
+    /// 级联评估器（用于刷新依赖图缓存）
+    cascade_evaluator: Option<Arc<CascadeEvaluator>>,
+    /// 自动权益规则缓存（用于刷新自动权益缓存）
+    auto_benefit_rule_cache: Option<Arc<AutoBenefitRuleCache>>,
 }
 
 impl<BR, UBR, RR, LR> BadgeManagementServiceImpl<BR, UBR, RR, LR>
@@ -166,9 +175,10 @@ where
     pub fn new(
         query_service: Arc<BadgeQueryService<BR, UBR, RR, LR>>,
         grant_service: Arc<GrantService<BR>>,
-        revoke_service: Arc<RevokeService>,
+        revoke_service: Arc<RevokeService<BR>>,
         redemption_service: Arc<RedemptionService>,
         pool: PgPool,
+        cascade_evaluator: Option<Arc<CascadeEvaluator>>,
     ) -> Self {
         Self {
             query_service,
@@ -176,7 +186,15 @@ where
             revoke_service,
             redemption_service,
             pool,
+            cascade_evaluator,
+            auto_benefit_rule_cache: None,
         }
+    }
+
+    /// 设置自动权益规则缓存
+    pub fn with_auto_benefit_rule_cache(mut self, cache: Arc<AutoBenefitRuleCache>) -> Self {
+        self.auto_benefit_rule_cache = Some(cache);
+        self
     }
 }
 
@@ -547,6 +565,68 @@ where
             }
             Ok(None) => Err(Status::not_found("用户徽章不存在")),
             Err(e) => Err(Status::internal(format!("数据库错误: {}", e))),
+        }
+    }
+
+    /// 刷新依赖图缓存
+    ///
+    /// 当依赖关系配置发生变化后，admin-service 调用此方法通知
+    /// badge-management-service 刷新其内部的依赖图缓存
+    #[instrument(skip(self))]
+    async fn refresh_dependency_cache(
+        &self,
+        _request: Request<RefreshDependencyCacheRequest>,
+    ) -> Result<Response<RefreshDependencyCacheResponse>, Status> {
+        if let Some(ref evaluator) = self.cascade_evaluator {
+            evaluator
+                .refresh_cache()
+                .await
+                .map_err(|e| Status::internal(format!("刷新依赖缓存失败: {}", e)))?;
+
+            tracing::info!("依赖图缓存已刷新");
+            Ok(Response::new(RefreshDependencyCacheResponse {
+                success: true,
+                message: "依赖图缓存已刷新".to_string(),
+            }))
+        } else {
+            // 没有配置级联评估器，返回成功但提示未配置
+            Ok(Response::new(RefreshDependencyCacheResponse {
+                success: true,
+                message: "级联评估器未配置，无需刷新".to_string(),
+            }))
+        }
+    }
+
+    /// 刷新自动权益规则缓存
+    ///
+    /// 当兑换规则配置发生变化后（特别是 auto_redeem=true 的规则），
+    /// admin-service 调用此方法通知 badge-management-service 刷新缓存
+    #[instrument(skip(self))]
+    async fn refresh_auto_benefit_cache(
+        &self,
+        _request: Request<RefreshAutoBenefitCacheRequest>,
+    ) -> Result<Response<RefreshAutoBenefitCacheResponse>, Status> {
+        if let Some(ref cache) = self.auto_benefit_rule_cache {
+            cache
+                .refresh()
+                .await
+                .map_err(|e| Status::internal(format!("刷新自动权益缓存失败: {}", e)))?;
+
+            let rules_count = cache.get_total_rules_count().await;
+            tracing::info!(rules_count = rules_count, "自动权益规则缓存已刷新");
+
+            Ok(Response::new(RefreshAutoBenefitCacheResponse {
+                success: true,
+                message: "自动权益规则缓存已刷新".to_string(),
+                rules_loaded: rules_count as i32,
+            }))
+        } else {
+            // 没有配置自动权益缓存，返回成功但提示未配置
+            Ok(Response::new(RefreshAutoBenefitCacheResponse {
+                success: true,
+                message: "自动权益规则缓存未配置，无需刷新".to_string(),
+                rules_loaded: 0,
+            }))
         }
     }
 }

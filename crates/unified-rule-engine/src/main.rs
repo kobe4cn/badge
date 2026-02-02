@@ -5,47 +5,45 @@
 use anyhow::Result;
 use badge_proto::rule_engine::rule_engine_service_server::RuleEngineServiceServer;
 use badge_shared::config::AppConfig;
-use rule_engine::{RuleEngineServiceImpl, RuleStore};
+use badge_shared::observability;
+use rule_engine::{Rule, RuleEngineServiceImpl, RuleNode, RuleStore};
+use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::signal;
 use tonic::transport::Server;
-use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use tracing::{info, warn};
 
 /// 服务配置
 struct ServiceConfig {
     grpc_addr: SocketAddr,
-    health_addr: SocketAddr,
 }
 
 impl ServiceConfig {
     fn from_app_config(config: &AppConfig) -> Self {
         let grpc_port = config.server.port;
-        let health_port = config.observability.metrics_port;
 
         Self {
             grpc_addr: format!("{}:{}", config.server.host, grpc_port)
                 .parse()
                 .expect("Invalid gRPC address"),
-            health_addr: format!("{}:{}", config.server.host, health_port)
-                .parse()
-                .expect("Invalid health address"),
         }
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 初始化日志
-    init_tracing();
-
-    info!("Starting unified-rule-engine service...");
-
-    // 加载配置
+    // 统一加载配置：从 config/{service_name}.toml 加载，包含可观测性配置
     let config = AppConfig::load("unified-rule-engine").unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config, using defaults: {}", e);
+        eprintln!("Failed to load config, using defaults: {}", e);
         AppConfig::default()
     });
+
+    // 从 AppConfig 中提取可观测性配置并注入服务名
+    let obs_config = config.observability.clone().with_service_name(&config.service_name);
+    let _guard = observability::init(&obs_config).await?;
+
+    info!("Starting unified-rule-engine service...");
 
     let service_config = ServiceConfig::from_app_config(&config);
 
@@ -53,17 +51,17 @@ async fn main() -> Result<()> {
     let store = RuleStore::new();
     info!("Rule store initialized");
 
-    // 创建 gRPC 服务
-    let rule_service = RuleEngineServiceImpl::new(store.clone());
+    // 连接数据库并加载规则
+    match load_rules_from_database(&config, &store).await {
+        Ok(count) => info!("Loaded {} rules from database", count),
+        Err(e) => warn!("Failed to load rules from database: {}, starting with empty store", e),
+    }
 
-    // 启动健康检查服务
-    let health_addr = service_config.health_addr;
-    let health_store = store.clone();
-    tokio::spawn(async move {
-        run_health_server(health_addr, health_store).await;
-    });
+    // 创建 gRPC 服务
+    let rule_service = RuleEngineServiceImpl::new(store);
 
     // 启动 gRPC 服务
+    // 健康检查端点已由 observability 模块在 metrics_port 上提供
     info!("gRPC server listening on {}", service_config.grpc_addr);
 
     Server::builder()
@@ -75,63 +73,74 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// 初始化 tracing
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,unified_rule_engine=debug"));
+/// 从数据库加载所有启用的规则
+///
+/// 查询 badge_rules 表，将 rule_json 转换为规则引擎的 Rule 结构并加载。
+async fn load_rules_from_database(config: &AppConfig, store: &RuleStore) -> Result<usize> {
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(config.database.connect_timeout_seconds))
+        .connect(&config.database.url)
+        .await?;
 
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_target(true).with_level(true))
-        .with(filter)
-        .init();
+    // 查询所有启用的规则
+    let rows = sqlx::query_as::<_, RuleRow>(
+        r#"
+        SELECT r.id, r.rule_code, r.rule_json
+        FROM badge_rules r
+        WHERE r.enabled = TRUE
+          AND (r.start_time IS NULL OR r.start_time <= NOW())
+          AND (r.end_time IS NULL OR r.end_time > NOW())
+        "#,
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let mut loaded_count = 0;
+    for row in rows {
+        // 将 rule_json 包装成完整的 Rule 结构
+        let rule_id = row.id.to_string();
+        let rule_name = row.rule_code.unwrap_or_else(|| format!("rule_{}", row.id));
+
+        // 尝试解析 rule_json 为 RuleNode
+        match serde_json::from_value::<RuleNode>(row.rule_json.clone()) {
+            Ok(root) => {
+                let rule = Rule {
+                    id: rule_id.clone(),
+                    name: rule_name,
+                    version: "1.0".to_string(),
+                    root,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                };
+
+                if let Err(e) = store.load(rule) {
+                    warn!(rule_id = %rule_id, error = %e, "Failed to load rule");
+                } else {
+                    loaded_count += 1;
+                }
+            }
+            Err(e) => {
+                warn!(
+                    rule_id = %rule_id,
+                    error = %e,
+                    rule_json = %row.rule_json,
+                    "Failed to parse rule_json"
+                );
+            }
+        }
+    }
+
+    pool.close().await;
+    Ok(loaded_count)
 }
 
-/// 健康检查服务器
-async fn run_health_server(addr: SocketAddr, store: RuleStore) {
-    use axum::{Json, Router, routing::get};
-    use serde::Serialize;
-
-    #[derive(Serialize)]
-    struct HealthResponse {
-        status: String,
-        service: String,
-        rules_count: usize,
-    }
-
-    #[derive(Serialize)]
-    struct ReadyResponse {
-        ready: bool,
-        rules_count: usize,
-    }
-
-    let store_health = store.clone();
-    let store_ready = store.clone();
-
-    let app = Router::new()
-        .route(
-            "/health",
-            get(move || async move {
-                Json(HealthResponse {
-                    status: "healthy".to_string(),
-                    service: "unified-rule-engine".to_string(),
-                    rules_count: store_health.len(),
-                })
-            }),
-        )
-        .route(
-            "/ready",
-            get(move || async move {
-                Json(ReadyResponse {
-                    ready: true,
-                    rules_count: store_ready.len(),
-                })
-            }),
-        );
-
-    info!("Health server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+/// 数据库规则行
+#[derive(sqlx::FromRow)]
+struct RuleRow {
+    id: i64,
+    rule_code: Option<String>,
+    rule_json: serde_json::Value,
 }
 
 /// 优雅关闭信号处理

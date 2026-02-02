@@ -14,7 +14,7 @@ pub use enums::{
     OrderStatus, RevokeReason, SourceType, UserBadgeStatus, ValidityType,
 };
 pub use redemption::{
-    BadgeRedemptionRule, Benefit, BenefitInfo, FrequencyConfig, RedemptionDetail, RedemptionOrder,
-    RedemptionRequest, RedemptionResult, RequiredBadge,
+    BadgeRedemptionRule, Benefit, BenefitInfo, BenefitStatus, FrequencyConfig, RedemptionDetail,
+    RedemptionOrder, RedemptionRequest, RedemptionResult, RequiredBadge,
 };
 pub use user_badge::{BadgeLedger, UserBadge, UserBadgeLog, UserBadgeSummary};

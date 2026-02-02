@@ -16,8 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 开始全链路端到端测试\n");
 
     // 连接 gRPC 服务
-    let mut client =
-        BadgeManagementServiceClient::connect("http://localhost:50052").await?;
+    let mut client = BadgeManagementServiceClient::connect("http://localhost:50052").await?;
 
     let test_user = format!("e2e_test_user_{}", chrono::Utc::now().timestamp());
     println!("📝 测试用户: {}\n", test_user);
@@ -37,7 +36,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let response = client.grant_badge(grant_req).await?.into_inner();
-    println!("✅ 发放结果: success={}, message={}", response.success, response.message);
+    println!(
+        "✅ 发放结果: success={}, message={}",
+        response.success, response.message
+    );
     println!("   user_badge_id: {}\n", response.user_badge_id);
 
     sleep(Duration::from_millis(500)).await;
@@ -57,7 +59,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let response = client.grant_badge(grant_req).await?.into_inner();
-    println!("✅ 发放结果: success={}, message={}", response.success, response.message);
+    println!(
+        "✅ 发放结果: success={}, message={}",
+        response.success, response.message
+    );
     println!("   user_badge_id: {}\n", response.user_badge_id);
 
     // 等待级联触发

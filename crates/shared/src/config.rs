@@ -15,6 +15,9 @@ use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use std::path::Path;
 
+// 从 observability 模块重导出 ObservabilityConfig，保持向后兼容
+pub use crate::observability::ObservabilityConfig;
+
 /// 数据库配置
 #[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
@@ -171,31 +174,6 @@ impl Default for RulesConfig {
             refresh_interval_secs: default_refresh_interval(),
             initial_load_timeout_secs: default_initial_timeout(),
             idempotency_ttl_hours: default_idempotency_ttl(),
-        }
-    }
-}
-
-/// 可观测性配置
-#[derive(Debug, Clone, Deserialize)]
-pub struct ObservabilityConfig {
-    pub log_level: String,
-    /// 日志输出格式：json（结构化）或 pretty（人类可读）
-    pub log_format: String,
-    pub metrics_enabled: bool,
-    pub metrics_port: u16,
-    pub tracing_enabled: bool,
-    pub tracing_endpoint: Option<String>,
-}
-
-impl Default for ObservabilityConfig {
-    fn default() -> Self {
-        Self {
-            log_level: "info".to_string(),
-            log_format: "pretty".to_string(),
-            metrics_enabled: true,
-            metrics_port: 9090,
-            tracing_enabled: false,
-            tracing_endpoint: None,
         }
     }
 }

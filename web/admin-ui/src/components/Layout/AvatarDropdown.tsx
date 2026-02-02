@@ -6,62 +6,48 @@
  */
 
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Avatar, Dropdown, Space, App } from 'antd';
 import { UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 
+import { useAuthStore } from '@/stores/authStore';
+import { logout as logoutApi } from '@/services/auth';
+
 /**
- * 当前用户信息
+ * 头像下拉菜单组件
  *
- * 实际项目中应从用户状态管理或 Context 获取
+ * 从 authStore 获取当前用户信息，支持退出登录操作
  */
-interface CurrentUser {
-  name: string;
-  avatar?: string;
-  role?: string;
-}
+const AvatarDropdown: React.FC = () => {
+  const navigate = useNavigate();
+  const { message } = App.useApp();
+  const { user, clearAuth } = useAuthStore();
 
-interface AvatarDropdownProps {
-  /** 当前用户信息 */
-  currentUser?: CurrentUser;
-  /** 退出登录回调 */
-  onLogout?: () => void;
-  /** 进入个人设置回调 */
-  onSettings?: () => void;
-}
+  // 获取用户显示信息
+  const displayName = user?.displayName || user?.username || '管理员';
+  const userRole = user?.role === 'admin' ? '管理员' : user?.role === 'operator' ? '操作员' : '访客';
+  const avatarUrl = user?.avatar;
 
-const AvatarDropdown: React.FC<AvatarDropdownProps> = ({
-  currentUser = { name: '管理员', role: 'Admin' },
-  onLogout,
-  onSettings,
-}) => {
-  const { message, modal } = App.useApp();
-
-  // 处理退出登录确认
-  const handleLogout = () => {
-    modal.confirm({
-      title: '退出登录',
-      content: '确定要退出当前账号吗？',
-      okText: '确定',
-      cancelText: '取消',
-      onOk: () => {
-        if (onLogout) {
-          onLogout();
-        } else {
-          message.success('已退出登录');
-          // 实际项目中应跳转到登录页
-        }
-      },
-    });
+  // 处理退出登录
+  const handleLogout = async () => {
+    try {
+      // 调用后端登出 API（可选，清除服务端 session）
+      await logoutApi().catch(() => {
+        // 忽略网络错误，仍然清除本地状态
+      });
+    } finally {
+      // 清除本地认证状态
+      clearAuth();
+      message.success('已退出登录');
+      // 跳转到登录页
+      navigate('/login', { replace: true });
+    }
   };
 
   // 处理个人设置
   const handleSettings = () => {
-    if (onSettings) {
-      onSettings();
-    } else {
-      message.info('个人设置功能开发中');
-    }
+    message.info('个人设置功能开发中');
   };
 
   // 下拉菜单项配置
@@ -70,10 +56,8 @@ const AvatarDropdown: React.FC<AvatarDropdownProps> = ({
       key: 'user-info',
       label: (
         <div style={{ padding: '4px 0' }}>
-          <div style={{ fontWeight: 500 }}>{currentUser.name}</div>
-          {currentUser.role && (
-            <div style={{ fontSize: 12, color: '#8c8c8c' }}>{currentUser.role}</div>
-          )}
+          <div style={{ fontWeight: 500 }}>{displayName}</div>
+          {userRole && <div style={{ fontSize: 12, color: '#8c8c8c' }}>{userRole}</div>}
         </div>
       ),
       disabled: true,
@@ -105,15 +89,16 @@ const AvatarDropdown: React.FC<AvatarDropdownProps> = ({
       placement="bottomRight"
       trigger={['click']}
       overlayStyle={{ minWidth: 160 }}
+      overlayClassName="user-dropdown"
     >
-      <Space style={{ cursor: 'pointer', padding: '0 12px' }}>
+      <Space className="user-dropdown" style={{ cursor: 'pointer', padding: '0 12px' }}>
         <Avatar
           size="small"
-          src={currentUser.avatar}
-          icon={!currentUser.avatar && <UserOutlined />}
+          src={avatarUrl}
+          icon={!avatarUrl && <UserOutlined />}
           style={{ backgroundColor: '#1677ff' }}
         />
-        <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>{currentUser.name}</span>
+        <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>{displayName}</span>
       </Space>
     </Dropdown>
   );

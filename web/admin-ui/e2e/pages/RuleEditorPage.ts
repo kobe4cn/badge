@@ -11,21 +11,22 @@ export class RuleEditorPage extends BasePage {
   readonly canvas = this.page.locator('.react-flow');
   readonly canvasViewport = this.page.locator('.react-flow__viewport');
 
-  // 节点面板
-  readonly nodePanel = this.page.locator('.node-panel');
-  readonly conditionNode = this.page.locator('[data-nodetype="condition"]');
-  readonly actionNode = this.page.locator('[data-nodetype="action"]');
-  readonly combinerNode = this.page.locator('[data-nodetype="combiner"]');
+  // 节点面板 - 节点类型区域
+  readonly nodePanel = this.page.locator('.node-panel, [class*="node-panel"], [class*="节点类型"]').first();
+  readonly conditionNode = this.page.locator('text=条件节点').first();
+  readonly actionNode = this.page.locator('text=动作节点').first();
+  readonly combinerNode = this.page.locator('text=逻辑组节点').first();
 
-  // 工具栏
-  readonly saveButton = this.page.locator('button:has-text("保存")');
-  readonly previewButton = this.page.locator('button:has-text("预览")');
+  // 工具栏 - 使用更具体的选择器
+  readonly addNodeButton = this.page.locator('button:has-text("添加节点")');
+  readonly saveButton = this.page.getByRole('button', { name: /保存/, exact: false }).first();
+  readonly testButton = this.page.locator('button:has-text("测试")');
   readonly publishButton = this.page.locator('button:has-text("发布")');
-  readonly undoButton = this.page.locator('button[title="撤销"]');
-  readonly redoButton = this.page.locator('button[title="重做"]');
+  readonly undoButton = this.page.locator('button[title="撤销"], button:has([class*="undo"])').first();
+  readonly redoButton = this.page.locator('button[title="重做"], button:has([class*="redo"])').first();
 
   // 节点配置面板
-  readonly configPanel = this.page.locator('.config-panel');
+  readonly configPanel = this.page.locator('.config-panel, [class*="config-panel"]');
 
   constructor(page: Page) {
     super(page);
@@ -48,12 +49,9 @@ export class RuleEditorPage extends BasePage {
    * 等待画布加载完成
    */
   async waitForCanvasReady(): Promise<void> {
-    await this.canvas.waitFor({ state: 'visible' });
+    await this.canvas.waitFor({ state: 'visible', timeout: 15000 });
     // 等待 React Flow 初始化
-    await this.page.waitForFunction(() => {
-      const viewport = document.querySelector('.react-flow__viewport');
-      return viewport !== null;
-    });
+    await this.page.waitForTimeout(500);
   }
 
   /**
@@ -77,12 +75,32 @@ export class RuleEditorPage extends BasePage {
       throw new Error('Canvas not found');
     }
 
+    // 确保节点可见
+    await node.waitFor({ state: 'visible', timeout: 5000 });
+
     await node.dragTo(this.canvas, {
       targetPosition: {
         x: targetX,
         y: targetY,
       },
     });
+  }
+
+  /**
+   * 通过点击"添加节点"按钮添加节点
+   */
+  async addNodeViaButton(nodeType: 'condition' | 'action' | 'combiner'): Promise<void> {
+    await this.addNodeButton.click();
+    // 等待节点类型选择弹窗
+    await this.page.waitForTimeout(300);
+
+    const nodeLabels = {
+      condition: '条件节点',
+      action: '动作节点',
+      combiner: '逻辑组节点',
+    };
+
+    await this.page.locator(`text=${nodeLabels[nodeType]}`).click();
   }
 
   /**
@@ -155,8 +173,8 @@ export class RuleEditorPage extends BasePage {
    * 预览规则
    */
   async preview(): Promise<void> {
-    await this.previewButton.click();
-    await this.page.locator('.preview-modal').waitFor({ state: 'visible' });
+    await this.testButton.click();
+    await this.page.locator('.ant-modal, .preview-modal').waitFor({ state: 'visible' });
   }
 
   /**

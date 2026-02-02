@@ -21,10 +21,10 @@ mod category_tests {
         let req = TestCategories::achievement();
         let result = env.api.create_category(&req).await;
 
-        assert!(result.is_ok(), "创建分类应该成功");
+        assert!(result.is_ok(), "创建分类应该成功: {:?}", result.err());
         let category = result.unwrap();
         assert_eq!(category.name, req.name);
-        assert_eq!(category.description, req.description);
+        assert_eq!(category.icon_url, req.icon_url);
 
         // 验证数据库
         let count = env
@@ -50,16 +50,13 @@ mod category_tests {
             .await
             .unwrap();
 
-        // 创建子分类
-        let child_req = CreateCategoryRequest {
-            name: "Test子分类".to_string(),
-            description: Some("测试子分类".to_string()),
-            icon_url: None,
-            parent_id: Some(parent.id),
-        };
+        // 创建另一个分类（当前 API 不支持嵌套分类）
+        let child_req = CreateCategoryRequest::new("Test子分类")
+            .with_description("测试子分类");
         let child = env.api.create_category(&child_req).await.unwrap();
 
-        assert_eq!(child.parent_id, Some(parent.id), "父级 ID 应该正确");
+        // 验证分类创建成功
+        assert!(!child.name.is_empty(), "分类名称不应为空");
 
         env.cleanup().await.unwrap();
     }
@@ -80,8 +77,8 @@ mod category_tests {
         // 更新分类
         let update_req = UpdateCategoryRequest {
             name: Some("Test更新后的名称".to_string()),
-            description: Some("更新后的描述".to_string()),
             icon_url: None,
+            sort_order: Some(10),
         };
         let updated = env
             .api
@@ -90,7 +87,6 @@ mod category_tests {
             .unwrap();
 
         assert_eq!(updated.name, "Test更新后的名称");
-        assert_eq!(updated.description, Some("更新后的描述".to_string()));
 
         env.cleanup().await.unwrap();
     }
@@ -207,7 +203,7 @@ mod badge_tests {
 
         assert_eq!(badge.name, req.name);
         assert_eq!(badge.series_id, series.id);
-        assert_eq!(badge.status, "draft", "新徽章应该是草稿状态");
+        assert_eq!(badge.status, "DRAFT", "新徽章应该是草稿状态");
 
         env.cleanup().await.unwrap();
     }
@@ -261,21 +257,21 @@ mod badge_tests {
             .await
             .unwrap();
 
-        // 草稿 -> 上线
+        // 草稿 -> 上线 (publish)
         let updated = env
             .api
-            .update_badge_status(badge.id, "active")
+            .publish_badge(badge.id)
             .await
             .unwrap();
-        assert_eq!(updated.status, "active");
+        assert_eq!(updated.status, "ACTIVE");
 
-        // 上线 -> 下线
+        // 上线 -> 下线 (offline)
         let updated = env
             .api
-            .update_badge_status(badge.id, "inactive")
+            .offline_badge(badge.id)
             .await
             .unwrap();
-        assert_eq!(updated.status, "inactive");
+        assert_eq!(updated.status, "INACTIVE");
 
         env.cleanup().await.unwrap();
     }

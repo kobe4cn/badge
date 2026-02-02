@@ -29,6 +29,7 @@ import {
   TestPanel,
   TestResult,
   RuleInfoPanel,
+  NodePanel,
 } from './components';
 import type { RuleInfo } from './components';
 import { useCanvasHistory, useCanvasHotkeys } from './hooks';
@@ -607,6 +608,13 @@ const CanvasInner: React.FC = () => {
             onSave={handleSave}
             onTest={handleOpenTest}
             saving={createRuleMutation.isPending || updateRuleMutation.isPending}
+          />
+
+          {/* 节点面板 - 支持拖拽添加节点 */}
+          <NodePanel
+            onAddCondition={addConditionNode}
+            onAddLogic={addLogicNode}
+            onAddBadge={addBadgeNode}
           />
 
           {/* 规则信息面板 */}

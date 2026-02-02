@@ -207,6 +207,31 @@ pub struct PinBadgeResponse {
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
 }
+/// 刷新依赖图缓存请求
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RefreshDependencyCacheRequest {}
+/// 刷新依赖图缓存响应
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RefreshDependencyCacheResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+/// 刷新自动权益规则缓存请求
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RefreshAutoBenefitCacheRequest {}
+/// 刷新自动权益规则缓存响应
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RefreshAutoBenefitCacheResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    /// 加载的规则数量
+    #[prost(int32, tag = "3")]
+    pub rules_loaded: i32,
+}
 /// 徽章状态
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -583,6 +608,66 @@ pub mod badge_management_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// 刷新依赖图缓存（内部调用）
+        pub async fn refresh_dependency_cache(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RefreshDependencyCacheRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RefreshDependencyCacheResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/badge.management.BadgeManagementService/RefreshDependencyCache",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "badge.management.BadgeManagementService",
+                        "RefreshDependencyCache",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// 刷新自动权益规则缓存（内部调用）
+        pub async fn refresh_auto_benefit_cache(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RefreshAutoBenefitCacheRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RefreshAutoBenefitCacheResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/badge.management.BadgeManagementService/RefreshAutoBenefitCache",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "badge.management.BadgeManagementService",
+                        "RefreshAutoBenefitCache",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -652,6 +737,22 @@ pub mod badge_management_service_server {
             request: tonic::Request<super::PinBadgeRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PinBadgeResponse>,
+            tonic::Status,
+        >;
+        /// 刷新依赖图缓存（内部调用）
+        async fn refresh_dependency_cache(
+            &self,
+            request: tonic::Request<super::RefreshDependencyCacheRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RefreshDependencyCacheResponse>,
+            tonic::Status,
+        >;
+        /// 刷新自动权益规则缓存（内部调用）
+        async fn refresh_auto_benefit_cache(
+            &self,
+            request: tonic::Request<super::RefreshAutoBenefitCacheRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RefreshAutoBenefitCacheResponse>,
             tonic::Status,
         >;
     }
@@ -1049,6 +1150,110 @@ pub mod badge_management_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = PinBadgeSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/badge.management.BadgeManagementService/RefreshDependencyCache" => {
+                    #[allow(non_camel_case_types)]
+                    struct RefreshDependencyCacheSvc<T: BadgeManagementService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: BadgeManagementService,
+                    > tonic::server::UnaryService<super::RefreshDependencyCacheRequest>
+                    for RefreshDependencyCacheSvc<T> {
+                        type Response = super::RefreshDependencyCacheResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RefreshDependencyCacheRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BadgeManagementService>::refresh_dependency_cache(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RefreshDependencyCacheSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/badge.management.BadgeManagementService/RefreshAutoBenefitCache" => {
+                    #[allow(non_camel_case_types)]
+                    struct RefreshAutoBenefitCacheSvc<T: BadgeManagementService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: BadgeManagementService,
+                    > tonic::server::UnaryService<super::RefreshAutoBenefitCacheRequest>
+                    for RefreshAutoBenefitCacheSvc<T> {
+                        type Response = super::RefreshAutoBenefitCacheResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::RefreshAutoBenefitCacheRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BadgeManagementService>::refresh_auto_benefit_cache(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RefreshAutoBenefitCacheSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

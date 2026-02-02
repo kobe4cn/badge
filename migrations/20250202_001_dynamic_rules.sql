@@ -35,7 +35,9 @@ INSERT INTO event_types (code, name, service_group, description) VALUES
     ('page_view', '页面浏览', 'engagement', '用户浏览指定页面'),
     ('share', '分享', 'engagement', '用户分享内容'),
     ('profile_update', '资料更新', 'engagement', '用户更新个人资料'),
-    ('review', '评价', 'engagement', '用户提交评价');
+    ('review', '评价', 'engagement', '用户提交评价'),
+    -- 系统内部事件
+    ('cascade', '级联触发', 'engagement', '徽章级联触发时产生的内部事件');
 
 -- 更新 updated_at 触发器
 CREATE TRIGGER update_event_types_updated_at

@@ -9,9 +9,12 @@ import { App } from 'antd';
 import {
   getDependencies,
   createDependency,
+  updateDependency,
   deleteDependency,
   refreshDependencyCache,
+  getDependencyGraph,
   type CreateDependencyRequest,
+  type UpdateDependencyRequest,
 } from '@/services/dependency';
 
 /**
@@ -23,6 +26,9 @@ export const DEPENDENCY_QUERY_KEYS = {
   all: ['dependencies'] as const,
   lists: () => [...DEPENDENCY_QUERY_KEYS.all, 'list'] as const,
   list: (badgeId: string) => [...DEPENDENCY_QUERY_KEYS.lists(), badgeId] as const,
+  graphs: () => [...DEPENDENCY_QUERY_KEYS.all, 'graph'] as const,
+  graph: (badgeId?: string) =>
+    badgeId ? [...DEPENDENCY_QUERY_KEYS.graphs(), badgeId] : DEPENDENCY_QUERY_KEYS.graphs(),
 };
 
 /**
@@ -101,5 +107,44 @@ export function useRefreshDependencyCache() {
     onError: (error: { message?: string }) => {
       message.error(error.message || '缓存刷新失败');
     },
+  });
+}
+
+/**
+ * 更新依赖关系
+ *
+ * 成功后自动失效列表缓存
+ *
+ * @param badgeId - 徽章 ID（用于缓存失效）
+ */
+export function useUpdateDependency(badgeId: string) {
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateDependencyRequest }) =>
+      updateDependency(id, data),
+    onSuccess: () => {
+      message.success('依赖关系更新成功');
+      queryClient.invalidateQueries({ queryKey: DEPENDENCY_QUERY_KEYS.list(badgeId) });
+      queryClient.invalidateQueries({ queryKey: DEPENDENCY_QUERY_KEYS.graph() });
+    },
+    onError: (error: { message?: string }) => {
+      message.error(error.message || '更新失败');
+    },
+  });
+}
+
+/**
+ * 查询依赖图数据
+ *
+ * @param badgeId - 可选的徽章 ID，如果提供则只返回相关的子图
+ * @param enabled - 是否启用查询
+ */
+export function useDependencyGraph(badgeId?: string, enabled = true) {
+  return useQuery({
+    queryKey: DEPENDENCY_QUERY_KEYS.graph(badgeId),
+    queryFn: () => getDependencyGraph(badgeId),
+    enabled,
   });
 }

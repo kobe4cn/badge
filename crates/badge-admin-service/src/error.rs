@@ -9,7 +9,21 @@ use serde_json::json;
 /// B端管理后台错误类型
 #[derive(Debug, thiserror::Error)]
 pub enum AdminError {
-    // 验证错误 
+    // 认证错误
+    #[error("未授权: {0}")]
+    Unauthorized(String),
+    #[error("禁止访问: {0}")]
+    Forbidden(String),
+    #[error("用户名或密码错误")]
+    InvalidCredentials,
+    #[error("用户已被禁用")]
+    UserDisabled,
+    #[error("用户已被锁定，请稍后重试")]
+    UserLocked,
+    #[error("用户不存在: {0}")]
+    UserNotFound(String),
+
+    // 验证错误
     #[error("参数验证失败: {0}")]
     Validation(String),
 
@@ -26,6 +40,8 @@ pub enum AdminError {
     TaskNotFound(i64),
     #[error("依赖关系不存在: {0}")]
     DependencyNotFound(i64),
+    #[error("权益不存在: {0}")]
+    BenefitNotFound(i64),
 
     // 业务错误
     #[error("徽章已发布，无法删除")]
@@ -52,6 +68,12 @@ impl AdminError {
     /// 返回对应的 HTTP 状态码
     pub fn status_code(&self) -> StatusCode {
         match self {
+            // 认证错误
+            Self::Unauthorized(_) | Self::InvalidCredentials => StatusCode::UNAUTHORIZED,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
+            Self::UserDisabled | Self::UserLocked => StatusCode::FORBIDDEN,
+            Self::UserNotFound(_) => StatusCode::NOT_FOUND,
+
             Self::Validation(_) | Self::InvalidRuleJson(_) => StatusCode::BAD_REQUEST,
 
             Self::CategoryNotFound(_)
@@ -59,7 +81,8 @@ impl AdminError {
             | Self::BadgeNotFound(_)
             | Self::RuleNotFound(_)
             | Self::TaskNotFound(_)
-            | Self::DependencyNotFound(_) => StatusCode::NOT_FOUND,
+            | Self::DependencyNotFound(_)
+            | Self::BenefitNotFound(_) => StatusCode::NOT_FOUND,
 
             Self::BadgeAlreadyPublished | Self::InsufficientStock | Self::InsufficientUserBadge => {
                 StatusCode::CONFLICT
@@ -76,6 +99,14 @@ impl AdminError {
     /// 返回错误码（用于 API 响应）
     pub fn error_code(&self) -> &'static str {
         match self {
+            // 认证错误
+            Self::Unauthorized(_) => "UNAUTHORIZED",
+            Self::Forbidden(_) => "FORBIDDEN",
+            Self::InvalidCredentials => "INVALID_CREDENTIALS",
+            Self::UserDisabled => "USER_DISABLED",
+            Self::UserLocked => "USER_LOCKED",
+            Self::UserNotFound(_) => "USER_NOT_FOUND",
+
             Self::Validation(_) => "VALIDATION_ERROR",
             Self::CategoryNotFound(_) => "CATEGORY_NOT_FOUND",
             Self::SeriesNotFound(_) => "SERIES_NOT_FOUND",
@@ -83,6 +114,7 @@ impl AdminError {
             Self::RuleNotFound(_) => "RULE_NOT_FOUND",
             Self::TaskNotFound(_) => "TASK_NOT_FOUND",
             Self::DependencyNotFound(_) => "DEPENDENCY_NOT_FOUND",
+            Self::BenefitNotFound(_) => "BENEFIT_NOT_FOUND",
             Self::BadgeAlreadyPublished => "BADGE_ALREADY_PUBLISHED",
             Self::InvalidRuleJson(_) => "INVALID_RULE_JSON",
             Self::FileProcessingError(_) => "FILE_PROCESSING_ERROR",

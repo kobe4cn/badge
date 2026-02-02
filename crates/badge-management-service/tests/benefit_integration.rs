@@ -12,8 +12,8 @@ use badge_management::benefit::{
 };
 use badge_management::models::{BenefitType, GrantStatus, RevokeReason};
 use serde_json::json;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 测试用的流水号生成器，确保每个测试用例的流水号唯一
 static TEST_GRANT_NO: AtomicU64 = AtomicU64::new(1000);
@@ -87,14 +87,8 @@ mod coupon_integration {
             response.external_ref.is_some(),
             "应返回外部系统引用（coupon_id）"
         );
-        assert!(
-            response.granted_at.is_some(),
-            "应记录发放时间"
-        );
-        assert!(
-            response.payload.is_some(),
-            "应返回 payload 数据"
-        );
+        assert!(response.granted_at.is_some(), "应记录发放时间");
+        assert!(response.payload.is_some(), "应返回 payload 数据");
 
         // 验证 payload 包含优惠券信息
         let payload = response.payload.unwrap();
@@ -129,10 +123,7 @@ mod coupon_integration {
         // 验证发放失败
         assert!(!response.is_success(), "缺少必要配置应导致发放失败");
         assert_eq!(response.status, GrantStatus::Failed);
-        assert!(
-            response.error_message.is_some(),
-            "失败时应返回错误消息"
-        );
+        assert!(response.error_message.is_some(), "失败时应返回错误消息");
     }
 
     /// 测试优惠券撤销成功场景
@@ -253,10 +244,7 @@ mod points_integration {
         assert_eq!(response.benefit_type, BenefitType::Points);
 
         // 验证返回数据
-        assert!(
-            response.external_ref.is_some(),
-            "应返回积分交易 ID"
-        );
+        assert!(response.external_ref.is_some(), "应返回积分交易 ID");
         assert!(response.payload.is_some(), "应返回 payload");
 
         // 验证 payload 包含积分信息
@@ -271,10 +259,7 @@ mod points_integration {
             "bonus",
             "应返回积分类型"
         );
-        assert!(
-            payload.get("balance_after").is_some(),
-            "应返回发放后余额"
-        );
+        assert!(payload.get("balance_after").is_some(), "应返回发放后余额");
     }
 
     /// 测试积分发放使用默认积分类型
@@ -321,7 +306,9 @@ mod points_integration {
             "point_amount": 0
         });
         assert!(
-            service.validate_config(BenefitType::Points, &zero_amount).is_err(),
+            service
+                .validate_config(BenefitType::Points, &zero_amount)
+                .is_err(),
             "零金额应校验失败"
         );
 
@@ -330,7 +317,9 @@ mod points_integration {
             "point_amount": -100
         });
         assert!(
-            service.validate_config(BenefitType::Points, &negative_amount).is_err(),
+            service
+                .validate_config(BenefitType::Points, &negative_amount)
+                .is_err(),
             "负金额应校验失败"
         );
 
@@ -339,7 +328,9 @@ mod points_integration {
             "point_amount": 100
         });
         assert!(
-            service.validate_config(BenefitType::Points, &valid_amount).is_ok(),
+            service
+                .validate_config(BenefitType::Points, &valid_amount)
+                .is_ok(),
             "有效金额应校验通过"
         );
     }
@@ -434,18 +425,12 @@ mod physical_integration {
         let response = service.grant_benefit(request).await.unwrap();
 
         // 验证异步发放状态
-        assert!(
-            response.is_processing(),
-            "实物发放应返回 Processing 状态"
-        );
+        assert!(response.is_processing(), "实物发放应返回 Processing 状态");
         assert_eq!(response.status, GrantStatus::Processing);
         assert_eq!(response.benefit_type, BenefitType::Physical);
 
         // 验证返回消息 ID
-        assert!(
-            response.external_ref.is_some(),
-            "应返回 Kafka 消息 ID"
-        );
+        assert!(response.external_ref.is_some(), "应返回 Kafka 消息 ID");
 
         // 验证 payload
         let payload = response.payload.unwrap();
@@ -453,11 +438,7 @@ mod physical_integration {
 
         // 验证状态查询
         let status = service.query_grant_status(&grant_no).await.unwrap();
-        assert_eq!(
-            status,
-            GrantStatus::Processing,
-            "状态查询应返回 Processing"
-        );
+        assert_eq!(status, GrantStatus::Processing, "状态查询应返回 Processing");
     }
 
     /// 测试实物发放地址从 metadata 获取
@@ -485,10 +466,7 @@ mod physical_integration {
         let response = service.grant_benefit(request).await.unwrap();
 
         // 验证从 metadata 获取地址后成功处理
-        assert!(
-            response.is_processing(),
-            "从 metadata 获取地址后应成功处理"
-        );
+        assert!(response.is_processing(), "从 metadata 获取地址后应成功处理");
     }
 
     /// 测试实物发放缺少地址场景
@@ -590,11 +568,7 @@ mod benefit_service_flow {
             response1.grant_no.starts_with("BG"),
             "自动生成的流水号应以 BG 开头"
         );
-        assert_eq!(
-            response1.grant_no.len(),
-            16,
-            "流水号长度应为 16"
-        );
+        assert_eq!(response1.grant_no.len(), 16, "流水号长度应为 16");
 
         // 2. 测试幂等性
         let grant_no = next_grant_no();
@@ -625,10 +599,7 @@ mod benefit_service_flow {
         let response2b = service.grant_benefit(request2b).await.unwrap();
         // 应返回已存在的记录，而非重复发放
         assert_eq!(response2b.grant_no, grant_no);
-        assert!(
-            response2b.error_message.is_some(),
-            "重复请求应有提示"
-        );
+        assert!(response2b.error_message.is_some(), "重复请求应有提示");
         assert!(
             response2b.error_message.unwrap().contains("重复"),
             "提示应说明是重复请求"
@@ -711,10 +682,7 @@ mod benefit_service_flow {
 
         assert_eq!(statuses.len(), 3, "应返回 3 个状态");
         for (grant_no, status) in statuses {
-            assert!(
-                grant_nos.contains(&grant_no),
-                "返回的流水号应在请求列表中"
-            );
+            assert!(grant_nos.contains(&grant_no), "返回的流水号应在请求列表中");
             assert_eq!(status, GrantStatus::Success, "所有发放应成功");
         }
     }

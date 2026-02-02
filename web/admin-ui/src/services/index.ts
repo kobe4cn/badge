@@ -16,3 +16,6 @@ export * from './template';
 export * from './grant';
 export * from './dashboard';
 export * from './member';
+export * from './auth';
+export * from './benefit';
+export * from './redemption';

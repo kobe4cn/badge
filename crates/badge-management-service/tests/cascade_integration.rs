@@ -737,3 +737,453 @@ mod dependency_graph_advanced {
         assert!(!group2.contains(&badge_a));
     }
 }
+
+mod concurrent_tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
+
+    /// 测试场景：并发请求竞争同一资源
+    ///
+    /// 多个并发请求尝试创建相同资源时，应通过锁机制保证只有一个成功，
+    /// 其他请求要么等待重试要么被拒绝
+    #[tokio::test]
+    async fn test_concurrent_lock_key_generation() {
+        let user_id = "concurrent_user_001";
+        let badge_id = next_test_id();
+
+        // 模拟 100 个并发请求生成相同的锁 key
+        let barrier = Arc::new(Barrier::new(100));
+        let mut handles = Vec::new();
+
+        for i in 0..100 {
+            let barrier = barrier.clone();
+            let user_id = user_id.to_string();
+            let handle = tokio::spawn(async move {
+                barrier.wait().await;
+
+                // 生成锁 key
+                let lock_key = format!("redeem:{}:{}", user_id, badge_id);
+
+                (i, lock_key)
+            });
+            handles.push(handle);
+        }
+
+        let results: Vec<_> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // 验证所有锁 key 相同（同一用户+同一徽章）
+        let first_key = &results[0].1;
+        assert!(results.iter().all(|(_, key)| key == first_key));
+        assert!(first_key.contains(user_id));
+    }
+
+    /// 测试场景：并发创建不同用户的请求
+    ///
+    /// 不同用户的请求应该生成不同的锁 key，互不影响
+    #[tokio::test]
+    async fn test_concurrent_different_users() {
+        let badge_id = next_test_id();
+        let barrier = Arc::new(Barrier::new(50));
+        let mut handles = Vec::new();
+
+        for i in 0..50 {
+            let barrier = barrier.clone();
+            let handle = tokio::spawn(async move {
+                barrier.wait().await;
+
+                let user_id = format!("user_{:03}", i);
+                let lock_key = format!("redeem:{}:{}", user_id, badge_id);
+
+                (user_id, lock_key)
+            });
+            handles.push(handle);
+        }
+
+        let results: Vec<_> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // 验证所有锁 key 都不同
+        let unique_keys: std::collections::HashSet<_> =
+            results.iter().map(|(_, key)| key.clone()).collect();
+        assert_eq!(unique_keys.len(), 50, "每个用户应该有唯一的锁 key");
+    }
+
+    /// 测试场景：模拟并发竞争限量徽章
+    ///
+    /// 当库存为 N 时，并发请求应该只有 N 个成功
+    #[tokio::test]
+    async fn test_simulated_competitive_redemption() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+
+        let stock = Arc::new(AtomicI32::new(10)); // 模拟 10 个库存
+        let success_count = Arc::new(AtomicI32::new(0));
+        let barrier = Arc::new(Barrier::new(100));
+        let mut handles = Vec::new();
+
+        for _ in 0..100 {
+            let barrier = barrier.clone();
+            let stock = stock.clone();
+            let success_count = success_count.clone();
+
+            let handle = tokio::spawn(async move {
+                barrier.wait().await;
+
+                // 模拟 CAS 操作抢占库存
+                loop {
+                    let current = stock.load(Ordering::SeqCst);
+                    if current <= 0 {
+                        return false; // 库存已空
+                    }
+                    if stock
+                        .compare_exchange(current, current - 1, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                    {
+                        success_count.fetch_add(1, Ordering::SeqCst);
+                        return true; // 抢占成功
+                    }
+                    // CAS 失败，重试
+                }
+            });
+            handles.push(handle);
+        }
+
+        let results: Vec<_> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        let succeeded = results.iter().filter(|&&r| r).count();
+        let failed = results.iter().filter(|&&r| !r).count();
+
+        // 验证只有库存数量的请求成功
+        assert_eq!(succeeded, 10, "应该只有 10 个请求成功");
+        assert_eq!(failed, 90, "应该有 90 个请求失败");
+        assert_eq!(stock.load(Ordering::SeqCst), 0, "库存应该为 0");
+        assert_eq!(success_count.load(Ordering::SeqCst), 10);
+    }
+}
+
+mod notification_integration {
+    use super::*;
+
+    /// 测试场景：通知触发配置
+    ///
+    /// 验证发放成功后应该能正确构建通知上下文
+    #[test]
+    fn test_notification_context_building() {
+        let user_id = "user_notify_001";
+        let badge_id = next_test_id();
+        let badge_name = "VIP 会员徽章";
+
+        // 模拟通知上下文数据
+        let notification_data = serde_json::json!({
+            "user_id": user_id,
+            "badge_id": badge_id,
+            "badge_name": badge_name,
+            "grant_time": chrono::Utc::now().to_rfc3339(),
+            "source": "cascade_trigger"
+        });
+
+        // 验证必要字段存在
+        assert_eq!(notification_data["user_id"], user_id);
+        assert_eq!(notification_data["badge_id"], badge_id);
+        assert_eq!(notification_data["badge_name"], badge_name);
+        assert!(notification_data.get("grant_time").is_some());
+    }
+
+    /// 测试场景：多渠道通知配置
+    ///
+    /// 验证通知渠道配置的正确性
+    #[test]
+    fn test_notification_channel_config() {
+        let channels = vec!["app_push", "sms", "email", "wechat"];
+
+        // 验证渠道列表
+        assert!(channels.contains(&"app_push"));
+        assert!(channels.contains(&"sms"));
+        assert!(channels.contains(&"email"));
+        assert!(channels.contains(&"wechat"));
+
+        // 模拟通知请求
+        let notification_request = serde_json::json!({
+            "notification_id": format!("notify_{}", next_test_id()),
+            "user_id": "user_123",
+            "notification_type": "badge_granted",
+            "title": "恭喜获得新徽章！",
+            "body": "您已获得「测试徽章」",
+            "channels": channels
+        });
+
+        assert_eq!(notification_request["channels"].as_array().unwrap().len(), 4);
+    }
+
+    /// 测试场景：部分渠道失败不影响其他渠道
+    ///
+    /// 验证通知发送的容错机制设计
+    #[test]
+    fn test_notification_partial_failure_design() {
+        // 模拟发送结果
+        let channel_results = vec![
+            ("app_push", true, None::<String>),
+            ("sms", false, Some("发送失败：号码无效".to_string())),
+            ("email", true, None),
+            ("wechat", false, Some("用户未绑定微信".to_string())),
+        ];
+
+        let success_count = channel_results.iter().filter(|(_, ok, _)| *ok).count();
+        let failure_count = channel_results.iter().filter(|(_, ok, _)| !*ok).count();
+
+        // 验证部分成功场景
+        assert_eq!(success_count, 2);
+        assert_eq!(failure_count, 2);
+
+        // 验证失败渠道有错误消息
+        for (channel, ok, error) in &channel_results {
+            if !ok {
+                assert!(
+                    error.is_some(),
+                    "渠道 {} 失败时应有错误消息",
+                    channel
+                );
+            }
+        }
+    }
+}
+
+mod business_scenario_tests {
+    use super::*;
+
+    /// 业务场景：新用户注册 -> 绑定手机 -> 获得成就徽章
+    ///
+    /// 模拟完整的用户成长路径：
+    /// 1. 用户注册获得「注册徽章」
+    /// 2. 用户绑定手机获得「绑定徽章」
+    /// 3. 同时拥有两个徽章后自动获得「认证用户」成就徽章
+    #[test]
+    fn test_user_growth_path_scenario() {
+        let register_badge = next_test_id();
+        let bind_badge = next_test_id();
+        let certified_badge = next_test_id();
+
+        // 配置依赖关系：认证用户徽章依赖注册和绑定徽章
+        let dependencies = vec![
+            create_dependency_row(
+                certified_badge,
+                register_badge,
+                "prerequisite",
+                true,
+                "certified_group",
+                None,
+            ),
+            create_dependency_row(
+                certified_badge,
+                bind_badge,
+                "prerequisite",
+                true,
+                "certified_group",
+                None,
+            ),
+        ];
+
+        let graph = DependencyGraph::from_rows(dependencies);
+
+        // 验证：获得注册徽章后，应触发检查认证徽章
+        let triggered_by_register = graph.get_triggered_by(register_badge);
+        assert_eq!(triggered_by_register.len(), 1);
+        assert_eq!(triggered_by_register[0].badge_id, certified_badge);
+
+        // 验证：获得绑定徽章后，也应触发检查认证徽章
+        let triggered_by_bind = graph.get_triggered_by(bind_badge);
+        assert_eq!(triggered_by_bind.len(), 1);
+        assert_eq!(triggered_by_bind[0].badge_id, certified_badge);
+
+        // 验证：认证徽章需要两个前置条件
+        let prereqs = graph.get_prerequisites(certified_badge);
+        assert_eq!(prereqs.len(), 2);
+    }
+
+    /// 业务场景：VIP 等级互斥
+    ///
+    /// 用户只能拥有一个 VIP 等级徽章（银卡、金卡、钻石卡互斥）
+    #[test]
+    fn test_vip_tier_mutual_exclusion_scenario() {
+        let silver_badge = next_test_id();
+        let gold_badge = next_test_id();
+        let diamond_badge = next_test_id();
+        let purchase_trigger = next_test_id();
+
+        // 配置互斥关系
+        let dependencies = vec![
+            create_dependency_row(
+                silver_badge,
+                purchase_trigger,
+                "prerequisite",
+                true,
+                "vip_default",
+                Some("vip_tier"),
+            ),
+            create_dependency_row(
+                gold_badge,
+                purchase_trigger,
+                "prerequisite",
+                true,
+                "vip_default",
+                Some("vip_tier"),
+            ),
+            create_dependency_row(
+                diamond_badge,
+                purchase_trigger,
+                "prerequisite",
+                true,
+                "vip_default",
+                Some("vip_tier"),
+            ),
+        ];
+
+        let graph = DependencyGraph::from_rows(dependencies);
+
+        // 验证互斥组包含三个徽章
+        let vip_group = graph.get_exclusive_group("vip_tier");
+        assert_eq!(vip_group.len(), 3);
+        assert!(vip_group.contains(&silver_badge));
+        assert!(vip_group.contains(&gold_badge));
+        assert!(vip_group.contains(&diamond_badge));
+    }
+
+    /// 业务场景：消耗型兑换
+    ///
+    /// 用户需要消耗 5 个积分徽章来兑换 1 个限定徽章
+    #[test]
+    fn test_consume_redemption_scenario() {
+        let points_badge = next_test_id();
+        let limited_badge = next_test_id();
+
+        // 配置消耗关系
+        let mut dependency =
+            create_dependency_row(limited_badge, points_badge, "consume", false, "redeem", None);
+        dependency.required_quantity = 5; // 需要消耗 5 个
+
+        let graph = DependencyGraph::from_rows(vec![dependency]);
+
+        // 验证前置条件
+        let prereqs = graph.get_prerequisites(limited_badge);
+        assert_eq!(prereqs.len(), 1);
+        assert_eq!(prereqs[0].depends_on_badge_id, points_badge);
+        assert_eq!(prereqs[0].required_quantity, 5);
+        assert_eq!(prereqs[0].dependency_type, DependencyType::Consume);
+
+        // consume 类型且 auto_trigger=false，不应自动触发
+        let triggered = graph.get_triggered_by(points_badge);
+        assert!(triggered.is_empty());
+    }
+
+    /// 业务场景：连续签到奖励链
+    ///
+    /// 签到 7 天 -> 青铜徽章
+    /// 签到 30 天 -> 白银徽章（需要青铜）
+    /// 签到 100 天 -> 黄金徽章（需要白银）
+    #[test]
+    fn test_consecutive_checkin_reward_chain() {
+        let checkin_7_badge = next_test_id();
+        let checkin_30_badge = next_test_id();
+        let checkin_100_badge = next_test_id();
+
+        // 配置级联关系
+        let dependencies = vec![
+            create_dependency_row(
+                checkin_30_badge,
+                checkin_7_badge,
+                "prerequisite",
+                true,
+                "checkin",
+                None,
+            ),
+            create_dependency_row(
+                checkin_100_badge,
+                checkin_30_badge,
+                "prerequisite",
+                true,
+                "checkin",
+                None,
+            ),
+        ];
+
+        let graph = DependencyGraph::from_rows(dependencies);
+
+        // 验证级联链
+        let triggered_by_7 = graph.get_triggered_by(checkin_7_badge);
+        assert_eq!(triggered_by_7.len(), 1);
+        assert_eq!(triggered_by_7[0].badge_id, checkin_30_badge);
+
+        let triggered_by_30 = graph.get_triggered_by(checkin_30_badge);
+        assert_eq!(triggered_by_30.len(), 1);
+        assert_eq!(triggered_by_30[0].badge_id, checkin_100_badge);
+
+        // 100 天徽章是链条末端
+        let triggered_by_100 = graph.get_triggered_by(checkin_100_badge);
+        assert!(triggered_by_100.is_empty());
+    }
+
+    /// 业务场景：多路径达成同一目标
+    ///
+    /// 成就徽章可通过两种方式获得（OR 关系）：
+    /// - 方式 A：购买任意商品
+    /// - 方式 B：分享 10 次
+    #[test]
+    fn test_multiple_paths_to_achievement() {
+        let purchase_badge = next_test_id();
+        let share_badge = next_test_id();
+        let achievement_badge = next_test_id();
+
+        // 配置两个不同组的前置条件（OR 关系）
+        let dependencies = vec![
+            create_dependency_row(
+                achievement_badge,
+                purchase_badge,
+                "prerequisite",
+                true,
+                "path_a", // 路径 A
+                None,
+            ),
+            create_dependency_row(
+                achievement_badge,
+                share_badge,
+                "prerequisite",
+                true,
+                "path_b", // 路径 B
+                None,
+            ),
+        ];
+
+        let graph = DependencyGraph::from_rows(dependencies);
+
+        // 验证两个路径都能触发成就徽章检查
+        let triggered_by_purchase = graph.get_triggered_by(purchase_badge);
+        assert_eq!(triggered_by_purchase.len(), 1);
+        assert_eq!(triggered_by_purchase[0].badge_id, achievement_badge);
+
+        let triggered_by_share = graph.get_triggered_by(share_badge);
+        assert_eq!(triggered_by_share.len(), 1);
+        assert_eq!(triggered_by_share[0].badge_id, achievement_badge);
+
+        // 验证前置条件在不同组（OR 关系）
+        let prereqs = graph.get_prerequisites(achievement_badge);
+        assert_eq!(prereqs.len(), 2);
+
+        let groups: std::collections::HashSet<_> = prereqs
+            .iter()
+            .map(|p| p.dependency_group_id.as_str())
+            .collect();
+        assert!(groups.contains("path_a"));
+        assert!(groups.contains("path_b"));
+    }
+}

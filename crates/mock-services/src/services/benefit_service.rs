@@ -122,13 +122,12 @@ async fn grant_benefit(
     State(state): State<Arc<BenefitServiceState>>,
     Json(req): Json<GrantBenefitRequest>,
 ) -> impl IntoResponse {
-    // 检查幂等性
-    if let Some(ref key) = req.idempotency_key {
-        if let Some(existing_id) = state.idempotency_cache.read().await.get(key) {
-            if let Some(record) = state.grants.read().await.get(existing_id) {
-                return (StatusCode::OK, Json(serde_json::to_value(record).unwrap()));
-            }
-        }
+    // 检查幂等性：如果请求携带幂等键且已存在对应记录，直接返回已有结果
+    if let Some(ref key) = req.idempotency_key
+        && let Some(existing_id) = state.idempotency_cache.read().await.get(key)
+        && let Some(record) = state.grants.read().await.get(existing_id)
+    {
+        return (StatusCode::OK, Json(serde_json::to_value(record).unwrap()));
     }
 
     // 检查是否模拟失败

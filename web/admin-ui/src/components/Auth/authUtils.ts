@@ -2,9 +2,10 @@
  * 认证工具函数
  *
  * 提供认证状态检查和权限验证相关的工具函数
+ * 与 authStore 集成，统一认证状态管理
  */
 
-import { env } from '@/config';
+import { getAuthState } from '@/stores/authStore';
 
 /**
  * 权限配置
@@ -28,13 +29,18 @@ const ROUTE_PERMISSIONS: Permission[] = [
 
 /**
  * 检查用户是否已登录
+ *
+ * 从 authStore 获取认证状态，兼容 localStorage 中的 token
  */
 export function isAuthenticated(): boolean {
-  // 开发模式下默认已登录，方便调试
-  if (env.isDev) {
+  const { isAuthenticated: storeAuth } = getAuthState();
+
+  // 优先使用 store 中的状态
+  if (storeAuth) {
     return true;
   }
 
+  // 降级检查 localStorage（用于页面刷新后的首次检查）
   const token = localStorage.getItem('auth_token');
   return !!token;
 }
@@ -43,16 +49,18 @@ export function isAuthenticated(): boolean {
  * 获取当前用户角色
  */
 export function getUserRoles(): string[] {
-  // 开发模式下模拟管理员角色
-  if (env.isDev) {
-    return ['admin', 'user'];
+  const { user } = getAuthState();
+
+  if (user?.role) {
+    return [user.role];
   }
 
+  // 降级从 localStorage 读取
   try {
     const userInfo = localStorage.getItem('user_info');
     if (userInfo) {
       const parsed = JSON.parse(userInfo);
-      return parsed.roles || ['user'];
+      return parsed.role ? [parsed.role] : ['user'];
     }
   } catch {
     // 解析失败返回空数组

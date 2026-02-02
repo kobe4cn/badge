@@ -32,28 +32,41 @@ export const testUsers = {
 
 /**
  * 测试徽章数据
+ * 格式匹配后端 API 要求
  */
 export function createTestBadge(overrides: Partial<TestBadge> = {}): TestBadge {
   return {
     name: uniqueId('徽章_'),
-    displayName: uniqueId('测试徽章_'),
     description: '这是一个测试徽章',
-    categoryId: 1,
-    seriesId: 1,
-    status: 'active',
-    iconUrl: 'https://example.com/badge.png',
+    seriesId: 0, // 需要通过 ensureTestData 获取实际 ID
+    badgeType: 'NORMAL',
+    assets: {
+      iconUrl: 'https://example.com/badge.png',
+    },
+    validityConfig: {
+      validityType: 'PERMANENT',
+    },
     ...overrides,
   };
 }
 
 export interface TestBadge {
   name: string;
-  displayName: string;
-  description: string;
-  categoryId: number;
+  description?: string;
   seriesId: number;
-  status: string;
-  iconUrl: string;
+  badgeType: 'NORMAL' | 'LIMITED' | 'ACHIEVEMENT' | 'EVENT';
+  assets: {
+    iconUrl: string;
+    imageUrl?: string;
+    animationUrl?: string;
+    disabledIconUrl?: string;
+  };
+  validityConfig: {
+    validityType: 'PERMANENT' | 'RELATIVE_DAYS' | 'FIXED_DATE';
+    relativeDays?: number;
+    fixedDate?: string;
+  };
+  maxSupply?: number;
 }
 
 /**

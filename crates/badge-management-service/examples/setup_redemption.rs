@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some((id,)) => println!("兑换规则 ID: {}", id),
         None => {
             let existing: (i64,) = sqlx::query_as(
-                "SELECT id FROM badge_redemption_rules WHERE name = '新人注册兑换优惠券'"
+                "SELECT id FROM badge_redemption_rules WHERE name = '新人注册兑换优惠券'",
             )
             .fetch_one(&pool)
             .await?;

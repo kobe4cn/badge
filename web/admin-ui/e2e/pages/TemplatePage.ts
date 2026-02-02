@@ -26,7 +26,8 @@ export class TemplatePage extends BasePage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto('/templates');
+    // 支持重定向：/templates -> /rules/templates
+    await this.page.goto('/rules/templates');
     await this.waitForPageLoad();
   }
 

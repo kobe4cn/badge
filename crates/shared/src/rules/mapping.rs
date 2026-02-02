@@ -127,6 +127,7 @@ mod tests {
             max_count_per_user: None,
             global_quota: None,
             global_granted: 0,
+            rule_json: None,
         }
     }
 
@@ -192,10 +193,7 @@ mod tests {
         assert_eq!(mapping.get_rules_by_event_type("purchase").len(), 1);
 
         // 替换为新规则（不包含 purchase 类型）
-        let rules_v2 = vec![
-            create_test_rule(3, "login"),
-            create_test_rule(4, "signup"),
-        ];
+        let rules_v2 = vec![create_test_rule(3, "login"), create_test_rule(4, "signup")];
         mapping.replace_all(rules_v2);
 
         assert_eq!(mapping.rule_count(), 2);

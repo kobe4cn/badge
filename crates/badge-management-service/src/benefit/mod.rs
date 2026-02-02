@@ -60,6 +60,4 @@ pub use handlers::{CouponHandler, PhysicalHandler, PointsHandler};
 pub use registry::{HandlerRegistry, RegistryConfig};
 
 // Re-export service types
-pub use service::{
-    BenefitService, GrantBenefitRequest, GrantBenefitResponse, RevokeResult,
-};
+pub use service::{BenefitService, GrantBenefitRequest, GrantBenefitResponse, RevokeResult};

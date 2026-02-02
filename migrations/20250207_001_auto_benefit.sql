@@ -33,7 +33,8 @@ CREATE TABLE auto_benefit_grants (
     completed_at TIMESTAMPTZ,                                                   -- 处理完成时间（成功或失败）
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT auto_benefit_grants_idempotency_unique UNIQUE (idempotency_key)
+    CONSTRAINT auto_benefit_grants_idempotency_unique UNIQUE (idempotency_key),
+    CONSTRAINT auto_benefit_grants_valid_status CHECK (status IN ('PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'SKIPPED'))
 );
 
 COMMENT ON TABLE auto_benefit_grants IS '自动权益发放记录，用于幂等控制和追踪自动发放流程';
@@ -114,6 +115,9 @@ CREATE INDEX idx_auto_benefit_eval_badge ON auto_benefit_evaluation_logs(trigger
 
 -- 时间范围查询：按时间统计和清理历史数据
 CREATE INDEX idx_auto_benefit_eval_time ON auto_benefit_evaluation_logs(created_at);
+
+-- 徽章+时间复合查询：分析某徽章在时间区间内的触发情况
+CREATE INDEX idx_auto_benefit_eval_badge_time ON auto_benefit_evaluation_logs(trigger_badge_id, created_at);
 
 -- ============================================
 -- 4. 创建触发器

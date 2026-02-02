@@ -9,8 +9,8 @@
 //! 3. 验证级联触发
 //! 4. 验证兑换流程
 
-use badge_proto::badge::badge_management_service_client::BadgeManagementServiceClient;
 use badge_proto::badge::GetUserBadgesRequest;
+use badge_proto::badge::badge_management_service_client::BadgeManagementServiceClient;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -42,7 +42,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("============================================================");
     println!("【场景 1】通过 Kafka 发送购买事件");
     println!("============================================================");
-    println!("事件路径: mock-services → Kafka → event-transaction-service → unified-rule-engine → badge-management-service\n");
+    println!(
+        "事件路径: mock-services → Kafka → event-transaction-service → unified-rule-engine → badge-management-service\n"
+    );
 
     let output = Command::new("cargo")
         .args([
@@ -81,7 +83,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n============================================================");
     println!("【场景 2】通过 Kafka 发送签到事件");
     println!("============================================================");
-    println!("事件路径: mock-services → Kafka → event-engagement-service → unified-rule-engine → badge-management-service\n");
+    println!(
+        "事件路径: mock-services → Kafka → event-engagement-service → unified-rule-engine → badge-management-service\n"
+    );
 
     let output = Command::new("cargo")
         .args([

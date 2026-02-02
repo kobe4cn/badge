@@ -11,7 +11,7 @@ import ProLayout from '@ant-design/pro-layout';
 import type { ProLayoutProps, MenuDataItem } from '@ant-design/pro-layout';
 import { TrophyOutlined } from '@ant-design/icons';
 
-import { routes, flattenRoutes, NotFoundPage, type RouteConfig } from '@/config/routes';
+import { routes, flattenRoutes, redirectRoutes, NotFoundPage, type RouteConfig } from '@/config/routes';
 import { PageLoading } from '@/components/Loading';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AvatarDropdown from './AvatarDropdown';
@@ -114,6 +114,15 @@ const AdminLayout: React.FC = () => {
             <Routes>
               {/* 根路径重定向到数据看板 */}
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+              {/* 重定向路由（兼容旧 URL） */}
+              {redirectRoutes.map((redirect) => (
+                <Route
+                  key={redirect.from}
+                  path={redirect.from}
+                  element={<Navigate to={redirect.to} replace />}
+                />
+              ))}
 
               {/* 动态渲染所有路由 */}
               {flatRoutes.map((route) => {

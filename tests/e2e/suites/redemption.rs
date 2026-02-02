@@ -39,14 +39,10 @@ mod normal_redemption_tests {
             .unwrap();
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test兑换积分徽章".to_string(),
-                description: Some("可兑换积分的徽章".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test兑换积分徽章", "NORMAL")
+                    .with_description("可兑换积分的徽章"),
+            )
             .await
             .unwrap();
 
@@ -64,7 +60,13 @@ mod normal_redemption_tests {
                 name: "Test积分兑换规则".to_string(),
                 description: Some("使用徽章兑换 500 积分".to_string()),
                 benefit_id: benefit.id,
-                required_badges: json!([{"badge_id": badge.id, "quantity": 1}]),
+                required_badges: vec![RequiredBadgeInput {
+                    badge_id: badge.id,
+                    quantity: 1,
+                }],
+                frequency_config: None,
+                start_time: None,
+                end_time: None,
                 auto_redeem: false,
             })
             .await
@@ -136,9 +138,9 @@ mod normal_redemption_tests {
                 "徽章数量应该减少 1"
             );
 
-            // 验证账本记录包含兑换记录
+            // 验证账本记录包含兑换记录（ChangeType::RedeemOut 序列化为 "REDEEM_OUT"）
             let ledger = env.db.get_badge_ledger(badge.id, &user_id).await.unwrap();
-            let redeem_record = ledger.iter().find(|r| r.action == "redeem");
+            let redeem_record = ledger.iter().find(|r| r.action == "REDEEM_OUT");
             assert!(redeem_record.is_some(), "账本应有兑换记录");
         } else {
             // 如果兑换 API 未实现，跳过验证
@@ -175,14 +177,10 @@ mod normal_redemption_tests {
             .unwrap();
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test兑换优惠券徽章".to_string(),
-                description: Some("可兑换优惠券的徽章".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test兑换优惠券徽章", "NORMAL")
+                    .with_description("可兑换优惠券的徽章"),
+            )
             .await
             .unwrap();
 
@@ -201,7 +199,13 @@ mod normal_redemption_tests {
                 name: "Test优惠券兑换规则".to_string(),
                 description: Some("使用徽章兑换优惠券".to_string()),
                 benefit_id: benefit.id,
-                required_badges: json!([{"badge_id": badge.id, "quantity": 1}]),
+                required_badges: vec![RequiredBadgeInput {
+                    badge_id: badge.id,
+                    quantity: 1,
+                }],
+                frequency_config: None,
+                start_time: None,
+                end_time: None,
                 auto_redeem: false,
             })
             .await
@@ -290,6 +294,7 @@ mod normal_redemption_tests {
                 category_id: category.id,
                 name: "Test组合系列".to_string(),
                 description: Some("需要集齐才能兑换".to_string()),
+                cover_url: None,
                 theme: Some("rainbow".to_string()),
             })
             .await
@@ -297,40 +302,28 @@ mod normal_redemption_tests {
 
         let badge_a = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test组合徽章A".to_string(),
-                description: Some("组合徽章之一".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test组合徽章A", "NORMAL")
+                    .with_description("组合徽章之一"),
+            )
             .await
             .unwrap();
 
         let badge_b = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test组合徽章B".to_string(),
-                description: Some("组合徽章之二".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test组合徽章B", "NORMAL")
+                    .with_description("组合徽章之二"),
+            )
             .await
             .unwrap();
 
         let badge_c = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test组合徽章C".to_string(),
-                description: Some("组合徽章之三".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test组合徽章C", "NORMAL")
+                    .with_description("组合徽章之三"),
+            )
             .await
             .unwrap();
 
@@ -348,11 +341,14 @@ mod normal_redemption_tests {
                 name: "Test组合兑换规则".to_string(),
                 description: Some("集齐 ABC 三个徽章兑换礼品".to_string()),
                 benefit_id: benefit.id,
-                required_badges: json!([
-                    {"badge_id": badge_a.id, "quantity": 1},
-                    {"badge_id": badge_b.id, "quantity": 1},
-                    {"badge_id": badge_c.id, "quantity": 1}
-                ]),
+                required_badges: vec![
+                    RequiredBadgeInput { badge_id: badge_a.id, quantity: 1 },
+                    RequiredBadgeInput { badge_id: badge_b.id, quantity: 1 },
+                    RequiredBadgeInput { badge_id: badge_c.id, quantity: 1 },
+                ],
+                frequency_config: None,
+                start_time: None,
+                end_time: None,
                 auto_redeem: false,
             })
             .await
@@ -502,6 +498,7 @@ mod competitive_redemption_tests {
                 category_id: category.id,
                 name: "Test限量活动".to_string(),
                 description: Some("限量活动测试".to_string()),
+                cover_url: None,
                 theme: Some("red".to_string()),
             })
             .await
@@ -509,14 +506,10 @@ mod competitive_redemption_tests {
 
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test限量兑换徽章".to_string(),
-                description: Some("用于限量兑换".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test限量兑换徽章", "NORMAL")
+                    .with_description("用于限量兑换"),
+            )
             .await
             .unwrap();
 
@@ -524,12 +517,17 @@ mod competitive_redemption_tests {
         let benefit = env
             .api
             .create_benefit(&CreateBenefitRequest {
+                code: format!("TEST_LIMITED_{}", uuid::Uuid::new_v4().simple()),
                 name: "Test限量积分".to_string(),
-                benefit_type: "points".to_string(),
-                config: json!({
-                    "points_amount": 1000,
-                    "stock": 10
-                }),
+                description: Some("限量积分权益".to_string()),
+                benefit_type: "POINTS".to_string(),
+                external_id: None,
+                external_system: None,
+                total_stock: Some(10),
+                config: Some(json!({
+                    "points_amount": 1000
+                })),
+                icon_url: None,
             })
             .await
             .unwrap();
@@ -541,7 +539,13 @@ mod competitive_redemption_tests {
                 name: "Test限量兑换规则".to_string(),
                 description: Some("限量 10 份".to_string()),
                 benefit_id: benefit.id,
-                required_badges: json!([{"badge_id": badge.id, "quantity": 1}]),
+                required_badges: vec![RequiredBadgeInput {
+                    badge_id: badge.id,
+                    quantity: 1,
+                }],
+                frequency_config: None,
+                start_time: None,
+                end_time: None,
                 auto_redeem: false,
             })
             .await
@@ -614,6 +618,7 @@ mod competitive_redemption_tests {
                 category_id: category.id,
                 name: "Test库存测试".to_string(),
                 description: Some("库存耗尽测试".to_string()),
+                cover_url: None,
                 theme: Some("orange".to_string()),
             })
             .await
@@ -621,14 +626,10 @@ mod competitive_redemption_tests {
 
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test库存徽章".to_string(),
-                description: Some("用于库存测试".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test库存徽章", "NORMAL")
+                    .with_description("用于库存测试"),
+            )
             .await
             .unwrap();
 
@@ -636,13 +637,18 @@ mod competitive_redemption_tests {
         let benefit = env
             .api
             .create_benefit(&CreateBenefitRequest {
+                code: format!("TEST_STOCK_{}", uuid::Uuid::new_v4().simple()),
                 name: "Test极限库存权益".to_string(),
-                benefit_type: "physical".to_string(),
-                config: json!({
+                description: Some("极限库存测试".to_string()),
+                benefit_type: "PHYSICAL".to_string(),
+                external_id: Some("SKU_LIMITED".to_string()),
+                external_system: Some("inventory".to_string()),
+                total_stock: Some(2),
+                config: Some(json!({
                     "sku_id": "SKU_LIMITED",
-                    "stock": 2,
                     "shipping_required": true
-                }),
+                })),
+                icon_url: None,
             })
             .await
             .unwrap();
@@ -654,7 +660,13 @@ mod competitive_redemption_tests {
                 name: "Test库存规则".to_string(),
                 description: Some("仅限 2 份".to_string()),
                 benefit_id: benefit.id,
-                required_badges: json!([{"badge_id": badge.id, "quantity": 1}]),
+                required_badges: vec![RequiredBadgeInput {
+                    badge_id: badge.id,
+                    quantity: 1,
+                }],
+                frequency_config: None,
+                start_time: None,
+                end_time: None,
                 auto_redeem: false,
             })
             .await
@@ -747,6 +759,7 @@ mod competitive_redemption_tests {
                 category_id: category.id,
                 name: "Test并发测试".to_string(),
                 description: Some("并发兑换测试".to_string()),
+                cover_url: None,
                 theme: Some("blue".to_string()),
             })
             .await
@@ -754,14 +767,10 @@ mod competitive_redemption_tests {
 
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test并发徽章".to_string(),
-                description: Some("用于并发测试".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test并发徽章", "NORMAL")
+                    .with_description("用于并发测试"),
+            )
             .await
             .unwrap();
 
@@ -770,12 +779,17 @@ mod competitive_redemption_tests {
         let benefit = env
             .api
             .create_benefit(&CreateBenefitRequest {
+                code: format!("TEST_CONCURRENT_{}", uuid::Uuid::new_v4().simple()),
                 name: "Test并发库存权益".to_string(),
-                benefit_type: "points".to_string(),
-                config: json!({
-                    "points_amount": 100,
-                    "stock": stock_limit
-                }),
+                description: Some("并发测试用权益".to_string()),
+                benefit_type: "POINTS".to_string(),
+                external_id: None,
+                external_system: None,
+                total_stock: Some(stock_limit),
+                config: Some(json!({
+                    "points_amount": 100
+                })),
+                icon_url: None,
             })
             .await
             .unwrap();
@@ -787,7 +801,13 @@ mod competitive_redemption_tests {
                 name: "Test并发规则".to_string(),
                 description: Some(format!("仅限 {} 份", stock_limit)),
                 benefit_id: benefit.id,
-                required_badges: json!([{"badge_id": badge.id, "quantity": 1}]),
+                required_badges: vec![RequiredBadgeInput {
+                    badge_id: badge.id,
+                    quantity: 1,
+                }],
+                frequency_config: None,
+                start_time: None,
+                end_time: None,
                 auto_redeem: false,
             })
             .await
@@ -843,7 +863,7 @@ mod competitive_redemption_tests {
 
         // 7. 验证无超卖
         assert!(
-            success_count <= stock_limit,
+            success_count <= stock_limit as usize,
             "并发兑换成功数量不应超过库存: {} > {}",
             success_count,
             stock_limit
@@ -909,19 +929,15 @@ mod auto_redemption_tests {
             .unwrap();
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test自动兑换徽章".to_string(),
-                description: Some("获取后自动兑换积分".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test自动兑换徽章", "NORMAL")
+                    .with_description("获取后自动兑换积分"),
+            )
             .await
             .unwrap();
 
         // 2. 创建触发规则
-        let _rule = env
+        let rule = env
             .api
             .create_rule(&CreateRuleRequest {
                 badge_id: badge.id,
@@ -930,7 +946,7 @@ mod auto_redemption_tests {
                 event_type: "purchase".to_string(),
                 rule_json: json!({
                     "type": "condition",
-                    "field": "order.amount",
+                    "field": "amount",
                     "operator": "gte",
                     "value": 200
                 }),
@@ -942,6 +958,9 @@ mod auto_redemption_tests {
             .await
             .unwrap();
 
+        // 发布规则使其生效
+        env.api.publish_rule(rule.id).await.unwrap();
+
         // 3. 创建积分权益
         let points_amount = 300;
         let benefit = env
@@ -950,18 +969,27 @@ mod auto_redemption_tests {
             .await
             .unwrap();
 
-        // 4. 创建自动兑换规则（auto_redeem = true）
+        // 4. 创建兑换规则 (auto_redeem=true 启用自动兑换)
         let _redemption_rule = env
             .api
             .create_redemption_rule(&CreateRedemptionRuleRequest {
                 name: "Test自动兑换积分规则".to_string(),
                 description: Some("徽章获取后自动发放积分".to_string()),
                 benefit_id: benefit.id,
-                required_badges: json!([{"badge_id": badge.id, "quantity": 1}]),
-                auto_redeem: true,
+                required_badges: vec![RequiredBadgeInput {
+                    badge_id: badge.id,
+                    quantity: 1,
+                }],
+                frequency_config: None,
+                start_time: None,
+                end_time: None,
+                auto_redeem: true, // 启用自动兑换
             })
             .await
             .unwrap();
+
+        // 刷新自动权益缓存，使规则立即生效
+        env.api.refresh_auto_benefit_cache().await.unwrap();
 
         // 5. 上线徽章
         env.api
@@ -1007,18 +1035,18 @@ mod auto_redemption_tests {
 
         if let Some(grant) = auto_grant {
             assert_eq!(grant.status, "success", "发放状态应为成功");
-            assert_eq!(grant.benefit_type, "points", "权益类型应为积分");
+            assert_eq!(grant.benefit_type, "POINTS", "权益类型应为积分");
         }
 
         // 验证徽章账本记录
         let ledger = env.db.get_badge_ledger(badge.id, &user_id).await.unwrap();
 
-        // 应该有获取记录
-        let grant_record = ledger.iter().find(|r| r.action == "grant");
+        // 应该有获取记录（ChangeType::Acquire 序列化为 "ACQUIRE"）
+        let grant_record = ledger.iter().find(|r| r.action == "ACQUIRE");
         assert!(grant_record.is_some(), "账本应有徽章获取记录");
 
-        // 如果是消耗型自动兑换，应该有兑换记录
-        let redeem_record = ledger.iter().find(|r| r.action == "redeem");
+        // 如果是消耗型自动兑换，应该有兑换记录（ChangeType::RedeemOut 序列化为 "REDEEM_OUT"）
+        let redeem_record = ledger.iter().find(|r| r.action == "REDEEM_OUT");
         if redeem_record.is_some() {
             // 验证徽章被消耗
             let badge_count = env

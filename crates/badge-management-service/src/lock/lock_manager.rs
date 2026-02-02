@@ -82,11 +82,7 @@ impl LockManager {
             match self.try_redis_lock(client, key, &owner, ttl).await {
                 Ok(true) => {
                     debug!(key = %key, owner = %owner, "Redis lock acquired");
-                    return Ok(LockGuard::new_redis(
-                        key.to_string(),
-                        owner,
-                        client.clone(),
-                    ));
+                    return Ok(LockGuard::new_redis(key.to_string(), owner, client.clone()));
                 }
                 Ok(false) => {
                     debug!(key = %key, "Redis lock not acquired, resource is locked");
@@ -149,7 +145,7 @@ impl LockManager {
         for attempt in 0..self.config.retry_count {
             // 清理过期锁，防止死锁
             let deleted = sqlx::query(
-                r#"DELETE FROM distributed_lock WHERE lock_key = $1 AND expires_at < NOW()"#,
+                r#"DELETE FROM distributed_locks WHERE lock_key = $1 AND expires_at < NOW()"#,
             )
             .bind(key)
             .execute(&self.pool)
@@ -162,7 +158,7 @@ impl LockManager {
             // 尝试获取锁
             let result = sqlx::query(
                 r#"
-                INSERT INTO distributed_lock (lock_key, owner_id, expires_at)
+                INSERT INTO distributed_locks (lock_key, owner_id, expires_at)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (lock_key) DO NOTHING
                 "#,
@@ -229,16 +225,14 @@ impl LockManager {
             + chrono::Duration::from_std(ttl).map_err(|e| BadgeError::Internal(e.to_string()))?;
 
         // 清理过期锁
-        sqlx::query(
-            r#"DELETE FROM distributed_lock WHERE lock_key = $1 AND expires_at < NOW()"#,
-        )
-        .bind(key)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query(r#"DELETE FROM distributed_locks WHERE lock_key = $1 AND expires_at < NOW()"#)
+            .bind(key)
+            .execute(&self.pool)
+            .await?;
 
         let result = sqlx::query(
             r#"
-            INSERT INTO distributed_lock (lock_key, owner_id, expires_at)
+            INSERT INTO distributed_locks (lock_key, owner_id, expires_at)
             VALUES ($1, $2, $3)
             ON CONFLICT (lock_key) DO NOTHING
             "#,
@@ -368,13 +362,12 @@ impl LockGuard {
 
     /// 释放数据库锁
     async fn release_db(&self, pool: &PgPool) -> Result<()> {
-        let result = sqlx::query(
-            r#"DELETE FROM distributed_lock WHERE lock_key = $1 AND owner_id = $2"#,
-        )
-        .bind(&self.key)
-        .bind(&self.owner)
-        .execute(pool)
-        .await?;
+        let result =
+            sqlx::query(r#"DELETE FROM distributed_locks WHERE lock_key = $1 AND owner_id = $2"#)
+                .bind(&self.key)
+                .bind(&self.owner)
+                .execute(pool)
+                .await?;
 
         if result.rows_affected() == 0 {
             warn!(

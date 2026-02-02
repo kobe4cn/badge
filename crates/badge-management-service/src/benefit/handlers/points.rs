@@ -68,12 +68,10 @@ impl Default for PointsHandler {
 }
 
 impl PointsHandler {
-
     /// 解析积分配置
     fn parse_config(&self, config: &Value) -> Result<PointsConfig> {
-        serde_json::from_value(config.clone()).map_err(|e| {
-            BadgeError::Validation(format!("积分配置解析失败: {}", e))
-        })
+        serde_json::from_value(config.clone())
+            .map_err(|e| BadgeError::Validation(format!("积分配置解析失败: {}", e)))
     }
 
     /// 调用外部积分服务发放（stub 实现）
@@ -208,9 +206,7 @@ impl BenefitHandler for PointsHandler {
         let points_config = self.parse_config(config)?;
 
         if points_config.point_amount <= 0 {
-            return Err(BadgeError::Validation(
-                "point_amount 必须大于 0".into(),
-            ));
+            return Err(BadgeError::Validation("point_amount 必须大于 0".into()));
         }
 
         if points_config.point_type.is_empty() {
@@ -220,9 +216,7 @@ impl BenefitHandler for PointsHandler {
         if let Some(days) = points_config.validity_days
             && days <= 0
         {
-            return Err(BadgeError::Validation(
-                "validity_days 必须大于 0".into(),
-            ));
+            return Err(BadgeError::Validation("validity_days 必须大于 0".into()));
         }
 
         Ok(())

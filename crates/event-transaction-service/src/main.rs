@@ -5,25 +5,24 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 use tracing::info;
 
+use badge_shared::config::AppConfig;
 use badge_shared::database::Database;
+use badge_shared::observability;
 use badge_shared::rules::{RuleBadgeMapping, RuleLoader, RuleValidator};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // 统一加载配置：从 config/{service_name}.toml 加载，包含可观测性配置
+    let config = AppConfig::load("event-transaction-service")?;
+
+    // 从 AppConfig 中提取可观测性配置并注入服务名
+    let obs_config = config.observability.clone().with_service_name(&config.service_name);
+    let _guard = observability::init(&obs_config).await?;
 
     info!("Starting event-transaction-service...");
-
-    let config = badge_shared::config::AppConfig::load("event-transaction")?;
 
     // 初始化数据库连接
     let db = Database::connect(&config.database).await?;
@@ -41,8 +40,7 @@ async fn main() -> Result<()> {
     let rule_client = event_transaction_service::rule_client::TransactionRuleClient::new(
         &rule_engine_url,
         &badge_service_url,
-    )
-    .await?;
+    )?;
 
     // 初始化规则组件：RuleBadgeMapping 作为内存缓存存储从数据库加载的规则
     let rule_mapping = Arc::new(RuleBadgeMapping::new());
@@ -66,7 +64,9 @@ async fn main() -> Result<()> {
     rule_loader.initial_load().await?;
 
     // 启动后台刷新任务
-    rule_loader.clone().start_background_refresh(shutdown_rx.clone());
+    rule_loader
+        .clone()
+        .start_background_refresh(shutdown_rx.clone());
 
     let processor = event_transaction_service::processor::TransactionEventProcessor::new(
         cache,
@@ -82,9 +82,7 @@ async fn main() -> Result<()> {
         rule_loader.clone(),
     )?;
 
-    let health_port = config.server.port;
-    let health_handle = tokio::spawn(start_health_server(health_port));
-
+    // 健康检查端点已由 observability 模块在 metrics_port 上提供
     let shutdown_handle = tokio::spawn(async move {
         shutdown_signal().await;
         info!("收到关闭信号，开始优雅关闭...");
@@ -93,56 +91,10 @@ async fn main() -> Result<()> {
 
     consumer.run(shutdown_rx).await?;
 
-    let _ = health_handle.await;
     let _ = shutdown_handle.await;
 
     info!("event-transaction-service 已关闭");
     Ok(())
-}
-
-/// 健康检查 HTTP 服务器
-///
-/// 提供 /health 和 /ready 端点供 Kubernetes 探测服务状态。
-/// 使用原生 TCP 实现避免额外依赖，对于仅返回固定 JSON 的探针已足够。
-async fn start_health_server(port: u16) {
-    let listener = match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!(error = %e, port, "健康检查服务器绑定端口失败");
-            return;
-        }
-    };
-
-    info!(port, "健康检查 HTTP 服务器已启动");
-
-    loop {
-        let (mut stream, _) = match listener.accept().await {
-            Ok(conn) => conn,
-            Err(e) => {
-                tracing::warn!(error = %e, "接受健康检查连接失败");
-                continue;
-            }
-        };
-
-        tokio::spawn(async move {
-            let mut buf = [0u8; 1024];
-            let n = match tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await {
-                Ok(n) => n,
-                Err(_) => return,
-            };
-
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let is_health = request.contains("GET /health") || request.contains("GET /ready");
-
-            let response = if is_health {
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}"
-            } else {
-                "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found"
-            };
-
-            let _ = stream.write_all(response.as_bytes()).await;
-        });
-    }
 }
 
 /// 监听操作系统关闭信号

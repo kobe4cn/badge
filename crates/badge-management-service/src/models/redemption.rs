@@ -8,6 +8,20 @@ use serde_json::Value;
 
 use super::enums::{BenefitType, OrderStatus};
 
+/// 权益状态
+///
+/// 控制权益的可见性和可兑换性
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum BenefitStatus {
+    /// 启用 - 正常可兑换
+    #[default]
+    Active,
+    /// 禁用 - 不可兑换
+    Inactive,
+}
+
 /// 权益定义
 ///
 /// 定义可被徽章兑换的权益，如优惠券、数字资产、预约资格等
@@ -15,27 +29,39 @@ use super::enums::{BenefitType, OrderStatus};
 #[serde(rename_all = "camelCase")]
 pub struct Benefit {
     pub id: i64,
-    /// 权益类型
-    pub benefit_type: BenefitType,
+    /// 权益编码（唯一标识）
+    pub code: String,
     /// 权益名称
     pub name: String,
     /// 权益描述
     #[sqlx(default)]
     pub description: Option<String>,
-    /// 权益图标
+    /// 权益类型
+    pub benefit_type: BenefitType,
+    /// 外部系统权益 ID
     #[sqlx(default)]
-    pub icon_url: Option<String>,
-    /// 权益配置（JSON，根据类型不同有不同结构）
-    /// 优惠券：{ "couponId": "xxx", "value": 100 }
-    /// 数字资产：{ "assetId": "xxx", "assetType": "NFT" }
-    pub config: Value,
+    pub external_id: Option<String>,
+    /// 外部系统标识
+    #[sqlx(default)]
+    pub external_system: Option<String>,
     /// 总库存（null 表示不限量）
     #[sqlx(default)]
     pub total_stock: Option<i64>,
+    /// 剩余库存
+    #[sqlx(default)]
+    pub remaining_stock: Option<i64>,
+    /// 权益状态
+    pub status: BenefitStatus,
+    /// 权益配置（JSON，根据类型不同有不同结构）
+    #[sqlx(default)]
+    pub config: Option<Value>,
+    /// 权益图标
+    #[sqlx(default)]
+    pub icon_url: Option<String>,
     /// 已兑换数量
     #[serde(default)]
     pub redeemed_count: i64,
-    /// 是否启用
+    /// 是否启用（兼容性字段，与 status 同步）
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -44,20 +70,20 @@ pub struct Benefit {
 impl Benefit {
     /// 检查是否有库存
     pub fn has_stock(&self) -> bool {
-        match self.total_stock {
-            Some(total) => self.redeemed_count < total,
-            None => true,
+        match self.remaining_stock {
+            Some(remaining) => remaining > 0,
+            None => true, // 不限量
         }
     }
 
-    /// 获取剩余库存
-    pub fn remaining_stock(&self) -> Option<i64> {
-        self.total_stock.map(|total| total - self.redeemed_count)
+    /// 获取剩余库存数量
+    pub fn get_remaining_stock(&self) -> Option<i64> {
+        self.remaining_stock
     }
 
     /// 检查是否可兑换
     pub fn is_redeemable(&self) -> bool {
-        self.enabled && self.has_stock()
+        self.enabled && self.status == BenefitStatus::Active && self.has_stock()
     }
 }
 
@@ -253,16 +279,15 @@ mod tests {
         let mut benefit = create_test_benefit();
 
         // 不限量
-        benefit.total_stock = None;
+        benefit.remaining_stock = None;
         assert!(benefit.has_stock());
 
         // 有库存
-        benefit.total_stock = Some(100);
-        benefit.redeemed_count = 50;
+        benefit.remaining_stock = Some(50);
         assert!(benefit.has_stock());
 
         // 无库存
-        benefit.redeemed_count = 100;
+        benefit.remaining_stock = Some(0);
         assert!(!benefit.has_stock());
     }
 
@@ -270,12 +295,11 @@ mod tests {
     fn test_benefit_remaining_stock() {
         let mut benefit = create_test_benefit();
 
-        benefit.total_stock = None;
-        assert_eq!(benefit.remaining_stock(), None);
+        benefit.remaining_stock = None;
+        assert_eq!(benefit.get_remaining_stock(), None);
 
-        benefit.total_stock = Some(100);
-        benefit.redeemed_count = 30;
-        assert_eq!(benefit.remaining_stock(), Some(70));
+        benefit.remaining_stock = Some(70);
+        assert_eq!(benefit.get_remaining_stock(), Some(70));
     }
 
     #[test]
@@ -331,12 +355,17 @@ mod tests {
     fn create_test_benefit() -> Benefit {
         Benefit {
             id: 1,
-            benefit_type: BenefitType::Coupon,
+            code: "TEST_COUPON_001".to_string(),
             name: "Test Coupon".to_string(),
             description: None,
-            icon_url: None,
-            config: json!({"couponId": "coupon-001", "value": 100}),
+            benefit_type: BenefitType::Coupon,
+            external_id: None,
+            external_system: None,
             total_stock: Some(100),
+            remaining_stock: Some(100),
+            status: BenefitStatus::Active,
+            config: Some(json!({"couponId": "coupon-001", "value": 100})),
+            icon_url: None,
             redeemed_count: 0,
             enabled: true,
             created_at: Utc::now(),

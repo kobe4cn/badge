@@ -97,13 +97,11 @@ impl AutoBenefitRuleCache {
     /// 如果缓存过期会自动刷新。刷新失败时使用过期缓存继续服务，保证可用性。
     pub async fn get_rules_by_trigger(&self, badge_id: i64) -> Vec<CachedRule> {
         // 检查并刷新过期缓存
-        if self.needs_refresh().await {
-            if let Err(e) = self.refresh().await {
-                tracing::warn!(
-                    error = %e,
-                    "刷新自动权益规则缓存失败，使用过期缓存继续服务"
-                );
-            }
+        if self.needs_refresh().await && let Err(e) = self.refresh().await {
+            tracing::warn!(
+                error = %e,
+                "刷新自动权益规则缓存失败，使用过期缓存继续服务"
+            );
         }
 
         // 从缓存获取

@@ -66,12 +66,10 @@ impl Default for CouponHandler {
 }
 
 impl CouponHandler {
-
     /// 解析优惠券配置
     fn parse_config(&self, config: &Value) -> Result<CouponConfig> {
-        serde_json::from_value(config.clone()).map_err(|e| {
-            BadgeError::Validation(format!("优惠券配置解析失败: {}", e))
-        })
+        serde_json::from_value(config.clone())
+            .map_err(|e| BadgeError::Validation(format!("优惠券配置解析失败: {}", e)))
     }
 
     /// 调用外部优惠券服务发放（stub 实现）
@@ -212,9 +210,7 @@ impl BenefitHandler for CouponHandler {
         let coupon_config = self.parse_config(config)?;
 
         if coupon_config.coupon_template_id.is_empty() {
-            return Err(BadgeError::Validation(
-                "coupon_template_id 不能为空".into(),
-            ));
+            return Err(BadgeError::Validation("coupon_template_id 不能为空".into()));
         }
 
         if coupon_config.quantity <= 0 {
@@ -224,9 +220,7 @@ impl BenefitHandler for CouponHandler {
         if let Some(days) = coupon_config.validity_days
             && days <= 0
         {
-            return Err(BadgeError::Validation(
-                "validity_days 必须大于 0".into(),
-            ));
+            return Err(BadgeError::Validation("validity_days 必须大于 0".into()));
         }
 
         Ok(())

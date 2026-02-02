@@ -64,7 +64,13 @@ pub enum BadgeError {
     #[error("重复的兑换请求: idempotency_key={0}")]
     DuplicateRedemption(String),
 
-    // === 级联评估相关错误 ===
+    // === 依赖关系和级联评估相关错误 ===
+    #[error("前置条件不满足: badge_id={badge_id}, 缺失的前置徽章={missing:?}")]
+    PrerequisiteNotMet { badge_id: i64, missing: Vec<i64> },
+
+    #[error("互斥冲突: 徽章 {target} 与已持有的徽章 {conflicting} 互斥")]
+    ExclusiveConflict { target: i64, conflicting: i64 },
+
     #[error("级联评估深度超出限制: 当前深度={current}, 最大深度={max}")]
     CascadeDepthExceeded { current: u32, max: u32 },
 
@@ -125,6 +131,14 @@ impl BadgeError {
         )
     }
 
+    /// 检查是否为前置条件不满足错误
+    pub fn is_prerequisite_error(&self) -> bool {
+        matches!(
+            self,
+            Self::PrerequisiteNotMet { .. } | Self::ExclusiveConflict { .. }
+        )
+    }
+
     /// 检查是否为重复发放错误（用于级联发放的跳过判断）
     ///
     /// 当用户已持有徽章且已达到获取上限时，级联发放应视为"跳过"而非"失败"
@@ -152,6 +166,8 @@ impl BadgeError {
             Self::OrderNotFound(_) => "ORDER_NOT_FOUND",
             Self::InvalidOrderStatus { .. } => "INVALID_ORDER_STATUS",
             Self::DuplicateRedemption(_) => "DUPLICATE_REDEMPTION",
+            Self::PrerequisiteNotMet { .. } => "PREREQUISITE_NOT_MET",
+            Self::ExclusiveConflict { .. } => "EXCLUSIVE_CONFLICT",
             Self::CascadeDepthExceeded { .. } => "CASCADE_DEPTH_EXCEEDED",
             Self::CascadeTimeout { .. } => "CASCADE_TIMEOUT",
             Self::CascadeGrantServiceNotSet => "CASCADE_GRANT_SERVICE_NOT_SET",

@@ -27,7 +27,7 @@ pub enum BadgeType {
 /// 控制徽章是否对用户可见和可获取
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
 pub enum BadgeStatus {
     /// 草稿 - 配置中，不对用户展示
     #[default]
@@ -244,7 +244,7 @@ pub enum LogAction {
 /// 控制徽章分类和系列的可见性
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
 pub enum CategoryStatus {
     /// 启用 - 正常展示
     #[default]

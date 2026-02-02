@@ -21,6 +21,7 @@ import {
   Tag,
   Typography,
   Tooltip,
+  Drawer,
 } from 'antd';
 import {
   PlusOutlined,
@@ -28,6 +29,7 @@ import {
   ReloadOutlined,
   ArrowLeftOutlined,
   QuestionCircleOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import {
   useDependencyList,
@@ -36,6 +38,7 @@ import {
   useRefreshDependencyCache,
 } from '@/hooks/useDependency';
 import type { BadgeDependency, CreateDependencyRequest, DependencyType } from '@/services/dependency';
+import DependencyGraph from './components/DependencyGraph';
 
 const { Text } = Typography;
 
@@ -70,6 +73,7 @@ const DependenciesPage: React.FC = () => {
   const { badgeId } = useParams<{ badgeId: string }>();
   const navigate = useNavigate();
   const [modalVisible, setModalVisible] = useState(false);
+  const [graphDrawerVisible, setGraphDrawerVisible] = useState(false);
   const [form] = Form.useForm<CreateDependencyRequest>();
 
   // React Query Hooks
@@ -267,6 +271,12 @@ const DependenciesPage: React.FC = () => {
       extra={
         <Space>
           <Button
+            icon={<ApartmentOutlined />}
+            onClick={() => setGraphDrawerVisible(true)}
+          >
+            查看依赖图
+          </Button>
+          <Button
             icon={<ReloadOutlined />}
             onClick={handleRefreshCache}
             loading={refreshCacheMutation.isPending}
@@ -280,6 +290,7 @@ const DependenciesPage: React.FC = () => {
       }
     >
       <Table
+        className="dependency-list"
         columns={columns}
         dataSource={dependencies}
         rowKey="id"
@@ -287,6 +298,7 @@ const DependenciesPage: React.FC = () => {
         pagination={false}
         scroll={{ x: 1200 }}
         locale={{ emptyText: '暂无依赖关系配置' }}
+        rowClassName={() => 'dependency-item'}
       />
 
       <Modal
@@ -313,7 +325,11 @@ const DependenciesPage: React.FC = () => {
             rules={[{ required: true, message: '请输入依赖徽章 ID' }]}
             tooltip="被依赖的徽章 UUID"
           >
-            <Input placeholder="输入依赖徽章的 UUID" style={{ fontFamily: 'monospace' }} />
+            <Input
+              id="depends_on_badge_id"
+              placeholder="输入依赖徽章的 UUID"
+              style={{ fontFamily: 'monospace' }}
+            />
           </Form.Item>
 
           <Form.Item
@@ -322,6 +338,7 @@ const DependenciesPage: React.FC = () => {
             rules={[{ required: true, message: '请选择依赖类型' }]}
           >
             <Select
+              id="dependency_type"
               options={dependencyTypeOptions}
               placeholder="选择依赖类型"
               onChange={() => {
@@ -336,7 +353,7 @@ const DependenciesPage: React.FC = () => {
             label="需求数量"
             tooltip="用户需要持有的依赖徽章数量"
           >
-            <InputNumber min={1} max={9999} style={{ width: '100%' }} />
+            <InputNumber id="required_quantity" min={1} max={9999} style={{ width: '100%' }} />
           </Form.Item>
 
           <Form.Item
@@ -355,7 +372,7 @@ const DependenciesPage: React.FC = () => {
               rules={[{ required: true, message: '互斥类型必须填写互斥组 ID' }]}
               tooltip="同一互斥组内的徽章不能同时持有"
             >
-              <Input placeholder="如: exclusive_group_1" />
+              <Input id="exclusive_group_id" placeholder="如: exclusive_group_1" />
             </Form.Item>
           )}
 
@@ -365,7 +382,7 @@ const DependenciesPage: React.FC = () => {
             valuePropName="checked"
             tooltip="满足依赖条件时是否自动触发级联发放"
           >
-            <Switch />
+            <Switch id="auto_trigger" />
           </Form.Item>
 
           <Form.Item
@@ -380,12 +397,23 @@ const DependenciesPage: React.FC = () => {
             <Space>
               <Button onClick={handleCloseModal}>取消</Button>
               <Button type="primary" htmlType="submit" loading={createMutation.isPending}>
-                创建
+                确定
               </Button>
             </Space>
           </Form.Item>
         </Form>
       </Modal>
+
+      <Drawer
+        title="依赖关系图"
+        placement="right"
+        width={900}
+        open={graphDrawerVisible}
+        onClose={() => setGraphDrawerVisible(false)}
+        destroyOnClose
+      >
+        <DependencyGraph badgeId={badgeId} height={600} />
+      </Drawer>
     </Card>
   );
 };

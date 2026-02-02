@@ -4,7 +4,7 @@
 //! 指标通过独立的 HTTP 端口暴露，供 Prometheus 抓取。
 
 use anyhow::Result;
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use std::net::SocketAddr;
 use std::sync::OnceLock;
@@ -49,28 +49,19 @@ fn register_common_metrics(service_name: &str) {
     // 使用 metrics crate 的宏来描述指标
     // 这些描述会出现在 /metrics 端点的 HELP 注释中
 
-    metrics::describe_counter!(
-        "http_requests_total",
-        "Total number of HTTP requests"
-    );
+    metrics::describe_counter!("http_requests_total", "Total number of HTTP requests");
     metrics::describe_histogram!(
         "http_request_duration_seconds",
         "HTTP request duration in seconds"
     );
 
-    metrics::describe_counter!(
-        "grpc_requests_total",
-        "Total number of gRPC requests"
-    );
+    metrics::describe_counter!("grpc_requests_total", "Total number of gRPC requests");
     metrics::describe_histogram!(
         "grpc_request_duration_seconds",
         "gRPC request duration in seconds"
     );
 
-    metrics::describe_counter!(
-        "badge_grants_total",
-        "Total number of badge grants"
-    );
+    metrics::describe_counter!("badge_grants_total", "Total number of badge grants");
     metrics::describe_histogram!(
         "badge_grant_duration_seconds",
         "Badge grant duration in seconds"
@@ -85,32 +76,20 @@ fn register_common_metrics(service_name: &str) {
         "Cascade evaluation duration in seconds"
     );
 
-    metrics::describe_counter!(
-        "redemptions_total",
-        "Total number of redemptions"
-    );
+    metrics::describe_counter!("redemptions_total", "Total number of redemptions");
     metrics::describe_histogram!(
         "redemption_duration_seconds",
         "Redemption duration in seconds"
     );
 
-    metrics::describe_counter!(
-        "rule_evaluations_total",
-        "Total number of rule evaluations"
-    );
+    metrics::describe_counter!("rule_evaluations_total", "Total number of rule evaluations");
     metrics::describe_histogram!(
         "rule_evaluation_duration_seconds",
         "Rule evaluation duration in seconds"
     );
 
-    metrics::describe_counter!(
-        "benefit_grants_total",
-        "Total number of benefit grants"
-    );
-    metrics::describe_gauge!(
-        "benefit_remaining_stock",
-        "Remaining stock for benefits"
-    );
+    metrics::describe_counter!("benefit_grants_total", "Total number of benefit grants");
+    metrics::describe_gauge!("benefit_remaining_stock", "Remaining stock for benefits");
 
     // 记录服务启动
     metrics::counter!("service_starts_total", "service" => service_name.to_string()).increment(1);

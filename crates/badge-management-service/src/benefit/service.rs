@@ -39,6 +39,7 @@ use std::time::Instant;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
@@ -244,6 +245,8 @@ pub struct BenefitService {
     registry: Arc<HandlerRegistry>,
     /// 内存存储（用于演示，生产环境应注入 Repository）
     grants: RwLock<HashMap<String, GrantRecord>>,
+    /// 可选的数据库连接池（用于持久化 benefit_grants 记录）
+    pool: Option<PgPool>,
 }
 
 impl BenefitService {
@@ -252,12 +255,19 @@ impl BenefitService {
         Self {
             registry,
             grants: RwLock::new(HashMap::new()),
+            pool: None,
         }
     }
 
     /// 使用默认 Handler 创建服务
     pub fn with_defaults() -> Self {
         Self::new(Arc::new(HandlerRegistry::with_defaults()))
+    }
+
+    /// 设置数据库连接池（启用持久化到 benefit_grants 表）
+    pub fn with_pool(mut self, pool: PgPool) -> Self {
+        self.pool = Some(pool);
+        self
     }
 
     /// 生成发放流水号
@@ -366,6 +376,24 @@ impl BenefitService {
         }
 
         let response = GrantBenefitResponse::from_result(result, request.benefit_type, duration_ms);
+
+        // 持久化到数据库（如果配置了数据库池）
+        if (response.is_success() || response.is_processing())
+            && let Err(e) = self
+                .persist_grant_to_db(
+                    &grant_no,
+                    &request.user_id,
+                    request.benefit_id,
+                    request.benefit_type,
+                    response.status,
+                    response.external_ref.as_deref(),
+                    response.payload.as_ref(),
+                )
+                .await
+        {
+            // 持久化失败不影响主流程，只记录警告
+            warn!(grant_no = %grant_no, error = %e, "持久化 benefit_grants 失败");
+        }
 
         if response.is_success() {
             info!(
@@ -574,7 +602,8 @@ impl BenefitService {
     /// * `idempotency_key` - 幂等键（防止重复发放）
     ///
     /// # Returns
-    /// * `Ok(i64)` - 成功发放后返回发放记录 ID（模拟）
+    /// * `Ok(Some(i64))` - 成功发放后返回发放记录 ID（如果有持久化）
+    /// * `Ok(None)` - 成功发放但没有持久化记录（演示模式）
     /// * `Err(_)` - 发放失败
     ///
     /// # Note
@@ -589,36 +618,48 @@ impl BenefitService {
         rule_id: i64,
         benefit_id: i64,
         idempotency_key: &str,
-    ) -> Result<i64> {
+    ) -> Result<Option<i64>> {
         info!(
             "自动权益发放: rule_id={}, benefit_id={}",
             rule_id, benefit_id
         );
 
-        // 演示实现：使用默认的 Coupon 类型和配置
-        // 生产环境应从数据库获取权益定义并使用真实配置
-        let request = GrantBenefitRequest::new(
-            user_id,
-            BenefitType::Coupon,
-            benefit_id,
-            serde_json::json!({
+        // 从数据库获取权益类型，如果失败则使用默认的 Coupon 类型
+        let benefit_type = self
+            .get_benefit_type(benefit_id)
+            .await
+            .unwrap_or(BenefitType::Coupon);
+
+        // 根据权益类型构建配置
+        let benefit_config = match benefit_type {
+            BenefitType::Points => serde_json::json!({
+                "point_amount": 100,
+                "source": "auto_benefit"
+            }),
+            BenefitType::Coupon => serde_json::json!({
                 "coupon_template_id": format!("auto_rule_{}", rule_id),
                 "quantity": 1,
                 "source": "auto_benefit"
             }),
-        )
-        .with_grant_no(idempotency_key);
+            _ => serde_json::json!({
+                "source": "auto_benefit",
+                "rule_id": rule_id
+            }),
+        };
+
+        let request = GrantBenefitRequest::new(user_id, benefit_type, benefit_id, benefit_config)
+            .with_grant_no(idempotency_key);
 
         let response = self.grant_benefit(request).await?;
 
         if response.is_success() {
-            // 使用 benefit_id 作为模拟的 grant_id
-            // 生产环境应返回数据库生成的真实 ID
             info!(
                 "自动权益发放成功: grant_no={}",
                 response.grant_no
             );
-            Ok(benefit_id)
+            // 返回持久化记录的 ID（如果有数据库池）
+            let grant_id = self.get_grant_id_by_grant_no(&response.grant_no).await;
+            Ok(grant_id)
         } else {
             let error_msg = response
                 .error_message
@@ -629,6 +670,91 @@ impl BenefitService {
                 error_msg
             )))
         }
+    }
+
+    /// 持久化权益发放记录到数据库
+    #[allow(clippy::too_many_arguments)]
+    async fn persist_grant_to_db(
+        &self,
+        grant_no: &str,
+        user_id: &str,
+        benefit_id: i64,
+        _benefit_type: BenefitType,
+        status: GrantStatus,
+        external_ref: Option<&str>,
+        payload: Option<&Value>,
+    ) -> Result<Option<i64>> {
+        let Some(ref pool) = self.pool else {
+            // 没有配置数据库池，跳过持久化
+            return Ok(None);
+        };
+
+        let status_str = match status {
+            GrantStatus::Pending => "pending",
+            GrantStatus::Success => "success",
+            GrantStatus::Processing => "processing",
+            GrantStatus::Failed => "failed",
+            GrantStatus::Revoked => "revoked",
+        };
+
+        // benefit_type 存储在 benefits 表中，通过 benefit_id 关联查询
+        let id: (i64,) = sqlx::query_as(
+            r#"
+            INSERT INTO benefit_grants (
+                grant_no, user_id, benefit_id, status, external_ref, external_response, granted_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (grant_no) DO UPDATE SET
+                status = EXCLUDED.status,
+                external_ref = EXCLUDED.external_ref,
+                updated_at = NOW()
+            RETURNING id
+            "#,
+        )
+        .bind(grant_no)
+        .bind(user_id)
+        .bind(benefit_id)
+        .bind(status_str)
+        .bind(external_ref)
+        .bind(payload)
+        .fetch_one(pool)
+        .await?;
+
+        debug!(grant_no = %grant_no, id = id.0, "权益发放记录已持久化");
+        Ok(Some(id.0))
+    }
+
+    /// 根据 grant_no 查询记录 ID
+    async fn get_grant_id_by_grant_no(&self, grant_no: &str) -> Option<i64> {
+        let pool = self.pool.as_ref()?;
+
+        let result: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM benefit_grants WHERE grant_no = $1")
+                .bind(grant_no)
+                .fetch_optional(pool)
+                .await
+                .ok()?;
+
+        result.map(|(id,)| id)
+    }
+
+    /// 根据 benefit_id 查询权益类型
+    async fn get_benefit_type(&self, benefit_id: i64) -> Option<BenefitType> {
+        let pool = self.pool.as_ref()?;
+
+        let result: Option<(String,)> =
+            sqlx::query_as("SELECT benefit_type FROM benefits WHERE id = $1")
+                .bind(benefit_id)
+                .fetch_optional(pool)
+                .await
+                .ok()?;
+
+        result.and_then(|(t,)| match t.to_uppercase().as_str() {
+            "POINTS" => Some(BenefitType::Points),
+            "COUPON" => Some(BenefitType::Coupon),
+            "PHYSICAL" => Some(BenefitType::Physical),
+            _ => None,
+        })
     }
 }
 

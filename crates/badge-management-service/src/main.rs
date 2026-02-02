@@ -112,9 +112,9 @@ async fn main() -> Result<()> {
     let notification_sender = Arc::new(NotificationSender::new(notification_service.clone()));
     info!("Notification service initialized");
 
-    // 6.2 初始化权益服务（使用默认的 Handler 注册表）
-    let benefit_service = Arc::new(BenefitService::with_defaults());
-    info!("Benefit service initialized with default handlers");
+    // 6.2 初始化权益服务（使用默认的 Handler 注册表 + 数据库持久化）
+    let benefit_service = Arc::new(BenefitService::with_defaults().with_pool(pool.clone()));
+    info!("Benefit service initialized with default handlers and database persistence");
 
     let redemption_service = Arc::new(RedemptionService::with_benefit_service(
         redemption_repo.clone(),
@@ -187,7 +187,8 @@ async fn main() -> Result<()> {
         redemption_service,
         pool.clone(),
         Some(cascade_evaluator),
-    );
+    )
+    .with_auto_benefit_rule_cache(auto_benefit_rule_cache);
 
     // 8. 启动 gRPC 服务
     // 健康检查端点已由 observability 模块在 metrics_port 上提供

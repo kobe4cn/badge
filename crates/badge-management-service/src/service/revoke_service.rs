@@ -5,24 +5,28 @@
 //! - 余额充足性检查
 //! - 事务性扣减（用户徽章、账本流水）
 //! - 状态变更（数量归零时标记为 Revoked）
+//! - 发送撤销通知
 //!
 //! ## 取消流程
 //!
-//! 1. 参数校验 -> 2. 查询用户徽章 -> 3. 余额检查 -> 4. 事务内扣减 -> 5. 缓存失效
+//! 1. 参数校验 -> 2. 查询用户徽章 -> 3. 余额检查 -> 4. 事务内扣减 -> 5. 缓存失效 -> 6. 发送通知
 
 use std::sync::Arc;
 
 use chrono::Utc;
 use sqlx::PgPool;
+use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
 
 use badge_shared::cache::Cache;
 
 use crate::error::{BadgeError, Result};
 use crate::models::{BadgeLedger, ChangeType, LogAction, UserBadgeStatus};
-use crate::repository::{BadgeLedgerRepository, UserBadgeRepository};
+use crate::notification::NotificationSender;
+use crate::repository::{BadgeLedgerRepository, BadgeRepositoryTrait, UserBadgeRepository};
 use crate::service::dto::{
-    BatchRevokeResponse, RevokeBadgeRequest, RevokeBadgeResponse, RevokeResult,
+    BadgeGrantCondition, BatchRevokeResponse, RefundEvent, RefundProcessResult, RetainedBadgeInfo,
+    RevokeBadgeRequest, RevokeBadgeResponse, RevokeResult, RevokedBadgeInfo,
 };
 
 /// 缓存键生成
@@ -38,15 +42,39 @@ mod cache_keys {
 
 /// 徽章取消服务
 ///
-/// 负责徽章取消的完整流程，包括验证、事务处理和缓存管理
-pub struct RevokeService {
+/// 负责徽章取消的完整流程，包括验证、事务处理、缓存管理和通知发送
+pub struct RevokeService<BR = crate::repository::BadgeRepository>
+where
+    BR: BadgeRepositoryTrait,
+{
     cache: Arc<Cache>,
     pool: PgPool,
+    /// 徽章仓储（用于获取徽章名称发送通知）
+    badge_repo: Arc<BR>,
+    /// 通知发送器（可选，用于发送徽章撤销通知）
+    notification_sender: RwLock<Option<Arc<NotificationSender>>>,
 }
 
-impl RevokeService {
-    pub fn new(cache: Arc<Cache>, pool: PgPool) -> Self {
-        Self { cache, pool }
+impl<BR> RevokeService<BR>
+where
+    BR: BadgeRepositoryTrait,
+{
+    pub fn new(cache: Arc<Cache>, pool: PgPool, badge_repo: Arc<BR>) -> Self {
+        Self {
+            cache,
+            pool,
+            badge_repo,
+            notification_sender: RwLock::new(None),
+        }
+    }
+
+    /// 设置通知发送器
+    ///
+    /// 在服务初始化后注入通知发送器，用于发送徽章撤销通知。
+    pub async fn set_notification_sender(&self, sender: Arc<NotificationSender>) {
+        let mut guard = self.notification_sender.write().await;
+        *guard = Some(sender);
+        info!("RevokeService 通知发送器已设置");
     }
 
     /// 取消/撤销徽章
@@ -57,6 +85,7 @@ impl RevokeService {
     /// 3. 检查徽章状态和余额
     /// 4. 事务内执行扣减
     /// 5. 清除缓存
+    /// 6. 发送撤销通知
     #[instrument(skip(self), fields(user_id = %request.user_id, badge_id = %request.badge_id, quantity = %request.quantity))]
     pub async fn revoke_badge(&self, request: RevokeBadgeRequest) -> Result<RevokeBadgeResponse> {
         // 1. 参数校验
@@ -68,6 +97,10 @@ impl RevokeService {
         // 5. 清除缓存
         self.invalidate_user_cache(&request.user_id).await;
 
+        // 6. 发送撤销通知（异步，不阻塞主流程）
+        self.send_revoke_notification(&request.user_id, request.badge_id, &request.reason)
+            .await;
+
         info!(
             user_id = %request.user_id,
             badge_id = %request.badge_id,
@@ -77,6 +110,23 @@ impl RevokeService {
         );
 
         Ok(RevokeBadgeResponse::success(remaining_quantity))
+    }
+
+    /// 发送徽章撤销通知
+    ///
+    /// 异步发送通知，失败不影响主撤销流程
+    async fn send_revoke_notification(&self, user_id: &str, badge_id: i64, reason: &str) {
+        let sender = {
+            let guard = self.notification_sender.read().await;
+            guard.clone()
+        };
+
+        if let Some(sender) = sender {
+            // 获取徽章名称用于通知
+            if let Ok(Some(badge)) = self.badge_repo.get_badge(badge_id).await {
+                sender.send_badge_revoked(user_id, badge_id, &badge.name, reason);
+            }
+        }
     }
 
     /// 批量取消徽章
@@ -126,6 +176,179 @@ impl RevokeService {
             failed_count,
             results,
         })
+    }
+
+    /// 处理退款事件
+    ///
+    /// 根据退款金额判断是否需要撤销已发放的徽章：
+    /// - 全额退款：撤销所有由该订单触发发放的徽章
+    /// - 部分退款（金额仍满足条件）：保留徽章
+    /// - 部分退款（金额不满足条件）：撤销徽章
+    #[instrument(skip(self, conditions), fields(
+        event_id = %event.event_id,
+        user_id = %event.user_id,
+        original_order_id = %event.original_order_id,
+        refund_amount = %event.refund_amount
+    ))]
+    pub async fn handle_refund(
+        &self,
+        event: &RefundEvent,
+        conditions: &[BadgeGrantCondition],
+    ) -> Result<RefundProcessResult> {
+        let start = std::time::Instant::now();
+
+        info!(
+            original_amount = event.original_amount,
+            refund_amount = event.refund_amount,
+            remaining_amount = event.remaining_amount,
+            is_full_refund = event.is_full_refund(),
+            "开始处理退款事件"
+        );
+
+        let mut revoked_badges = Vec::new();
+        let mut retained_badges = Vec::new();
+
+        // 确定需要检查的徽章列表
+        let badges_to_check: Vec<i64> = if let Some(ref badge_ids) = event.badge_ids_to_revoke {
+            // 事件中显式指定了需要撤销的徽章
+            badge_ids.clone()
+        } else {
+            // 从规则条件中提取所有相关的徽章 ID
+            conditions.iter().map(|c| c.badge_id).collect()
+        };
+
+        if badges_to_check.is_empty() {
+            info!("无需检查的徽章，跳过退款处理");
+            return Ok(RefundProcessResult::success(
+                event.event_id.clone(),
+                vec![],
+                vec![],
+                start.elapsed().as_millis() as i64,
+            ));
+        }
+
+        // 获取退款后的有效消费金额
+        let effective_amount = event.effective_amount();
+
+        for badge_id in badges_to_check {
+            // 查找该徽章的发放条件
+            let condition = conditions.iter().find(|c| c.badge_id == badge_id);
+
+            // 获取徽章名称
+            let badge_name = if let Ok(Some(badge)) = self.badge_repo.get_badge(badge_id).await {
+                badge.name.clone()
+            } else {
+                format!("Badge {}", badge_id)
+            };
+
+            // 判断是否需要撤销
+            let should_revoke = if event.is_full_refund() {
+                // 全额退款：直接撤销
+                true
+            } else if let Some(cond) = condition {
+                // 部分退款：检查是否仍满足金额阈值
+                if let Some(threshold) = cond.amount_threshold {
+                    effective_amount < threshold
+                } else {
+                    // 无金额阈值条件，不撤销
+                    false
+                }
+            } else {
+                // 无规则条件，全额退款撤销，部分退款不撤销
+                event.is_full_refund()
+            };
+
+            if should_revoke {
+                // 执行撤销
+                let reason = format!(
+                    "退款撤销: refund_order={}, original_order={}, refund_amount={}",
+                    event.refund_order_id, event.original_order_id, event.refund_amount
+                );
+
+                let revoke_request = RevokeBadgeRequest::system(&event.user_id, badge_id, 1, &reason)
+                    .with_source_ref(&event.refund_order_id);
+
+                match self.revoke_badge(revoke_request).await {
+                    Ok(_) => {
+                        revoked_badges.push(RevokedBadgeInfo {
+                            badge_id,
+                            badge_name,
+                            quantity: 1,
+                            reason,
+                        });
+                    }
+                    Err(e) => {
+                        // 撤销失败（可能用户已经没有该徽章）
+                        warn!(
+                            badge_id,
+                            error = %e,
+                            "徽章撤销失败，可能用户已不持有该徽章"
+                        );
+                    }
+                }
+            } else {
+                // 保留徽章
+                let reason = if let Some(cond) = condition {
+                    if let Some(threshold) = cond.amount_threshold {
+                        format!(
+                            "部分退款后金额 {} 仍满足阈值 {}",
+                            effective_amount, threshold
+                        )
+                    } else {
+                        "规则无金额阈值要求".to_string()
+                    }
+                } else {
+                    "未找到发放规则条件".to_string()
+                };
+
+                retained_badges.push(RetainedBadgeInfo {
+                    badge_id,
+                    badge_name,
+                    reason,
+                });
+            }
+        }
+
+        let processing_time_ms = start.elapsed().as_millis() as i64;
+
+        info!(
+            revoked_count = revoked_badges.len(),
+            retained_count = retained_badges.len(),
+            processing_time_ms,
+            "退款事件处理完成"
+        );
+
+        Ok(RefundProcessResult::success(
+            event.event_id.clone(),
+            revoked_badges,
+            retained_badges,
+            processing_time_ms,
+        ))
+    }
+
+    /// 检查是否已处理过该退款事件（幂等检查）
+    ///
+    /// 通过 Redis 检查事件 ID 是否已处理，防止重复处理
+    pub async fn is_refund_processed(&self, event_id: &str) -> Result<bool> {
+        let key = format!("refund:processed:{}", event_id);
+        let exists = self
+            .cache
+            .exists(&key)
+            .await
+            .map_err(|e| BadgeError::Redis(e.to_string()))?;
+        Ok(exists)
+    }
+
+    /// 标记退款事件为已处理
+    ///
+    /// 在 Redis 中设置幂等标记，24 小时后自动过期
+    pub async fn mark_refund_processed(&self, event_id: &str) -> Result<()> {
+        let key = format!("refund:processed:{}", event_id);
+        self.cache
+            .set(&key, &"1", std::time::Duration::from_secs(24 * 60 * 60))
+            .await
+            .map_err(|e| BadgeError::Redis(e.to_string()))?;
+        Ok(())
     }
 
     // ==================== 私有方法 ====================
@@ -204,13 +427,13 @@ impl RevokeService {
             .await?;
         }
 
-        // 4.4 写入账本流水（使用正数记录取消数量，通过 change_type 区分方向）
+        // 4.4 写入账本流水（使用负数记录取消数量，表示减少）
         let ledger = BadgeLedger {
             id: 0,
             user_id: request.user_id.clone(),
             badge_id: request.badge_id,
             change_type: ChangeType::Cancel,
-            quantity: request.quantity,
+            quantity: -request.quantity, // 负数表示减少
             balance_after: new_quantity,
             ref_id: request.source_ref_id.clone(),
             ref_type: request.source_type,
@@ -264,6 +487,110 @@ impl RevokeService {
 mod tests {
     use super::*;
     use crate::models::SourceType;
+
+    // ==================== 退款事件测试 ====================
+
+    #[test]
+    fn test_refund_event_full_refund() {
+        let event = RefundEvent {
+            event_id: "evt-001".to_string(),
+            user_id: "user-123".to_string(),
+            original_order_id: "order-001".to_string(),
+            refund_order_id: "refund-001".to_string(),
+            original_amount: 50000, // 500 元
+            refund_amount: 50000,   // 全额退款
+            remaining_amount: 0,
+            reason: Some("商品不满意".to_string()),
+            badge_ids_to_revoke: None,
+            timestamp: Utc::now(),
+        };
+
+        assert!(event.is_full_refund());
+        assert_eq!(event.effective_amount(), 0);
+    }
+
+    #[test]
+    fn test_refund_event_partial_refund() {
+        let event = RefundEvent {
+            event_id: "evt-002".to_string(),
+            user_id: "user-123".to_string(),
+            original_order_id: "order-002".to_string(),
+            refund_order_id: "refund-002".to_string(),
+            original_amount: 80000, // 800 元
+            refund_amount: 20000,   // 退款 200 元
+            remaining_amount: 60000, // 剩余 600 元
+            reason: Some("部分商品退货".to_string()),
+            badge_ids_to_revoke: None,
+            timestamp: Utc::now(),
+        };
+
+        assert!(!event.is_full_refund());
+        assert_eq!(event.effective_amount(), 60000);
+    }
+
+    #[test]
+    fn test_refund_process_result_success() {
+        let result = RefundProcessResult::success(
+            "evt-001".to_string(),
+            vec![RevokedBadgeInfo {
+                badge_id: 1,
+                badge_name: "500元徽章".to_string(),
+                quantity: 1,
+                reason: "全额退款撤销".to_string(),
+            }],
+            vec![],
+            100,
+        );
+
+        assert!(result.success);
+        assert_eq!(result.revoked_badges.len(), 1);
+        assert_eq!(result.retained_badges.len(), 0);
+        assert_eq!(result.processing_time_ms, 100);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn test_refund_process_result_with_retained() {
+        let result = RefundProcessResult::success(
+            "evt-002".to_string(),
+            vec![],
+            vec![RetainedBadgeInfo {
+                badge_id: 1,
+                badge_name: "500元徽章".to_string(),
+                reason: "部分退款后金额 60000 仍满足阈值 50000".to_string(),
+            }],
+            50,
+        );
+
+        assert!(result.success);
+        assert_eq!(result.revoked_badges.len(), 0);
+        assert_eq!(result.retained_badges.len(), 1);
+    }
+
+    #[test]
+    fn test_refund_process_result_failure() {
+        let result = RefundProcessResult::failure("evt-003".to_string(), "处理超时");
+
+        assert!(!result.success);
+        assert_eq!(result.error, Some("处理超时".to_string()));
+        assert!(result.revoked_badges.is_empty());
+        assert!(result.retained_badges.is_empty());
+    }
+
+    #[test]
+    fn test_badge_grant_condition() {
+        let condition = BadgeGrantCondition {
+            rule_id: 1,
+            badge_id: 100,
+            badge_name: "消费满500徽章".to_string(),
+            amount_threshold: Some(50000), // 500 元阈值
+            event_type: "purchase".to_string(),
+        };
+
+        assert_eq!(condition.amount_threshold, Some(50000));
+    }
+
+    // ==================== 撤销请求测试 ====================
 
     #[test]
     fn test_revoke_request_manual() {

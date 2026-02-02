@@ -10,7 +10,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = PgPool::connect(&database_url).await?;
 
     // 创建 user_badge_logs 表
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE IF NOT EXISTS user_badge_logs (
             id BIGSERIAL PRIMARY KEY,
             user_badge_id BIGINT REFERENCES user_badges(id),
@@ -25,7 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             remark TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await?;
 
@@ -33,15 +35,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建索引
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_badge_logs_user ON user_badge_logs(user_id)")
-        .execute(&pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_badge_logs_badge ON user_badge_logs(badge_id)")
-        .execute(&pool).await?;
+        .execute(&pool)
+        .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_user_badge_logs_badge ON user_badge_logs(badge_id)",
+    )
+    .execute(&pool)
+    .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_badge_logs_user_badge ON user_badge_logs(user_badge_id)")
         .execute(&pool).await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_badge_logs_action ON user_badge_logs(action)")
-        .execute(&pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_badge_logs_time ON user_badge_logs(created_at)")
-        .execute(&pool).await?;
+        .execute(&pool)
+        .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_user_badge_logs_time ON user_badge_logs(created_at)",
+    )
+    .execute(&pool)
+    .await?;
 
     println!("索引创建成功");
 

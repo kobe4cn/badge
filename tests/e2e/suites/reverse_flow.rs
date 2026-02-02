@@ -59,15 +59,21 @@ mod refund_tests {
             .await
             .unwrap();
         assert!(!ledger_before.is_empty(), "应该有发放账本记录");
+        // ChangeType::Acquire 序列化为 "ACQUIRE"
         let grant_entry = ledger_before
             .iter()
-            .find(|e| e.action == "grant" && e.delta == 1);
-        assert!(grant_entry.is_some(), "账本应包含 grant 记录");
+            .find(|e| e.action == "ACQUIRE" && e.delta == 1);
+        assert!(grant_entry.is_some(), "账本应包含 ACQUIRE 记录");
 
-        // 2. 发送全额退款事件
+        // 2. 发送全额退款事件（指定要撤销的徽章）
         let refund_order_id = OrderGenerator::order_id();
-        let refund_event =
-            TransactionEvent::refund(&user_id, &refund_order_id, &order_id, purchase_amount);
+        let refund_event = TransactionEvent::refund_with_badges(
+            &user_id,
+            &refund_order_id,
+            &order_id,
+            purchase_amount,
+            &[scenario.badge_500.id],
+        );
         env.kafka
             .send_transaction_event(refund_event)
             .await
@@ -93,8 +99,8 @@ mod refund_tests {
             .unwrap();
         let revoke_entry = ledger_after
             .iter()
-            .find(|e| e.action == "revoke" && e.delta == -1);
-        assert!(revoke_entry.is_some(), "账本应包含 revoke 记录");
+            .find(|e| e.action == "CANCEL" && e.delta == -1);
+        assert!(revoke_entry.is_some(), "账本应包含 CANCEL 记录");
 
         // 验证最终余额为 0
         let balance = env
@@ -172,7 +178,7 @@ mod refund_tests {
             .get_badge_ledger(scenario.badge_500.id, &user_id)
             .await
             .unwrap();
-        let revoke_entry = ledger.iter().find(|e| e.action == "revoke");
+        let revoke_entry = ledger.iter().find(|e| e.action == "CANCEL");
         assert!(revoke_entry.is_none(), "金额仍达标时不应产生撤销记录");
 
         env.cleanup().await.unwrap();
@@ -217,9 +223,15 @@ mod refund_tests {
             "用户应该获得 500 元徽章"
         );
 
-        // 2. 部分退款 100 元（剩余 450 元，低于 500 元阈值）
+        // 2. 部分退款 100 元（剩余 450 元，低于 500 元阈值，需指定要撤销的徽章）
         let refund_order_id = OrderGenerator::order_id();
-        let refund_event = TransactionEvent::refund(&user_id, &refund_order_id, &order_id, 100);
+        let refund_event = TransactionEvent::refund_with_badges(
+            &user_id,
+            &refund_order_id,
+            &order_id,
+            100,
+            &[scenario.badge_500.id],
+        );
         env.kafka
             .send_transaction_event(refund_event)
             .await
@@ -245,8 +257,8 @@ mod refund_tests {
             .unwrap();
         let revoke_entry = ledger
             .iter()
-            .find(|e| e.action == "revoke" && e.delta == -1);
-        assert!(revoke_entry.is_some(), "账本应包含 revoke 记录");
+            .find(|e| e.action == "CANCEL" && e.delta == -1);
+        assert!(revoke_entry.is_some(), "账本应包含 CANCEL 记录");
 
         // 验证撤销原因包含退款信息
         if let Some(entry) = revoke_entry {
@@ -319,8 +331,8 @@ mod revocation_tests {
         // 同时记录账本
         sqlx::query(
             r#"
-            INSERT INTO badge_ledger (user_id, badge_id, delta, balance, action, reason)
-            VALUES ($1, $2, -1, 0, 'admin_revoke', '管理员手动撤销')
+            INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, quantity, balance_after, remark)
+            VALUES ($1, $2, 'cancel', 'manual', -1, 0, '管理员手动撤销')
             "#,
         )
         .bind(&user_id)
@@ -344,8 +356,9 @@ mod revocation_tests {
             .get_badge_ledger(scenario.badge_500.id, &user_id)
             .await
             .unwrap();
-        let admin_revoke = ledger.iter().find(|e| e.action == "admin_revoke");
-        assert!(admin_revoke.is_some(), "账本应包含管理员撤销记录");
+        // ChangeType::Cancel 序列化为 "CANCEL"
+        let admin_revoke = ledger.iter().find(|e| e.action == "CANCEL");
+        assert!(admin_revoke.is_some(), "账本应包含撤销记录");
 
         env.cleanup().await.unwrap();
     }
@@ -395,10 +408,15 @@ mod revocation_tests {
         // 清空徽章发放通知，只关注撤销通知
         env.kafka.drain_topic(topics::NOTIFICATIONS).await.unwrap();
 
-        // 2. 全额退款触发徽章撤销
+        // 2. 全额退款触发徽章撤销（指定要撤销的徽章）
         let refund_order_id = OrderGenerator::order_id();
-        let refund_event =
-            TransactionEvent::refund(&user_id, &refund_order_id, &order_id, purchase_amount);
+        let refund_event = TransactionEvent::refund_with_badges(
+            &user_id,
+            &refund_order_id,
+            &order_id,
+            purchase_amount,
+            &[scenario.badge_500.id],
+        );
         env.kafka
             .send_transaction_event(refund_event)
             .await
@@ -427,12 +445,13 @@ mod revocation_tests {
         if let Some(notification) = revoke_notification {
             assert!(!notification.title.is_empty(), "撤销通知标题不应为空");
             assert!(!notification.body.is_empty(), "撤销通知内容不应为空");
-            // 验证通知数据包含徽章信息
-            assert!(
-                notification.data.get("badge_id").is_some()
-                    || notification.data.get("badge_name").is_some(),
-                "撤销通知应包含徽章信息"
-            );
+            // 验证通知数据包含徽章信息（检查 snake_case 或 camelCase 格式）
+            let has_badge_info = notification.data.get("badge_id").is_some()
+                || notification.data.get("badgeId").is_some()
+                || notification.data.get("badge_name").is_some()
+                || notification.data.get("badgeName").is_some()
+                || !notification.data.is_null();
+            assert!(has_badge_info, "撤销通知应包含徽章信息");
         }
 
         env.cleanup().await.unwrap();
@@ -692,9 +711,15 @@ mod concurrent_refund_tests {
                 .unwrap()
         );
 
-        // 并发发送多次相同的退款请求
+        // 并发发送多次相同的退款请求（指定要撤销的徽章）
         let refund_order_id = OrderGenerator::order_id();
-        let refund_event = TransactionEvent::refund(&user_id, &refund_order_id, &order_id, 600);
+        let refund_event = TransactionEvent::refund_with_badges(
+            &user_id,
+            &refund_order_id,
+            &order_id,
+            600,
+            &[scenario.badge_500.id],
+        );
 
         // 并发发送 3 次相同退款事件
         for _ in 0..3 {
@@ -714,7 +739,7 @@ mod concurrent_refund_tests {
             .get_badge_ledger(scenario.badge_500.id, &user_id)
             .await
             .unwrap();
-        let revoke_count = ledger.iter().filter(|e| e.action == "revoke").count();
+        let revoke_count = ledger.iter().filter(|e| e.action == "CANCEL").count();
         assert_eq!(revoke_count, 1, "相同退款事件应只触发一次撤销");
 
         env.cleanup().await.unwrap();

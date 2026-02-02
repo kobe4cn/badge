@@ -4,8 +4,8 @@
 //! 模板允许运营人员通过参数化配置快速创建规则，降低规则配置的复杂度。
 
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -262,8 +262,7 @@ pub async fn preview_template(
         _ => TemplateCategory::Basic,
     };
 
-    let parameters: Vec<ParameterDef> =
-        serde_json::from_value(row.parameters).unwrap_or_default();
+    let parameters: Vec<ParameterDef> = serde_json::from_value(row.parameters).unwrap_or_default();
 
     let template = RuleTemplate {
         id: row.id,
@@ -302,11 +301,10 @@ pub async fn create_rule_from_template(
     use rule_engine::template::{ParameterDef, RuleTemplate, TemplateCategory, TemplateCompiler};
 
     // 1. 验证徽章存在
-    let badge_exists: (bool,) =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
-            .bind(req.badge_id)
-            .fetch_one(&state.pool)
-            .await?;
+    let badge_exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM badges WHERE id = $1)")
+        .bind(req.badge_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     if !badge_exists.0 {
         return Err(AdminError::BadgeNotFound(req.badge_id));
@@ -336,8 +334,7 @@ pub async fn create_rule_from_template(
         _ => TemplateCategory::Basic,
     };
 
-    let parameters: Vec<ParameterDef> =
-        serde_json::from_value(row.parameters).unwrap_or_default();
+    let parameters: Vec<ParameterDef> = serde_json::from_value(row.parameters).unwrap_or_default();
 
     let template = RuleTemplate {
         id: row.id,

@@ -9,6 +9,15 @@ use axum::{
 
 use crate::{handlers, state::AppState};
 
+/// 构建认证相关的路由（公开路由，无需认证）
+pub fn auth_routes() -> Router<AppState> {
+    Router::new()
+        .route("/auth/login", post(handlers::auth::login))
+        .route("/auth/logout", post(handlers::auth::logout))
+        .route("/auth/me", get(handlers::auth::get_current_user))
+        .route("/auth/refresh", post(handlers::auth::refresh_token))
+}
+
 /// 构建徽章管理相关的路由
 ///
 /// 包含分类、系列、徽章的 CRUD 操作路由
@@ -17,7 +26,10 @@ pub fn badge_routes() -> Router<AppState> {
         // 分类管理
         .route("/categories", post(handlers::category::create_category))
         .route("/categories", get(handlers::category::list_categories))
-        .route("/categories/all", get(handlers::category::list_all_categories))
+        .route(
+            "/categories/all",
+            get(handlers::category::list_all_categories),
+        )
         .route("/categories/{id}", get(handlers::category::get_category))
         .route("/categories/{id}", put(handlers::category::update_category))
         .route(
@@ -50,7 +62,15 @@ pub fn badge_routes() -> Router<AppState> {
         )
         .route(
             "/dependencies/{id}",
+            put(handlers::dependency::update_dependency),
+        )
+        .route(
+            "/dependencies/{id}",
             delete(handlers::dependency::delete_dependency),
+        )
+        .route(
+            "/dependencies/graph",
+            get(handlers::dependency::get_dependency_graph),
         )
 }
 
@@ -58,10 +78,15 @@ pub fn badge_routes() -> Router<AppState> {
 ///
 /// 包含缓存刷新等运维操作
 fn cache_routes() -> Router<AppState> {
-    Router::new().route(
-        "/cache/dependencies/refresh",
-        post(handlers::dependency::refresh_dependency_cache),
-    )
+    Router::new()
+        .route(
+            "/cache/dependencies/refresh",
+            post(handlers::dependency::refresh_dependency_cache),
+        )
+        .route(
+            "/cache/auto-benefit/refresh",
+            post(handlers::dependency::refresh_auto_benefit_cache),
+        )
 }
 
 /// 构建规则管理路由
@@ -120,7 +145,7 @@ fn stats_routes() -> Router<AppState> {
 
 /// 构建会员视图路由
 ///
-/// 包含用户搜索、详情、徽章、兑换记录、统计和账本流水
+/// 包含用户搜索、详情、徽章、兑换记录、统计、账本流水和权益
 fn user_view_routes() -> Router<AppState> {
     Router::new()
         .route("/users/search", get(handlers::user_view::search_users))
@@ -143,6 +168,14 @@ fn user_view_routes() -> Router<AppState> {
         .route(
             "/users/{user_id}/ledger",
             get(handlers::user_view::get_user_ledger),
+        )
+        .route(
+            "/users/{user_id}/benefits",
+            get(handlers::benefit::get_user_benefits),
+        )
+        .route(
+            "/users/{user_id}/redemption-history",
+            get(handlers::redemption::get_user_redemption_history),
         )
 }
 
@@ -178,11 +211,76 @@ fn template_routes() -> Router<AppState> {
         )
 }
 
+/// 构建权益管理路由
+///
+/// 包含权益的 CRUD 操作、发放记录查询、同步和用户权益查询
+fn benefit_routes() -> Router<AppState> {
+    Router::new()
+        // 权益 CRUD
+        .route("/benefits", post(handlers::benefit::create_benefit))
+        .route("/benefits", get(handlers::benefit::list_benefits))
+        .route("/benefits/{id}", get(handlers::benefit::get_benefit))
+        .route("/benefits/{id}", put(handlers::benefit::update_benefit))
+        .route("/benefits/{id}", delete(handlers::benefit::delete_benefit))
+        // 权益关联徽章
+        .route(
+            "/benefits/{id}/link-badge",
+            post(handlers::benefit::link_badge_to_benefit),
+        )
+        // 权益同步
+        .route(
+            "/benefits/sync-logs",
+            get(handlers::benefit::list_sync_logs),
+        )
+        .route("/benefits/sync", post(handlers::benefit::trigger_sync))
+        // 权益发放记录
+        .route(
+            "/benefit-grants",
+            get(handlers::benefit::list_benefit_grants),
+        )
+}
+
+/// 构建兑换管理路由
+///
+/// 包含兑换规则的 CRUD 和执行兑换操作
+fn redemption_routes() -> Router<AppState> {
+    Router::new()
+        // 兑换规则管理
+        .route(
+            "/redemption/rules",
+            post(handlers::redemption::create_redemption_rule),
+        )
+        .route(
+            "/redemption/rules",
+            get(handlers::redemption::list_redemption_rules),
+        )
+        .route(
+            "/redemption/rules/{id}",
+            get(handlers::redemption::get_redemption_rule),
+        )
+        .route(
+            "/redemption/rules/{id}",
+            put(handlers::redemption::update_redemption_rule),
+        )
+        .route(
+            "/redemption/rules/{id}",
+            delete(handlers::redemption::delete_redemption_rule),
+        )
+        // 执行兑换
+        .route("/redemption/redeem", post(handlers::redemption::redeem))
+        // 兑换订单查询
+        .route(
+            "/redemption/orders",
+            get(handlers::redemption::list_redemption_orders),
+        )
+}
+
 /// 构建完整的 API 路由
 ///
 /// 返回所有管理后台 API 路由（不含前缀，由调用方在 main.rs 中挂载）
 pub fn api_routes() -> Router<AppState> {
     Router::new()
+        .merge(auth_routes())
         .merge(badge_routes())
         .merge(rule_routes())
         .merge(grant_routes())
@@ -193,6 +291,8 @@ pub fn api_routes() -> Router<AppState> {
         .merge(task_routes())
         .merge(cache_routes())
         .merge(template_routes())
+        .merge(benefit_routes())
+        .merge(redemption_routes())
 }
 
 #[cfg(test)]
@@ -201,6 +301,7 @@ mod tests {
 
     #[test]
     fn test_routes_construction() {
+        let _auth = auth_routes();
         let _badge = badge_routes();
         let _rule = rule_routes();
         let _grant = grant_routes();
@@ -211,6 +312,8 @@ mod tests {
         let _task = task_routes();
         let _cache = cache_routes();
         let _template = template_routes();
+        let _benefit = benefit_routes();
+        let _redemption = redemption_routes();
         let _api = api_routes();
     }
 }

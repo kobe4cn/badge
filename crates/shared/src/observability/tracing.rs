@@ -7,14 +7,14 @@ use anyhow::Result;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
     Resource,
+    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
 };
 use tracing_subscriber::{
+    EnvFilter, Layer,
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    EnvFilter, Layer,
 };
 
 use super::ObservabilityConfig;
@@ -45,7 +45,7 @@ pub fn init(config: &ObservabilityConfig) -> Result<TracingGuard> {
         .unwrap_or_else(|_| EnvFilter::new("info"));
 
     // 构建日志层
-    let fmt_layer = if config.json_logs {
+    let fmt_layer = if config.json_logs() {
         fmt::layer()
             .json()
             .with_span_events(FmtSpan::CLOSE)
@@ -61,7 +61,7 @@ pub fn init(config: &ObservabilityConfig) -> Result<TracingGuard> {
     };
 
     // 根据是否配置 OTLP 端点决定是否启用分布式追踪
-    let (otel_layer, provider) = if let Some(endpoint) = &config.otlp_endpoint {
+    let (otel_layer, provider) = if let Some(endpoint) = config.otlp_endpoint() {
         let provider = init_tracer_provider(&config.service_name, endpoint)?;
         let tracer = provider.tracer(config.service_name.clone());
         let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);

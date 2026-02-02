@@ -117,6 +117,12 @@ const SeriesForm: React.FC<SeriesFormProps> = ({
         destroyOnClose: true,
         maskClosable: false,
       }}
+      submitter={{
+        searchConfig: {
+          submitText: '提交',
+          resetText: '取消',
+        },
+      }}
       submitTimeout={3000}
       loading={loading}
       onFinish={async (values) => {

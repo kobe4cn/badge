@@ -2,9 +2,9 @@
 //!
 //! 针对 ConditionEvaluator 的各种操作进行细粒度的性能测试。
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rule_engine::{ConditionEvaluator, Operator};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::hint::black_box;
 
 /// 创建测试数据

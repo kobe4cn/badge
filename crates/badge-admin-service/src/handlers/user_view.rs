@@ -114,11 +114,12 @@ pub async fn get_user_detail(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<ApiResponse<UserDetailDto>>, AdminError> {
+    // 注意：UserBadgeStatus 枚举使用 UPPER() 确保大小写不敏感
     let stats: Option<(i64, i64, i64)> = sqlx::query_as(
         r#"
         SELECT
             COUNT(*) as total_badges,
-            COUNT(*) FILTER (WHERE status = 'active') as active_badges,
+            COUNT(*) FILTER (WHERE UPPER(status) = 'ACTIVE') as active_badges,
             COALESCE((
                 SELECT COUNT(*) FROM redemption_orders WHERE user_id = $1
             ), 0) as total_redeemed
@@ -328,12 +329,13 @@ pub async fn get_user_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<ApiResponse<UserStatsDto>>, AdminError> {
+    // 注意：UserBadgeStatus 枚举使用 SCREAMING_SNAKE_CASE
     let stats = sqlx::query_as::<_, UserStatsRow>(
         r#"
         SELECT
             COUNT(*) as total_badges,
-            COUNT(*) FILTER (WHERE status = 'active') as active_badges,
-            COUNT(*) FILTER (WHERE status = 'expired') as expired_badges,
+            COUNT(*) FILTER (WHERE UPPER(status) = 'ACTIVE') as active_badges,
+            COUNT(*) FILTER (WHERE UPPER(status) = 'EXPIRED') as expired_badges,
             COALESCE((
                 SELECT COUNT(*) FROM redemption_orders WHERE user_id = $1
             ), 0) as total_redeemed

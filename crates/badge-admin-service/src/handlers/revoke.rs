@@ -127,17 +127,18 @@ pub async fn manual_revoke(
         .await?;
     }
 
-    // 2. 写入 badge_ledger
+    // 2. 写入 badge_ledger（quantity 为负数表示扣减）
     sqlx::query(
         r#"
-        INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, source_ref_id, quantity, remark, created_at)
-        VALUES ($1, $2, 'cancel', 'manual', $3, $4, $5, $6)
+        INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, ref_id, quantity, balance_after, remark, created_at)
+        VALUES ($1, $2, 'cancel', 'manual', $3, $4, $5, $6, $7)
         "#,
     )
     .bind(&req.user_id)
     .bind(req.badge_id)
     .bind(&source_ref_id)
-    .bind(req.quantity)
+    .bind(-req.quantity) // 负数表示扣减
+    .bind(remaining)     // 扣减后的余额
     .bind(&req.reason)
     .bind(now)
     .execute(&mut *tx)

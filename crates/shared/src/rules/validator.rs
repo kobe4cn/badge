@@ -50,8 +50,12 @@ impl RuleValidator {
         if let Some(end_time) = rule.end_time
             && now > end_time
         {
-            let result =
-                self.build_result(rule, user_id, ValidationReason::RuleExpired { end_time }, context);
+            let result = self.build_result(
+                rule,
+                user_id,
+                ValidationReason::RuleExpired { end_time },
+                context,
+            );
             self.log_validation(&result, start.elapsed().as_millis() as u64);
             return Ok(result);
         }

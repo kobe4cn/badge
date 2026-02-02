@@ -92,14 +92,15 @@ pub async fn manual_grant(
     let mut tx = state.pool.begin().await?;
 
     // 1. 插入或更新 user_badges
+    // 注意：UserBadgeStatus 枚举使用 SCREAMING_SNAKE_CASE，必须使用大写 'ACTIVE'
     sqlx::query(
         r#"
         INSERT INTO user_badges (user_id, badge_id, quantity, status, first_acquired_at, source_type, created_at, updated_at)
-        VALUES ($1, $2, $3, 'active', $4, 'manual', $4, $4)
+        VALUES ($1, $2, $3, 'ACTIVE', $4, 'manual', $4, $4)
         ON CONFLICT (user_id, badge_id)
         DO UPDATE SET
             quantity = user_badges.quantity + $3,
-            status = 'active',
+            status = 'ACTIVE',
             updated_at = $4
         "#,
     )

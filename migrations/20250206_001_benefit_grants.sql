@@ -20,12 +20,17 @@
 
 CREATE TABLE benefit_grants (
     id BIGSERIAL PRIMARY KEY,
-    grant_no VARCHAR(50) NOT NULL,
+    grant_no VARCHAR(200) NOT NULL,  -- 加长以支持自动权益的幂等键格式
 
     -- 关联信息
     user_id VARCHAR(100) NOT NULL,                                              -- SWID，用户唯一标识
     benefit_id BIGINT NOT NULL REFERENCES benefits(id) ON DELETE RESTRICT,      -- 权益不可删除（有发放记录时）
     redemption_order_id BIGINT REFERENCES redemption_orders(id) ON DELETE SET NULL, -- 订单删除时置空
+
+    -- 来源追踪
+    source_type VARCHAR(50) NOT NULL DEFAULT 'MANUAL',  -- 发放来源：MANUAL(手动), AUTO(自动), REDEMPTION(兑换), CASCADE(级联)
+    source_id VARCHAR(200),                              -- 来源关联ID（如规则ID、兑换订单号等）
+    quantity INT NOT NULL DEFAULT 1,                     -- 发放数量
 
     -- 状态管理
     -- pending: 待处理，等待外部系统确认
@@ -68,6 +73,9 @@ COMMENT ON COLUMN benefit_grants.grant_no IS '发放单号，全局唯一，格�
 COMMENT ON COLUMN benefit_grants.user_id IS 'SWID，接收权益的用户标识';
 COMMENT ON COLUMN benefit_grants.benefit_id IS '关联的权益定义ID';
 COMMENT ON COLUMN benefit_grants.redemption_order_id IS '关联的兑换订单ID，手动发放或活动发放时可为空';
+COMMENT ON COLUMN benefit_grants.source_type IS '发放来源类型：MANUAL-手动发放，AUTO-自动发放，REDEMPTION-兑换发放，CASCADE-级联发放';
+COMMENT ON COLUMN benefit_grants.source_id IS '来源关联ID，如规则ID、兑换订单号等';
+COMMENT ON COLUMN benefit_grants.quantity IS '发放数量，默认为1';
 COMMENT ON COLUMN benefit_grants.status IS '发放状态：pending-待处理，processing-处理中，success-成功，failed-失败，revoked-已撤销';
 COMMENT ON COLUMN benefit_grants.status_message IS '状态说明，如失败原因、撤销原因等';
 COMMENT ON COLUMN benefit_grants.external_ref IS '外部系统返回的发放单号或引用ID，用于对账和查询';
@@ -113,6 +121,9 @@ CREATE INDEX idx_benefit_grants_external_ref ON benefit_grants(external_ref)
 
 -- 时间范围查询：按创建时间统计
 CREATE INDEX idx_benefit_grants_created ON benefit_grants(created_at);
+
+-- 来源类型查询：按来源统计
+CREATE INDEX idx_benefit_grants_source ON benefit_grants(source_type);
 
 -- ============================================
 -- 4. 创建触发器

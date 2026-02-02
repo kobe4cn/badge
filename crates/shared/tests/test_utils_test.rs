@@ -66,12 +66,8 @@ fn test_engagement_event_generation() {
 
 #[test]
 fn test_simple_rule_generation() {
-    let rule = TestDataGenerator::simple_rule(
-        "purchase-rule",
-        "event.type",
-        "eq",
-        json!("PURCHASE"),
-    );
+    let rule =
+        TestDataGenerator::simple_rule("purchase-rule", "event.type", "eq", json!("PURCHASE"));
 
     assert_eq!(rule["id"], "purchase-rule");
     assert_eq!(rule["root"]["type"], "condition");
@@ -185,17 +181,27 @@ async fn test_mock_rule_engine_batch_evaluate() {
     let engine = MockRuleEngine::new();
 
     // 设置部分规则结果
-    engine.set_rule_result("rule-1", MockEvaluationResult {
-        matched: true,
-        rule_id: "rule-1".to_string(),
-        ..Default::default()
-    }).await;
+    engine
+        .set_rule_result(
+            "rule-1",
+            MockEvaluationResult {
+                matched: true,
+                rule_id: "rule-1".to_string(),
+                ..Default::default()
+            },
+        )
+        .await;
 
-    engine.set_rule_result("rule-2", MockEvaluationResult {
-        matched: false,
-        rule_id: "rule-2".to_string(),
-        ..Default::default()
-    }).await;
+    engine
+        .set_rule_result(
+            "rule-2",
+            MockEvaluationResult {
+                matched: false,
+                rule_id: "rule-2".to_string(),
+                ..Default::default()
+            },
+        )
+        .await;
 
     let context = json!({});
     let rule_ids = vec![
@@ -239,7 +245,11 @@ fn test_fixture_with_users() {
 
     assert_eq!(fixture.users.len(), 5);
     // 验证用户 ID 都是唯一的
-    let unique_count = fixture.users.iter().collect::<std::collections::HashSet<_>>().len();
+    let unique_count = fixture
+        .users
+        .iter()
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     assert_eq!(unique_count, 5);
 }
 

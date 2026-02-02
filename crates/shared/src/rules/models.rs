@@ -24,6 +24,8 @@ pub struct BadgeGrant {
     pub global_quota: Option<i32>,
     /// 当前已发放数量
     pub global_granted: i32,
+    /// 规则条件 JSON，用于本地评估
+    pub rule_json: Option<serde_json::Value>,
 }
 
 /// 规则校验结果
@@ -71,7 +73,10 @@ impl ValidationReason {
         match self {
             ValidationReason::Allowed => "Validation passed".to_string(),
             ValidationReason::RuleExpired { end_time } => {
-                format!("Rule expired at {}", end_time.format("%Y-%m-%d %H:%M:%S UTC"))
+                format!(
+                    "Rule expired at {}",
+                    end_time.format("%Y-%m-%d %H:%M:%S UTC")
+                )
             }
             ValidationReason::RuleNotStarted { start_time } => {
                 format!(
@@ -205,11 +210,7 @@ mod tests {
             Some("RULE_NOT_STARTED")
         );
         assert_eq!(
-            ValidationReason::UserLimitExceeded {
-                current: 5,
-                max: 3
-            }
-            .deny_code(),
+            ValidationReason::UserLimitExceeded { current: 5, max: 3 }.deny_code(),
             Some("USER_LIMIT_EXCEEDED")
         );
         assert_eq!(
@@ -234,10 +235,7 @@ mod tests {
         let not_started = ValidationReason::RuleNotStarted { start_time };
         assert!(not_started.message().contains("2025-01-01 00:00:00 UTC"));
 
-        let user_limit = ValidationReason::UserLimitExceeded {
-            current: 5,
-            max: 3,
-        };
+        let user_limit = ValidationReason::UserLimitExceeded { current: 5, max: 3 };
         assert!(user_limit.message().contains("5"));
         assert!(user_limit.message().contains("3"));
 
@@ -251,24 +249,26 @@ mod tests {
     #[test]
     fn test_validation_reason_is_allowed() {
         assert!(ValidationReason::Allowed.is_allowed());
-        assert!(!ValidationReason::RuleExpired {
-            end_time: Utc::now()
-        }
-        .is_allowed());
-        assert!(!ValidationReason::RuleNotStarted {
-            start_time: Utc::now()
-        }
-        .is_allowed());
-        assert!(!ValidationReason::UserLimitExceeded {
-            current: 5,
-            max: 3
-        }
-        .is_allowed());
-        assert!(!ValidationReason::GlobalQuotaExhausted {
-            granted: 100,
-            quota: 100
-        }
-        .is_allowed());
+        assert!(
+            !ValidationReason::RuleExpired {
+                end_time: Utc::now()
+            }
+            .is_allowed()
+        );
+        assert!(
+            !ValidationReason::RuleNotStarted {
+                start_time: Utc::now()
+            }
+            .is_allowed()
+        );
+        assert!(!ValidationReason::UserLimitExceeded { current: 5, max: 3 }.is_allowed());
+        assert!(
+            !ValidationReason::GlobalQuotaExhausted {
+                granted: 100,
+                quota: 100
+            }
+            .is_allowed()
+        );
     }
 
     #[test]

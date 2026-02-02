@@ -27,6 +27,12 @@ service BadgeManagementService {
 
   // 置顶/佩戴徽章
   rpc PinBadge(PinBadgeRequest) returns (PinBadgeResponse);
+
+  // 刷新依赖图缓存（内部调用）
+  rpc RefreshDependencyCache(RefreshDependencyCacheRequest) returns (RefreshDependencyCacheResponse);
+
+  // 刷新自动权益规则缓存（内部调用）
+  rpc RefreshAutoBenefitCache(RefreshAutoBenefitCacheRequest) returns (RefreshAutoBenefitCacheResponse);
 }
 
 // 徽章状态
@@ -178,4 +184,25 @@ message PinBadgeRequest {
 message PinBadgeResponse {
   bool success = 1;
   string message = 2;
+}
+
+// 刷新依赖图缓存请求
+message RefreshDependencyCacheRequest {
+}
+
+// 刷新依赖图缓存响应
+message RefreshDependencyCacheResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// 刷新自动权益规则缓存请求
+message RefreshAutoBenefitCacheRequest {
+}
+
+// 刷新自动权益规则缓存响应
+message RefreshAutoBenefitCacheResponse {
+  bool success = 1;
+  string message = 2;
+  int32 rules_loaded = 3;  // 加载的规则数量
 }

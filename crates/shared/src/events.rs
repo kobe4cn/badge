@@ -266,14 +266,16 @@ pub struct NotificationEvent {
 /// 通知类型
 ///
 /// 不同通知类型对应不同的消息模板和优先级策略
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum NotificationType {
     BadgeGranted,
     BadgeExpiring,
     BadgeRevoked,
+    BadgeUnlocked,
     RedemptionSuccess,
     RedemptionFailed,
+    BenefitGranted,
 }
 
 /// 通知投递渠道

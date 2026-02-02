@@ -17,11 +17,15 @@ test.describe('数据看板', () => {
   test('看板页面加载正常', async () => {
     await dashboardPage.goto();
 
-    // 验证统计卡片
-    await expect(dashboardPage.totalBadgesCard).toBeVisible();
-    await expect(dashboardPage.activeBadgesCard).toBeVisible();
+    // 验证今日统计卡片
+    await expect(dashboardPage.todayGrantsCard).toBeVisible();
+    await expect(dashboardPage.newHoldersCard).toBeVisible();
+    await expect(dashboardPage.todayRedemptionsCard).toBeVisible();
+
+    // 验证总量统计卡片
     await expect(dashboardPage.totalGrantsCard).toBeVisible();
-    await expect(dashboardPage.activeUsersCard).toBeVisible();
+    await expect(dashboardPage.activeBadgesCard).toBeVisible();
+    await expect(dashboardPage.badgeHoldersCard).toBeVisible();
   });
 
   test('图表渲染正常', async () => {
@@ -36,9 +40,8 @@ test.describe('数据看板', () => {
   test('日期范围筛选', async ({ page }) => {
     await dashboardPage.goto();
 
-    // 选择日期范围
-    await dashboardPage.dateRangePicker.click();
-    await page.locator('.ant-picker-preset button:has-text("最近7天")').click();
+    // 使用 Segmented 切换时间范围
+    await page.locator('.ant-segmented-item:has-text("30天")').first().click();
 
     // 验证图表刷新
     await dashboardPage.waitForChartsLoad();
@@ -47,20 +50,19 @@ test.describe('数据看板', () => {
   test('刷新功能', async () => {
     await dashboardPage.goto();
 
-    const initialValue = await dashboardPage.getStatValue('徽章总数');
     await dashboardPage.refreshButton.click();
     await dashboardPage.waitForLoading();
 
     // 刷新后数据应该加载完成
-    await expect(dashboardPage.totalBadgesCard).toBeVisible();
+    await expect(dashboardPage.totalGrantsCard).toBeVisible();
   });
 
   test('统计数据格式正确', async () => {
     await dashboardPage.goto();
 
-    const totalBadges = await dashboardPage.getStatValue('徽章总数');
-    // 应该是数字格式
-    expect(totalBadges).toMatch(/^\d+$/);
+    const totalGrants = await dashboardPage.getStatValue('总发放数');
+    // 应该是数字格式、带千分位的数字、或"-"（无数据时）
+    expect(totalGrants).toMatch(/^[\d,]+$|^-$/);
   });
 
   test('响应式布局', async ({ page }) => {
@@ -68,11 +70,11 @@ test.describe('数据看板', () => {
 
     // 缩小视口
     await page.setViewportSize({ width: 768, height: 1024 });
-    await expect(dashboardPage.totalBadgesCard).toBeVisible();
+    await expect(dashboardPage.todayGrantsCard).toBeVisible();
 
     // 移动端视口
     await page.setViewportSize({ width: 375, height: 667 });
-    await expect(dashboardPage.totalBadgesCard).toBeVisible();
+    await expect(dashboardPage.todayGrantsCard).toBeVisible();
   });
 });
 

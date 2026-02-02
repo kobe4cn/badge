@@ -191,7 +191,10 @@ impl MockBadgeStore {
         let new_quantity;
         let user_badge_id;
 
-        if let Some(existing) = user_badge_list.iter_mut().find(|ub| ub.badge_id == badge_id) {
+        if let Some(existing) = user_badge_list
+            .iter_mut()
+            .find(|ub| ub.badge_id == badge_id)
+        {
             existing.quantity += quantity;
             new_quantity = existing.quantity;
             user_badge_id = existing.id;
@@ -350,7 +353,9 @@ pub enum RevokeError {
 #[tokio::test]
 async fn test_basic_grant_badge() {
     let store = MockBadgeStore::new();
-    store.register_badge(MockBadge::new(1, "First Purchase Badge")).await;
+    store
+        .register_badge(MockBadge::new(1, "First Purchase Badge"))
+        .await;
 
     let result = store.grant_badge("user-001", 1, 1, None).await;
     assert!(result.is_ok());
@@ -367,7 +372,9 @@ async fn test_basic_grant_badge() {
 #[tokio::test]
 async fn test_grant_badge_increments_quantity() {
     let store = MockBadgeStore::new();
-    store.register_badge(MockBadge::new(1, "Collectible Badge")).await;
+    store
+        .register_badge(MockBadge::new(1, "Collectible Badge"))
+        .await;
 
     let result1 = store.grant_badge("user-001", 1, 2, None).await.unwrap();
     assert_eq!(result1.new_quantity, 2);
@@ -407,10 +414,14 @@ async fn test_grant_idempotency() {
 #[tokio::test]
 async fn test_grant_badge_with_limited_supply() {
     let store = MockBadgeStore::new();
-    store.register_badge(MockBadge::new(1, "Limited Badge").with_supply(10)).await;
+    store
+        .register_badge(MockBadge::new(1, "Limited Badge").with_supply(10))
+        .await;
 
     for i in 0..10 {
-        let result = store.grant_badge(&format!("user-{:03}", i), 1, 1, None).await;
+        let result = store
+            .grant_badge(&format!("user-{:03}", i), 1, 1, None)
+            .await;
         assert!(result.is_ok(), "第 {} 次发放应该成功", i + 1);
     }
 
@@ -421,7 +432,9 @@ async fn test_grant_badge_with_limited_supply() {
 #[tokio::test]
 async fn test_grant_badge_with_per_user_limit() {
     let store = MockBadgeStore::new();
-    store.register_badge(MockBadge::new(1, "User Limited Badge").with_per_user_limit(3)).await;
+    store
+        .register_badge(MockBadge::new(1, "User Limited Badge").with_per_user_limit(3))
+        .await;
 
     store.grant_badge("user-001", 1, 2, None).await.unwrap();
     store.grant_badge("user-001", 1, 1, None).await.unwrap();
@@ -436,7 +449,9 @@ async fn test_grant_badge_with_per_user_limit() {
 #[tokio::test]
 async fn test_grant_inactive_badge_fails() {
     let store = MockBadgeStore::new();
-    store.register_badge(MockBadge::new(1, "Inactive Badge").inactive()).await;
+    store
+        .register_badge(MockBadge::new(1, "Inactive Badge").inactive())
+        .await;
 
     let result = store.grant_badge("user-001", 1, 1, None).await;
     assert_eq!(result.err(), Some(GrantError::BadgeInactive));
@@ -457,7 +472,10 @@ async fn test_basic_revoke_badge() {
 
     store.grant_badge("user-001", 1, 5, None).await.unwrap();
 
-    let result = store.revoke_badge("user-001", 1, 2, "test reason").await.unwrap();
+    let result = store
+        .revoke_badge("user-001", 1, 2, "test reason")
+        .await
+        .unwrap();
     assert_eq!(result.revoked_quantity, 2);
     assert_eq!(result.remaining_quantity, 3);
 
@@ -473,7 +491,10 @@ async fn test_revoke_all_badges_changes_status() {
 
     store.grant_badge("user-001", 1, 3, None).await.unwrap();
 
-    let result = store.revoke_badge("user-001", 1, 3, "full revoke").await.unwrap();
+    let result = store
+        .revoke_badge("user-001", 1, 3, "full revoke")
+        .await
+        .unwrap();
     assert_eq!(result.remaining_quantity, 0);
 
     let user_badge = store.get_user_badge("user-001", 1).await.unwrap();
@@ -514,7 +535,9 @@ async fn test_ledger_records_grant_and_revoke() {
 #[tokio::test]
 async fn test_complete_badge_lifecycle() {
     let store = MockBadgeStore::new();
-    store.register_badge(MockBadge::new(1, "Lifecycle Badge").with_supply(100)).await;
+    store
+        .register_badge(MockBadge::new(1, "Lifecycle Badge").with_supply(100))
+        .await;
 
     // 首次发放
     let grant1 = store.grant_badge("user-001", 1, 10, None).await.unwrap();
@@ -525,7 +548,10 @@ async fn test_complete_badge_lifecycle() {
     assert_eq!(grant2.new_quantity, 15);
 
     // 部分取消
-    let revoke1 = store.revoke_badge("user-001", 1, 3, "adjustment").await.unwrap();
+    let revoke1 = store
+        .revoke_badge("user-001", 1, 3, "adjustment")
+        .await
+        .unwrap();
     assert_eq!(revoke1.remaining_quantity, 12);
 
     // 验证最终状态
@@ -544,11 +570,16 @@ async fn test_complete_badge_lifecycle() {
 #[tokio::test]
 async fn test_multiple_users_with_same_badge() {
     let store = MockBadgeStore::new();
-    store.register_badge(MockBadge::new(1, "Popular Badge").with_supply(100)).await;
+    store
+        .register_badge(MockBadge::new(1, "Popular Badge").with_supply(100))
+        .await;
 
     let users = ["user-001", "user-002", "user-003", "user-004", "user-005"];
     for (i, user) in users.iter().enumerate() {
-        store.grant_badge(user, 1, (i + 1) as i32, None).await.unwrap();
+        store
+            .grant_badge(user, 1, (i + 1) as i32, None)
+            .await
+            .unwrap();
     }
 
     for (i, user) in users.iter().enumerate() {
@@ -565,11 +596,16 @@ async fn test_user_with_multiple_badges() {
     let store = MockBadgeStore::new();
 
     for i in 1..=5 {
-        store.register_badge(MockBadge::new(i, &format!("Badge {}", i))).await;
+        store
+            .register_badge(MockBadge::new(i, &format!("Badge {}", i)))
+            .await;
     }
 
     for i in 1..=5 {
-        store.grant_badge("user-001", i, i as i32, None).await.unwrap();
+        store
+            .grant_badge("user-001", i, i as i32, None)
+            .await
+            .unwrap();
     }
 
     let user_badges = store.get_user_badges("user-001").await;

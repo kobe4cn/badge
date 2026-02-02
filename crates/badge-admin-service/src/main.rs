@@ -5,24 +5,27 @@
 use std::sync::Arc;
 
 use axum::{Json, Router, middleware, routing::get};
-use badge_admin_service::{routes, state::AppState};
+use badge_admin_service::{middleware::auth_middleware, routes, state::AppState};
+use badge_proto::badge::badge_management_service_client::BadgeManagementServiceClient;
 use badge_shared::{
     cache::Cache,
     config::AppConfig,
     database::Database,
-    observability::{self, ObservabilityConfig, middleware as obs_middleware},
+    observability::{self, middleware as obs_middleware},
 };
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 初始化可观测性（tracing + metrics）
-    let obs_config = ObservabilityConfig::from_env("badge-admin-service");
+    // 统一加载配置：从 config/{service_name}.toml 加载，包含可观测性配置
+    let config = AppConfig::load("badge-admin-service").unwrap_or_default();
+
+    // 从 AppConfig 中提取可观测性配置并注入服务名
+    let obs_config = config.observability.clone().with_service_name(&config.service_name);
     let _guard = observability::init(&obs_config).await?;
 
-    let config = AppConfig::load("badge-admin-service").unwrap_or_default();
     info!("Starting badge-admin-service on {}", config.server_addr());
 
     // 初始化基础设施
@@ -30,6 +33,26 @@ async fn main() -> anyhow::Result<()> {
     let cache = Arc::new(Cache::new(&config.redis)?);
 
     let state = AppState::new(db.pool().clone(), cache.clone());
+
+    // 尝试连接 badge-management-service 的 gRPC 端点（用于跨服务刷新缓存）
+    // 默认地址为 http://127.0.0.1:50052，可通过环境变量 BADGE_MANAGEMENT_GRPC_ADDR 覆盖
+    let grpc_addr = std::env::var("BADGE_MANAGEMENT_GRPC_ADDR")
+        .unwrap_or_else(|_| "http://127.0.0.1:50052".to_string());
+
+    match BadgeManagementServiceClient::connect(grpc_addr.clone()).await {
+        Ok(client) => {
+            state.set_badge_management_client(client).await;
+            info!("Connected to badge-management-service gRPC at {}", grpc_addr);
+        }
+        Err(e) => {
+            // 连接失败不阻止服务启动，只记录警告
+            warn!(
+                "Failed to connect to badge-management-service gRPC at {}: {}. \
+                Dependency cache refresh will be local-only.",
+                grpc_addr, e
+            );
+        }
+    }
 
     // CORS 配置：开发阶段全放行，生产环境应收紧 allow_origin
     let cors = CorsLayer::new()
@@ -49,6 +72,8 @@ async fn main() -> anyhow::Result<()> {
             }),
         )
         .layer(cors)
+        // 认证中间件：验证 JWT Token
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         // 可观测性中间件：请求追踪和指标收集
         .layer(middleware::from_fn(obs_middleware::http_tracing))
         .layer(middleware::from_fn(obs_middleware::request_id))

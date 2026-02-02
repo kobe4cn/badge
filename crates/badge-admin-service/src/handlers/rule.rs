@@ -106,19 +106,36 @@ pub async fn create_rule(
         return Err(AdminError::InvalidRuleJson("规则内容不能为空".to_string()));
     }
 
+    // 验证 event_type 存在于 event_types 表中
+    let event_type_exists: (bool,) =
+        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM event_types WHERE code = $1 AND enabled = true)")
+            .bind(&req.event_type)
+            .fetch_one(&state.pool)
+            .await?;
+
+    if !event_type_exists.0 {
+        return Err(AdminError::Validation(format!(
+            "事件类型 '{}' 不存在或已禁用",
+            req.event_type
+        )));
+    }
+
     // 新建规则默认禁用，需要单独发布
     let row: (i64,) = sqlx::query_as(
         r#"
-        INSERT INTO badge_rules (badge_id, rule_json, start_time, end_time, max_count_per_user, enabled)
-        VALUES ($1, $2, $3, $4, $5, false)
+        INSERT INTO badge_rules (badge_id, rule_code, event_type, rule_json, start_time, end_time, max_count_per_user, global_quota, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
         RETURNING id
         "#,
     )
     .bind(req.badge_id)
+    .bind(&req.rule_code)
+    .bind(&req.event_type)
     .bind(&req.rule_json)
     .bind(req.start_time)
     .bind(req.end_time)
     .bind(req.max_count_per_user)
+    .bind(req.global_quota)
     .fetch_one(&state.pool)
     .await?;
 
@@ -328,10 +345,14 @@ mod tests {
     fn test_create_rule_request_validation() {
         let valid = CreateRuleRequest {
             badge_id: 1,
+            rule_code: "test_rule_001".to_string(),
+            name: "测试规则".to_string(),
+            event_type: "purchase".to_string(),
             rule_json: serde_json::json!({"type": "event", "conditions": []}),
             start_time: None,
             end_time: None,
             max_count_per_user: Some(5),
+            global_quota: None,
         };
         assert!(valid.validate().is_ok());
     }

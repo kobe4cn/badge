@@ -21,8 +21,9 @@ use crate::config::{DatabaseConfig, RedisConfig};
 /// 优先使用环境变量，否则使用默认测试数据库
 pub fn test_database_config() -> DatabaseConfig {
     DatabaseConfig {
-        url: std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://badge:badge_secret@localhost:5432/badge_test".to_string()),
+        url: std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://badge:badge_secret@localhost:5432/badge_test".to_string()
+        }),
         max_connections: 5,
         min_connections: 1,
         connect_timeout_seconds: 10,
@@ -453,10 +454,7 @@ impl TestFixture {
             ],
         );
 
-        Self::new()
-            .with_users(3)
-            .with_badge(badge)
-            .with_rule(rule)
+        Self::new().with_users(3).with_badge(badge).with_rule(rule)
     }
 
     /// 构建标准测试场景：首次购买徽章
@@ -469,10 +467,7 @@ impl TestFixture {
             json!("PURCHASE"),
         );
 
-        Self::new()
-            .with_users(2)
-            .with_badge(badge)
-            .with_rule(rule)
+        Self::new().with_users(2).with_badge(badge).with_rule(rule)
     }
 }
 
@@ -518,7 +513,8 @@ mod tests {
 
     #[test]
     fn test_simple_rule_generation() {
-        let rule = TestDataGenerator::simple_rule("test-rule", "event.type", "eq", json!("PURCHASE"));
+        let rule =
+            TestDataGenerator::simple_rule("test-rule", "event.type", "eq", json!("PURCHASE"));
         assert_eq!(rule["id"], "test-rule");
         assert_eq!(rule["root"]["type"], "condition");
         assert_eq!(rule["root"]["field"], "event.type");
@@ -562,7 +558,9 @@ mod tests {
             matched_conditions: vec!["cond-a".to_string(), "cond-b".to_string()],
             evaluation_time_ms: 5,
         };
-        engine.set_rule_result("custom-rule", custom_result.clone()).await;
+        engine
+            .set_rule_result("custom-rule", custom_result.clone())
+            .await;
 
         let context = json!({});
         let result = engine.evaluate("custom-rule", &context).await;

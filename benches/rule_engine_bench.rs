@@ -6,13 +6,13 @@
 //! - 批量规则评估性能
 //! - 不同数据量下的性能曲线
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rule_engine::{
     Condition, EvaluationContext, LogicalGroup, LogicalOperator, Operator, Rule, RuleCompiler,
     RuleExecutor, RuleNode, RuleStore,
 };
-use std::hint::black_box;
 use serde_json::json;
+use std::hint::black_box;
 
 /// 创建简单条件规则
 fn create_simple_rule() -> Rule {
@@ -77,11 +77,7 @@ fn create_complex_rule() -> Rule {
             RuleNode::Condition(Condition::new("order.amount", Operator::Lte, 10000)),
             RuleNode::Group(LogicalGroup::or(vec![
                 RuleNode::Condition(Condition::new("user.is_vip", Operator::Eq, true)),
-                RuleNode::Condition(Condition::new(
-                    "user.membership_years",
-                    Operator::Gte,
-                    2,
-                )),
+                RuleNode::Condition(Condition::new("user.membership_years", Operator::Gte, 2)),
             ])),
             RuleNode::Condition(Condition::new(
                 "user.tags",
@@ -556,7 +552,12 @@ fn bench_operators(c: &mut Criterion) {
         .unwrap();
 
     group.bench_function("starts_with", |b| {
-        b.iter(|| executor.execute(black_box(&starts_with_rule), black_box(&context_with_string)))
+        b.iter(|| {
+            executor.execute(
+                black_box(&starts_with_rule),
+                black_box(&context_with_string),
+            )
+        })
     });
 
     // 正则表达式

@@ -72,24 +72,30 @@ pub struct BadgeRuleClient {
 }
 
 impl BadgeRuleClient {
-    /// 连接规则引擎和徽章管理两个 gRPC 服务
-    pub async fn new(
-        rule_engine_url: &str,
-        badge_service_url: &str,
-    ) -> Result<Self, EngagementError> {
-        let rule_engine = RuleEngineServiceClient::connect(rule_engine_url.to_string())
-            .await
-            .map_err(|e| EngagementError::RuleEngineError(format!("连接规则引擎失败: {e}")))?;
+    /// 创建规则引擎和徽章管理 gRPC 客户端
+    ///
+    /// 使用懒连接模式，不会在启动时尝试建立连接。
+    /// 连接将在首次 RPC 调用时按需建立，使服务可以独立启动。
+    pub fn new(rule_engine_url: &str, badge_service_url: &str) -> Result<Self, EngagementError> {
+        let rule_engine_channel = tonic::transport::Endpoint::from_shared(rule_engine_url.to_string())
+            .map_err(|e| EngagementError::RuleEngineError(format!("无效的规则引擎 URL: {e}")))?
+            .connect_lazy();
 
-        let badge_service = BadgeManagementServiceClient::connect(badge_service_url.to_string())
-            .await
-            .map_err(|e| EngagementError::BadgeGrantError(format!("连接徽章管理服务失败: {e}")))?;
+        let badge_service_channel =
+            tonic::transport::Endpoint::from_shared(badge_service_url.to_string())
+                .map_err(|e| {
+                    EngagementError::BadgeGrantError(format!("无效的徽章管理服务 URL: {e}"))
+                })?
+                .connect_lazy();
 
-        info!("gRPC 客户端已连接: 规则引擎={rule_engine_url}, 徽章管理={badge_service_url}");
+        info!(
+            rule_engine_url,
+            badge_service_url, "gRPC 客户端已初始化（懒连接模式）"
+        );
 
         Ok(Self {
-            rule_engine,
-            badge_service,
+            rule_engine: RuleEngineServiceClient::new(rule_engine_channel),
+            badge_service: BadgeManagementServiceClient::new(badge_service_channel),
         })
     }
 }

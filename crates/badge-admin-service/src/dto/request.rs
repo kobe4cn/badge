@@ -87,10 +87,21 @@ pub struct UpdateBadgeRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CreateRuleRequest {
     pub badge_id: i64,
+    /// 规则唯一标识码，用于规则引擎匹配
+    #[validate(length(min = 1, max = 100, message = "规则编码长度必须在1-100个字符之间"))]
+    pub rule_code: String,
+    /// 规则名称（显示用）
+    #[validate(length(min = 1, max = 100, message = "规则名称长度必须在1-100个字符之间"))]
+    pub name: String,
+    /// 关联的事件类型，必须存在于 event_types 表中
+    #[validate(length(min = 1, max = 50, message = "事件类型长度必须在1-50个字符之间"))]
+    pub event_type: String,
     pub rule_json: serde_json::Value,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub max_count_per_user: Option<i32>,
+    /// 全局发放配额限制
+    pub global_quota: Option<i32>,
 }
 
 /// 更新规则请求
@@ -248,18 +259,12 @@ pub struct TimeRangeParams {
 impl TimeRangeParams {
     /// 转换为 UTC 时间戳（开始日期 00:00:00）
     pub fn start_time(&self) -> DateTime<Utc> {
-        self.start_date
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_utc()
+        self.start_date.and_hms_opt(0, 0, 0).unwrap().and_utc()
     }
 
     /// 转换为 UTC 时间戳（结束日期 23:59:59）
     pub fn end_time(&self) -> DateTime<Utc> {
-        self.end_date
-            .and_hms_opt(23, 59, 59)
-            .unwrap()
-            .and_utc()
+        self.end_date.and_hms_opt(23, 59, 59).unwrap().and_utc()
     }
 }
 

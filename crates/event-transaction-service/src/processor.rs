@@ -22,6 +22,133 @@ use tracing::{debug, info, warn};
 
 use crate::rule_client::{RevokeResult, TransactionRuleService};
 
+/// 本地评估 rule_json 条件
+///
+/// 当规则引擎没有加载规则时，使用本地 rule_json 进行简化评估。
+/// 支持简单条件（eq, neq, gt, gte, lt, lte）和组合条件（AND, OR）。
+fn evaluate_rule_json(data: &serde_json::Value, rule_json: Option<&serde_json::Value>) -> bool {
+    let rule = match rule_json {
+        Some(r) => r,
+        // 无 rule_json 时默认匹配（兼容仅事件类型匹配的规则）
+        None => return true,
+    };
+
+    evaluate_node(data, rule)
+}
+
+/// 评估单个规则节点
+fn evaluate_node(data: &serde_json::Value, node: &serde_json::Value) -> bool {
+    let node_type = node.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+    match node_type {
+        "condition" => evaluate_condition(data, node),
+        "group" => evaluate_group(data, node),
+        _ => {
+            // 未知类型，默认不匹配
+            warn!(node_type, "未知的规则节点类型");
+            false
+        }
+    }
+}
+
+/// 评估条件节点
+fn evaluate_condition(data: &serde_json::Value, condition: &serde_json::Value) -> bool {
+    let field = match condition.get("field").and_then(|f| f.as_str()) {
+        Some(f) => f,
+        None => return false,
+    };
+
+    let operator = condition
+        .get("operator")
+        .and_then(|o| o.as_str())
+        .unwrap_or("");
+
+    let expected = match condition.get("value") {
+        Some(v) => v,
+        None => return false,
+    };
+
+    // 从数据中获取字段值（支持点号分隔的路径）
+    let actual = get_field_value(data, field);
+
+    match operator.to_lowercase().as_str() {
+        "eq" => values_equal(actual, expected),
+        "neq" => !values_equal(actual, expected),
+        "gt" => compare_numbers(actual, expected, |a, b| a > b),
+        "gte" => compare_numbers(actual, expected, |a, b| a >= b),
+        "lt" => compare_numbers(actual, expected, |a, b| a < b),
+        "lte" => compare_numbers(actual, expected, |a, b| a <= b),
+        _ => {
+            // 不支持的操作符，默认不匹配
+            debug!(operator, "不支持的操作符");
+            false
+        }
+    }
+}
+
+/// 评估组节点
+fn evaluate_group(data: &serde_json::Value, group: &serde_json::Value) -> bool {
+    let operator = group
+        .get("operator")
+        .and_then(|o| o.as_str())
+        .unwrap_or("AND");
+
+    let children = match group.get("children").and_then(|c| c.as_array()) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    match operator.to_uppercase().as_str() {
+        "AND" => children.iter().all(|child| evaluate_node(data, child)),
+        "OR" => children.iter().any(|child| evaluate_node(data, child)),
+        _ => false,
+    }
+}
+
+/// 从数据中获取字段值（支持点号分隔的路径）
+fn get_field_value<'a>(data: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let parts: Vec<&str> = path.split('.').collect();
+    let mut current = data;
+
+    for part in parts {
+        match current {
+            serde_json::Value::Object(map) => {
+                current = map.get(part)?;
+            }
+            serde_json::Value::Array(arr) => {
+                let index: usize = part.parse().ok()?;
+                current = arr.get(index)?;
+            }
+            _ => return None,
+        }
+    }
+
+    Some(current)
+}
+
+/// 比较两个值是否相等
+fn values_equal(actual: Option<&serde_json::Value>, expected: &serde_json::Value) -> bool {
+    match actual {
+        Some(a) => a == expected,
+        None => false,
+    }
+}
+
+/// 比较两个数值
+fn compare_numbers(
+    actual: Option<&serde_json::Value>,
+    expected: &serde_json::Value,
+    cmp: fn(f64, f64) -> bool,
+) -> bool {
+    let actual_num = actual.and_then(|v| v.as_f64());
+    let expected_num = expected.as_f64();
+
+    match (actual_num, expected_num) {
+        (Some(a), Some(b)) => cmp(a, b),
+        _ => false,
+    }
+}
+
 /// 幂等键前缀，标记事件是否已处理
 const PROCESSED_KEY_PREFIX: &str = "event:txn:processed:";
 /// 幂等记录保留 24 小时，超过此窗口的重复消费不再拦截
@@ -77,7 +204,9 @@ impl TransactionEventProcessor {
 
         // 1. 根据事件类型获取所有适用的规则
         // 使用 to_db_key() 获取数据库中的事件类型键名（小写下划线格式）
-        let rules = self.rule_mapping.get_rules_by_event_type(event.event_type.to_db_key());
+        let rules = self
+            .rule_mapping
+            .get_rules_by_event_type(event.event_type.to_db_key());
         if rules.is_empty() {
             debug!(
                 event_id = %event.event_id,
@@ -169,16 +298,18 @@ impl TransactionEventProcessor {
         let mut errors = Vec::new();
 
         // 5. 对每条规则发放徽章
-        // 注意：当规则引擎返回空（规则未加载到引擎）时，对于简单规则（仅事件类型匹配）
-        // 直接视为匹配成功。这支持 MVP 阶段的简化流程。
+        // 当规则引擎返回空（规则未加载到引擎）时，使用本地 rule_json 进行条件评估
         let rules_to_grant: Vec<&BadgeGrant> = if matches.is_empty() {
-            // 规则引擎无匹配，使用所有通过校验的规则（简化模式）
+            // 规则引擎无匹配，使用本地 rule_json 进行条件评估（简化模式）
             info!(
                 event_id = %event.event_id,
                 valid_rules_count = valid_rules.len(),
-                "规则引擎未返回匹配，使用简化模式直接发放"
+                "规则引擎未返回匹配，使用本地 rule_json 评估"
             );
-            valid_rules.iter().collect()
+            valid_rules
+                .iter()
+                .filter(|r| evaluate_rule_json(&event.data, r.rule_json.as_ref()))
+                .collect()
         } else {
             // 使用规则引擎匹配结果
             matches
@@ -460,6 +591,7 @@ mod tests {
             max_count_per_user: None,
             global_quota: None,
             global_granted: 0,
+            rule_json: None,
         }
     }
 

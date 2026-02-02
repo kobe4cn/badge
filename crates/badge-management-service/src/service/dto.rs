@@ -691,3 +691,136 @@ pub struct ConsumedBadgeDto {
     /// 消耗数量
     pub quantity: i32,
 }
+
+// ==================== 退款处理 DTO ====================
+
+/// 退款事件
+///
+/// 从 Kafka 消费的退款事件，用于触发徽章撤销判断
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundEvent {
+    /// 事件 ID（幂等键）
+    pub event_id: String,
+    /// 用户 ID
+    pub user_id: String,
+    /// 原订单 ID
+    pub original_order_id: String,
+    /// 退款订单 ID
+    pub refund_order_id: String,
+    /// 原订单金额（分）
+    pub original_amount: i64,
+    /// 退款金额（分）
+    pub refund_amount: i64,
+    /// 退款后剩余金额（分）= original_amount - refund_amount
+    pub remaining_amount: i64,
+    /// 退款原因
+    pub reason: Option<String>,
+    /// 需要撤销的徽章 ID 列表（可选，如果不指定则根据规则自动判断）
+    pub badge_ids_to_revoke: Option<Vec<i64>>,
+    /// 事件发生时间
+    pub timestamp: DateTime<Utc>,
+}
+
+impl RefundEvent {
+    /// 是否为全额退款
+    pub fn is_full_refund(&self) -> bool {
+        self.refund_amount >= self.original_amount
+    }
+
+    /// 获取退款后的实际消费金额
+    pub fn effective_amount(&self) -> i64 {
+        self.remaining_amount.max(0)
+    }
+}
+
+/// 退款处理结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundProcessResult {
+    /// 事件 ID
+    pub event_id: String,
+    /// 是否成功处理
+    pub success: bool,
+    /// 被撤销的徽章列表
+    pub revoked_badges: Vec<RevokedBadgeInfo>,
+    /// 保留的徽章列表（部分退款后仍满足条件）
+    pub retained_badges: Vec<RetainedBadgeInfo>,
+    /// 处理耗时（毫秒）
+    pub processing_time_ms: i64,
+    /// 错误信息（失败时）
+    pub error: Option<String>,
+}
+
+impl RefundProcessResult {
+    pub fn success(
+        event_id: String,
+        revoked_badges: Vec<RevokedBadgeInfo>,
+        retained_badges: Vec<RetainedBadgeInfo>,
+        processing_time_ms: i64,
+    ) -> Self {
+        Self {
+            event_id,
+            success: true,
+            revoked_badges,
+            retained_badges,
+            processing_time_ms,
+            error: None,
+        }
+    }
+
+    pub fn failure(event_id: String, error: impl Into<String>) -> Self {
+        Self {
+            event_id,
+            success: false,
+            revoked_badges: vec![],
+            retained_badges: vec![],
+            processing_time_ms: 0,
+            error: Some(error.into()),
+        }
+    }
+}
+
+/// 被撤销的徽章信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokedBadgeInfo {
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 徽章名称
+    pub badge_name: String,
+    /// 撤销数量
+    pub quantity: i32,
+    /// 撤销原因
+    pub reason: String,
+}
+
+/// 保留的徽章信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetainedBadgeInfo {
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 徽章名称
+    pub badge_name: String,
+    /// 保留原因
+    pub reason: String,
+}
+
+/// 徽章发放规则条件
+///
+/// 用于判断退款后是否仍满足发放条件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BadgeGrantCondition {
+    /// 规则 ID
+    pub rule_id: i64,
+    /// 徽章 ID
+    pub badge_id: i64,
+    /// 徽章名称
+    pub badge_name: String,
+    /// 消费金额阈值（分）
+    pub amount_threshold: Option<i64>,
+    /// 事件类型
+    pub event_type: String,
+}

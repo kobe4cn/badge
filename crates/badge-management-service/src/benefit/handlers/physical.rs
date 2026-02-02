@@ -105,12 +105,10 @@ impl Default for PhysicalHandler {
 }
 
 impl PhysicalHandler {
-
     /// 解析实物配置
     fn parse_config(&self, config: &Value) -> Result<PhysicalConfig> {
-        serde_json::from_value(config.clone()).map_err(|e| {
-            BadgeError::Validation(format!("实物配置解析失败: {}", e))
-        })
+        serde_json::from_value(config.clone())
+            .map_err(|e| BadgeError::Validation(format!("实物配置解析失败: {}", e)))
     }
 
     /// 从 metadata 中提取收货地址
@@ -186,14 +184,13 @@ impl BenefitHandler for PhysicalHandler {
         };
 
         // 提取收货地址
-        let shipping_address =
-            match self.extract_address(&config, request.metadata.as_ref()) {
-                Ok(addr) => addr,
-                Err(e) => {
-                    error!(error = %e, "收货地址获取失败");
-                    return Ok(BenefitGrantResult::failed(&request.grant_no, e.to_string()));
-                }
-            };
+        let shipping_address = match self.extract_address(&config, request.metadata.as_ref()) {
+            Ok(addr) => addr,
+            Err(e) => {
+                error!(error = %e, "收货地址获取失败");
+                return Ok(BenefitGrantResult::failed(&request.grant_no, e.to_string()));
+            }
+        };
 
         info!(
             sku_id = %config.sku_id,
@@ -307,9 +304,7 @@ impl PhysicalHandler {
         }
 
         if address.province.is_empty() || address.city.is_empty() || address.district.is_empty() {
-            return Err(BadgeError::Validation(
-                "省/市/区 不能为空".into(),
-            ));
+            return Err(BadgeError::Validation("省/市/区 不能为空".into()));
         }
 
         if address.address.is_empty() {

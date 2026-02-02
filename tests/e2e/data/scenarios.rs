@@ -39,38 +39,26 @@ impl<'a> ScenarioBuilder<'a> {
         // 3. 创建三个消费徽章
         let badge_500 = self
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test500元达人".to_string(),
-                description: Some("累计消费满 500 元".to_string()),
-                badge_type: "achievement".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test500元达人", "ACHIEVEMENT")
+                    .with_description("累计消费满 500 元"),
+            )
             .await?;
 
         let badge_1000 = self
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test1000元达人".to_string(),
-                description: Some("累计消费满 1000 元".to_string()),
-                badge_type: "achievement".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test1000元达人", "ACHIEVEMENT")
+                    .with_description("累计消费满 1000 元"),
+            )
             .await?;
 
         let badge_5000 = self
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test5000元达人".to_string(),
-                description: Some("累计消费满 5000 元".to_string()),
-                badge_type: "achievement".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test5000元达人", "ACHIEVEMENT")
+                    .with_description("累计消费满 5000 元"),
+            )
             .await?;
 
         // 4. 创建规则
@@ -89,7 +77,12 @@ impl<'a> ScenarioBuilder<'a> {
             .create_rule(&TestRules::total_spending(badge_5000.id, 5000))
             .await?;
 
-        // 5. 上线徽章
+        // 5. 启用规则
+        let rule_500 = self.api.publish_rule(rule_500.id).await?;
+        let rule_1000 = self.api.publish_rule(rule_1000.id).await?;
+        let rule_5000 = self.api.publish_rule(rule_5000.id).await?;
+
+        // 6. 上线徽章
         self.api.update_badge_status(badge_500.id, "active").await?;
         self.api
             .update_badge_status(badge_1000.id, "active")
@@ -131,6 +124,9 @@ impl<'a> ScenarioBuilder<'a> {
             .create_rule(&TestRules::consecutive_checkin(badge_7days.id, 7))
             .await?;
 
+        // 启用规则
+        let rule = self.api.publish_rule(rule.id).await?;
+
         self.api
             .update_badge_status(badge_7days.id, "active")
             .await?;
@@ -155,19 +151,23 @@ impl<'a> ScenarioBuilder<'a> {
                 category_id: category.id,
                 name: "Test限量活动".to_string(),
                 description: Some("限量活动测试".to_string()),
+                cover_url: None,
                 theme: Some("red".to_string()),
             })
             .await?;
 
         let badge = self
             .api
-            .create_badge(&TestBadges::limited_edition(series.id, supply))
+            .create_badge(&TestBadges::limited_edition(series.id, supply as i32))
             .await?;
 
         let rule = self
             .api
             .create_rule(&TestRules::with_quota(badge.id, supply as i32))
             .await?;
+
+        // 启用规则
+        let rule = self.api.publish_rule(rule.id).await?;
 
         self.api.update_badge_status(badge.id, "active").await?;
 
@@ -194,6 +194,7 @@ impl<'a> ScenarioBuilder<'a> {
                 category_id: category.id,
                 name: "Test级联系列".to_string(),
                 description: Some("级联测试".to_string()),
+                cover_url: None,
                 theme: Some("purple".to_string()),
             })
             .await?;
@@ -201,38 +202,26 @@ impl<'a> ScenarioBuilder<'a> {
         // 创建三个徽章
         let badge_a = self
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test徽章A".to_string(),
-                description: Some("入门徽章".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test徽章A", "NORMAL")
+                    .with_description("入门徽章"),
+            )
             .await?;
 
         let badge_b = self
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test徽章B".to_string(),
-                description: Some("进阶徽章，依赖 A".to_string()),
-                badge_type: "normal".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test徽章B", "NORMAL")
+                    .with_description("进阶徽章，依赖 A"),
+            )
             .await?;
 
         let badge_c = self
             .api
-            .create_badge(&CreateBadgeRequest {
-                series_id: series.id,
-                name: "Test徽章C".to_string(),
-                description: Some("高级徽章，依赖 B".to_string()),
-                badge_type: "achievement".to_string(),
-                icon_url: None,
-                max_supply: None,
-            })
+            .create_badge(
+                &CreateBadgeRequest::new(series.id, "Test徽章C", "ACHIEVEMENT")
+                    .with_description("高级徽章，依赖 B"),
+            )
             .await?;
 
         // 创建规则
@@ -245,7 +234,7 @@ impl<'a> ScenarioBuilder<'a> {
                 event_type: "purchase".to_string(),
                 rule_json: json!({
                     "type": "condition",
-                    "field": "order.amount",
+                    "field": "amount",
                     "operator": "gte",
                     "value": 100
                 }),
@@ -258,6 +247,9 @@ impl<'a> ScenarioBuilder<'a> {
 
         // B 依赖 A（需要通过依赖配置 API）
         // C 依赖 B
+
+        // 启用规则
+        let rule_a = self.api.publish_rule(rule_a.id).await?;
 
         // 上线徽章
         self.api.update_badge_status(badge_a.id, "active").await?;
@@ -294,6 +286,9 @@ impl<'a> ScenarioBuilder<'a> {
             .api
             .create_rule(&TestRules::first_purchase(badge.id))
             .await?;
+
+        // 启用规则
+        let rule = self.api.publish_rule(rule.id).await?;
 
         // 创建权益
         let benefit_points = self.api.create_benefit(&TestBenefits::points(100)).await?;

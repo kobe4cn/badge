@@ -28,7 +28,7 @@ export default defineConfig({
 
   // 全局配置
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:5173',
+    baseURL: process.env.BASE_URL || 'http://localhost:3001',
 
     // 截图配置
     screenshot: 'only-on-failure',
@@ -80,7 +80,7 @@ export default defineConfig({
   // 开发服务器
   webServer: process.env.CI ? undefined : {
     command: 'npm run dev',
-    url: 'http://localhost:5173',
+    url: 'http://localhost:3001',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },
