@@ -13,7 +13,7 @@ use validator::Validate;
 use crate::{
     CategoryStatus,
     dto::{
-        ApiResponse, CreateSeriesRequest, PageResponse, PaginationParams, SeriesDto,
+        ApiResponse, CreateSeriesRequest, PageResponse, SeriesDto,
         UpdateSeriesRequest,
     },
     error::AdminError,
@@ -155,41 +155,80 @@ pub async fn create_series(
     Ok(Json(ApiResponse::success(dto)))
 }
 
+/// 系列列表查询参数
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSeriesParams {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_page_size")]
+    pub page_size: i64,
+    pub name: Option<String>,
+}
+
+fn default_page() -> i64 {
+    1
+}
+
+fn default_page_size() -> i64 {
+    20
+}
+
+impl ListSeriesParams {
+    /// 计算数据库查询的 offset
+    pub fn offset(&self) -> i64 {
+        (self.page - 1).max(0) * self.page_size
+    }
+
+    /// 获取限制条数（最大100）
+    pub fn limit(&self) -> i64 {
+        self.page_size.clamp(1, 100)
+    }
+}
+
 /// 获取系列列表（分页）
 ///
 /// GET /api/admin/series
 pub async fn list_series(
     State(state): State<AppState>,
-    Query(pagination): Query<PaginationParams>,
+    Query(params): Query<ListSeriesParams>,
 ) -> Result<Json<ApiResponse<PageResponse<SeriesDto>>>, AdminError> {
-    let offset = pagination.offset();
-    let limit = pagination.limit();
+    let offset = params.offset();
+    let limit = params.limit();
 
-    // 查询总数
-    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM badge_series")
-        .fetch_one(&state.pool)
-        .await?;
+    // 构建模糊搜索参数：当提供 name 时，添加 % 通配符用于 ILIKE 查询
+    let name_pattern = params.name.as_ref().map(|n| format!("%{}%", n));
+
+    // 查询总数，支持按名称过滤
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM badge_series WHERE ($1::text IS NULL OR name ILIKE $1)"
+    )
+    .bind(&name_pattern)
+    .fetch_one(&state.pool)
+    .await?;
 
     if total.0 == 0 {
         return Ok(Json(ApiResponse::success(PageResponse::empty(
-            pagination.page,
-            pagination.page_size,
+            params.page,
+            params.page_size,
         ))));
     }
 
+    // 查询列表，支持按名称过滤
     let sql = format!(
-        "{} ORDER BY s.sort_order ASC, s.id ASC LIMIT $1 OFFSET $2",
+        "{} WHERE ($1::text IS NULL OR s.name ILIKE $1) ORDER BY s.sort_order ASC, s.id ASC LIMIT $2 OFFSET $3",
         SERIES_WITH_INFO_SQL
     );
 
     let rows = sqlx::query_as::<_, SeriesWithInfo>(&sql)
+        .bind(&name_pattern)
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.pool)
         .await?;
 
     let series: Vec<SeriesDto> = rows.into_iter().map(Into::into).collect();
-    let response = PageResponse::new(series, total.0, pagination.page, pagination.page_size);
+    let response = PageResponse::new(series, total.0, params.page, params.page_size);
     Ok(Json(ApiResponse::success(response)))
 }
 

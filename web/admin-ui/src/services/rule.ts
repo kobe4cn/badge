@@ -4,7 +4,7 @@
  * 封装规则 CRUD 操作、测试和发布接口
  */
 
-import { get, getList, post, put, patch, del } from './api';
+import { get, getList, post, put, del } from './api';
 import type { PaginatedResponse, ListParams } from '@/types';
 
 /**
@@ -198,7 +198,7 @@ export function testRuleDefinition(
  * 将规则状态从 DRAFT 变更为 PUBLISHED
  */
 export function publishRule(id: string): Promise<void> {
-  return patch<void>(`/admin/rules/${id}/publish`);
+  return post<void>(`/admin/rules/${id}/publish`);
 }
 
 /**
@@ -207,7 +207,7 @@ export function publishRule(id: string): Promise<void> {
  * 将规则状态变更为 DISABLED
  */
 export function disableRule(id: string): Promise<void> {
-  return patch<void>(`/admin/rules/${id}/disable`);
+  return post<void>(`/admin/rules/${id}/disable`);
 }
 
 /**

@@ -9,8 +9,9 @@ pub mod response;
 pub use request::{
     BadgeQueryFilter, BatchGrantRequest, BatchRevokeRequest, BatchTaskFilter, CreateBadgeRequest,
     CreateCategoryRequest, CreateRuleRequest, CreateSeriesRequest, GrantLogFilter,
-    ManualGrantRequest, ManualRevokeRequest, OperationLogFilter, PaginationParams, TimeRangeParams,
-    UpdateBadgeRequest, UpdateCategoryRequest, UpdateRuleRequest, UpdateSeriesRequest,
+    ManualGrantRequest, ManualRevokeRequest, OperationLogFilter, PaginationParams,
+    TestRuleDefinitionRequest, TimeRangeParams, UpdateBadgeRequest, UpdateCategoryRequest,
+    UpdateRuleRequest, UpdateSeriesRequest,
 };
 
 pub use response::{

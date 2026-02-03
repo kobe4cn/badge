@@ -3,7 +3,7 @@
 //! 所有 REST API 的响应体结构
 
 use badge_management::{
-    BadgeAssets, BadgeStatus, BadgeType, CategoryStatus, SourceType, ValidityConfig,
+    BadgeAssets, BadgeStatus, BadgeType, CategoryStatus, ValidityConfig,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -198,7 +198,7 @@ pub struct GrantLogDto {
     pub badge_id: i64,
     pub badge_name: String,
     pub quantity: i32,
-    pub source_type: SourceType,
+    pub source_type: String,
     pub source_id: Option<String>,
     pub reason: Option<String>,
     pub operator_id: Option<String>,

@@ -115,6 +115,14 @@ pub struct UpdateRuleRequest {
     pub enabled: Option<bool>,
 }
 
+/// 测试规则定义请求（无需持久化，仅做模拟评估）
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRuleDefinitionRequest {
+    pub rule_json: serde_json::Value,
+    pub context: Option<serde_json::Value>,
+}
+
 /// 手动发放请求
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -210,6 +218,8 @@ pub struct BadgeQueryFilter {
     pub series_id: Option<i64>,
     pub badge_type: Option<BadgeType>,
     pub status: Option<BadgeStatus>,
+    /// 前端 ProTable 发送 `name` 参数，兼容两种参数名
+    #[serde(alias = "name")]
     pub keyword: Option<String>,
 }
 

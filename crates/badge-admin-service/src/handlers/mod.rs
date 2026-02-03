@@ -2,6 +2,7 @@
 //!
 //! 包含所有 REST API 端点的处理器实现
 
+pub mod api_key;
 pub mod auth;
 pub mod badge;
 pub mod system_role;

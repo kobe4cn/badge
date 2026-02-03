@@ -5,15 +5,17 @@
 
 use axum::{
     Json,
-    extract::{Query, State},
+    extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::IntoResponse,
 };
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    SourceType,
     dto::{
         ApiResponse, BatchGrantRequest, BatchTaskDto, GrantLogDto, GrantLogFilter,
         ManualGrantRequest, PageResponse, PaginationParams,
@@ -23,6 +25,8 @@ use crate::{
 };
 
 /// 发放记录数据库查询结果
+///
+/// source_type 使用 String 而非 SourceType 枚举，以兼容数据库中可能存在的不同大小写格式
 #[derive(sqlx::FromRow)]
 struct GrantLogRow {
     id: i64,
@@ -30,7 +34,7 @@ struct GrantLogRow {
     badge_id: i64,
     badge_name: String,
     quantity: i32,
-    source_type: SourceType,
+    source_type: String,
     source_id: Option<String>,
     reason: Option<String>,
     created_at: DateTime<Utc>,
@@ -96,7 +100,7 @@ pub async fn manual_grant(
     sqlx::query(
         r#"
         INSERT INTO user_badges (user_id, badge_id, quantity, status, first_acquired_at, source_type, created_at, updated_at)
-        VALUES ($1, $2, $3, 'ACTIVE', $4, 'manual', $4, $4)
+        VALUES ($1, $2, $3, 'ACTIVE', $4, 'MANUAL', $4, $4)
         ON CONFLICT (user_id, badge_id)
         DO UPDATE SET
             quantity = user_badges.quantity + $3,
@@ -124,7 +128,7 @@ pub async fn manual_grant(
     sqlx::query(
         r#"
         INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, ref_id, quantity, balance_after, remark, created_at)
-        VALUES ($1, $2, 'acquire', 'manual', $3, $4, $5, $6, $7)
+        VALUES ($1, $2, 'acquire', 'MANUAL', $3, $4, $5, $6, $7)
         "#,
     )
     .bind(&req.user_id)
@@ -303,7 +307,7 @@ pub async fn list_grants(
             b.name as badge_name,
             l.quantity,
             l.source_type,
-            l.source_ref_id as source_id,
+            l.ref_id as source_id,
             l.remark as reason,
             l.created_at
         FROM badge_ledger l
@@ -331,6 +335,258 @@ pub async fn list_grants(
     let items: Vec<GrantLogDto> = rows.into_iter().map(Into::into).collect();
     let response = PageResponse::new(items, total.0, pagination.page, pagination.page_size);
     Ok(Json(ApiResponse::success(response)))
+}
+
+/// 发放日志列表查询（分页）
+///
+/// GET /api/admin/grants/logs
+///
+/// 与 list_grants 共享查询逻辑，作为日志视图的独立入口，
+/// 便于后续日志视图与发放记录视图独立演进。
+pub async fn list_grant_logs(
+    state: State<AppState>,
+    pagination: Query<PaginationParams>,
+    filter: Query<GrantLogFilter>,
+) -> Result<Json<ApiResponse<PageResponse<GrantLogDto>>>, AdminError> {
+    list_grants(state, pagination, filter).await
+}
+
+/// 发放日志详情
+///
+/// GET /api/admin/grants/logs/:id
+///
+/// 查询 badge_ledger 中单条 acquire 记录，关联徽章名称返回完整信息
+pub async fn get_grant_log_detail(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<ApiResponse<GrantLogDto>>, AdminError> {
+    let row = sqlx::query_as::<_, GrantLogRow>(
+        r#"
+        SELECT
+            l.id,
+            l.user_id,
+            l.badge_id,
+            b.name as badge_name,
+            l.quantity,
+            l.source_type,
+            l.ref_id as source_id,
+            l.remark as reason,
+            l.created_at
+        FROM badge_ledger l
+        JOIN badges b ON b.id = l.badge_id
+        WHERE l.id = $1 AND l.change_type = 'acquire'
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let row = row.ok_or(AdminError::NotFound(format!("发放日志不存在: {id}")))?;
+    Ok(Json(ApiResponse::success(row.into())))
+}
+
+/// 发放记录列表查询（分页）
+///
+/// GET /api/admin/grants/records
+///
+/// 当前与 list_grant_logs 共享同一查询逻辑，
+/// 保留独立入口以便后续 records 视图增加不同的字段或聚合。
+pub async fn list_grant_records(
+    state: State<AppState>,
+    pagination: Query<PaginationParams>,
+    filter: Query<GrantLogFilter>,
+) -> Result<Json<ApiResponse<PageResponse<GrantLogDto>>>, AdminError> {
+    list_grants(state, pagination, filter).await
+}
+
+/// 导出发放日志为 CSV
+///
+/// GET /api/admin/grants/logs/export
+///
+/// 按过滤条件查询所有匹配记录（不分页），生成 CSV 文件流式返回。
+/// 使用 10000 条硬上限防止超大导出导致 OOM。
+pub async fn export_grant_logs(
+    State(state): State<AppState>,
+    Query(filter): Query<GrantLogFilter>,
+) -> Result<impl IntoResponse, AdminError> {
+    let source_type_str = filter.source_type.map(|t| {
+        serde_json::to_value(t)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+            .unwrap_or_default()
+    });
+
+    let rows = sqlx::query_as::<_, GrantLogRow>(
+        r#"
+        SELECT
+            l.id,
+            l.user_id,
+            l.badge_id,
+            b.name as badge_name,
+            l.quantity,
+            l.source_type,
+            l.ref_id as source_id,
+            l.remark as reason,
+            l.created_at
+        FROM badge_ledger l
+        JOIN badges b ON b.id = l.badge_id
+        WHERE l.change_type = 'acquire'
+          AND ($1::text IS NULL OR l.user_id = $1)
+          AND ($2::bigint IS NULL OR l.badge_id = $2)
+          AND ($3::text IS NULL OR l.source_type::text = $3)
+          AND ($4::timestamptz IS NULL OR l.created_at >= $4)
+          AND ($5::timestamptz IS NULL OR l.created_at <= $5)
+        ORDER BY l.created_at DESC
+        LIMIT 10000
+        "#,
+    )
+    .bind(&filter.user_id)
+    .bind(filter.badge_id)
+    .bind(&source_type_str)
+    .bind(filter.start_time)
+    .bind(filter.end_time)
+    .fetch_all(&state.pool)
+    .await?;
+
+    // 构建 CSV 内容
+    let mut csv = String::from("id,user_id,badge_name,action,source_type,created_at\n");
+    for row in &rows {
+        let source_type_display = serde_json::to_value(&row.source_type)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default();
+
+        csv.push_str(&format!(
+            "{},{},{},grant,{},{}\n",
+            row.id,
+            row.user_id,
+            escape_csv_field(&row.badge_name),
+            source_type_display,
+            row.created_at.format("%Y-%m-%d %H:%M:%S"),
+        ));
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"grant_logs.csv\""),
+    );
+
+    Ok((StatusCode::OK, headers, csv))
+}
+
+/// 对 CSV 字段进行转义
+///
+/// 当字段包含逗号、双引号或换行符时，用双引号包裹并转义内部双引号
+fn escape_csv_field(field: &str) -> String {
+    if field.contains(',') || field.contains('"') || field.contains('\n') {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
+    }
+}
+
+/// CSV 上传解析结果
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvUploadResult {
+    total: usize,
+    valid: usize,
+    invalid: usize,
+    preview: Vec<String>,
+}
+
+/// 上传用户 CSV 文件
+///
+/// POST /api/admin/grants/upload-csv
+///
+/// 接收 CSV 文本内容（JSON body），解析并返回预览结果。
+/// 简化方案：前端读取文件后以 JSON 发送 CSV 内容，避免 multipart 依赖。
+pub async fn upload_user_csv(
+    State(_state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<ApiResponse<CsvUploadResult>>, AdminError> {
+    let csv_content = body
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AdminError::Validation("缺少 content 字段".to_string()))?;
+
+    let mut lines = csv_content.lines();
+
+    // 解析表头，查找 user_id 列
+    let header_line = lines
+        .next()
+        .ok_or_else(|| AdminError::Validation("CSV 文件为空".to_string()))?;
+
+    let headers: Vec<&str> = header_line.split(',').map(|h| h.trim()).collect();
+    let user_id_col = headers
+        .iter()
+        .position(|h| h.eq_ignore_ascii_case("user_id"))
+        .ok_or_else(|| AdminError::Validation("CSV 缺少 user_id 列".to_string()))?;
+
+    let mut total = 0usize;
+    let mut valid = 0usize;
+    let mut invalid = 0usize;
+    let mut preview = Vec::new();
+
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        total += 1;
+        let cols: Vec<&str> = line.split(',').collect();
+        if let Some(uid) = cols.get(user_id_col) {
+            let uid = uid.trim();
+            if !uid.is_empty() {
+                valid += 1;
+                if preview.len() < 10 {
+                    preview.push(uid.to_string());
+                }
+            } else {
+                invalid += 1;
+            }
+        } else {
+            invalid += 1;
+        }
+    }
+
+    Ok(Json(ApiResponse::success(CsvUploadResult {
+        total,
+        valid,
+        invalid,
+        preview,
+    })))
+}
+
+/// 用户筛选预览请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub struct UserFilterRequest {
+    badge_id: Option<i64>,
+    min_quantity: Option<i32>,
+    status: Option<String>,
+}
+
+/// 预览用户筛选结果
+///
+/// POST /api/admin/grants/preview-filter
+///
+/// 根据筛选条件返回匹配用户数量和预览列表。
+/// 当前为占位实现，后续可接入用户查询系统。
+pub async fn preview_user_filter(
+    State(_state): State<AppState>,
+    Json(_req): Json<UserFilterRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, AdminError> {
+    let result = serde_json::json!({
+        "total": 0,
+        "users": []
+    });
+    Ok(Json(ApiResponse::success(result)))
 }
 
 #[cfg(test)]
@@ -385,5 +641,22 @@ mod tests {
             reason: "批量活动奖励".to_string(),
         };
         assert!(invalid_url.validate().is_err());
+    }
+
+    #[test]
+    fn test_escape_csv_field() {
+        use super::escape_csv_field;
+
+        // 普通字段无需转义
+        assert_eq!(escape_csv_field("hello"), "hello");
+
+        // 包含逗号需要用双引号包裹
+        assert_eq!(escape_csv_field("hello,world"), "\"hello,world\"");
+
+        // 包含双引号需要转义
+        assert_eq!(escape_csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+
+        // 包含换行符
+        assert_eq!(escape_csv_field("line1\nline2"), "\"line1\nline2\"");
     }
 }

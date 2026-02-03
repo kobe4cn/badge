@@ -13,7 +13,6 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    SourceType,
     dto::{
         ApiResponse, BatchRevokeRequest, BatchTaskDto, GrantLogDto, GrantLogFilter,
         ManualRevokeRequest, PageResponse, PaginationParams,
@@ -30,7 +29,7 @@ struct RevokeLogRow {
     badge_id: i64,
     badge_name: String,
     quantity: i32,
-    source_type: SourceType,
+    source_type: String,
     source_id: Option<String>,
     reason: Option<String>,
     created_at: DateTime<Utc>,
@@ -131,7 +130,7 @@ pub async fn manual_revoke(
     sqlx::query(
         r#"
         INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, ref_id, quantity, balance_after, remark, created_at)
-        VALUES ($1, $2, 'cancel', 'manual', $3, $4, $5, $6, $7)
+        VALUES ($1, $2, 'cancel', 'MANUAL', $3, $4, $5, $6, $7)
         "#,
     )
     .bind(&req.user_id)
@@ -148,7 +147,7 @@ pub async fn manual_revoke(
     sqlx::query(
         r#"
         INSERT INTO user_badge_logs (user_id, badge_id, action, quantity, source_type, source_ref_id, remark, created_at)
-        VALUES ($1, $2, 'revoke', $3, 'manual', $4, $5, $6)
+        VALUES ($1, $2, 'revoke', $3, 'MANUAL', $4, $5, $6)
         "#,
     )
     .bind(&req.user_id)
@@ -309,7 +308,7 @@ pub async fn list_revokes(
             b.name as badge_name,
             l.quantity,
             l.source_type,
-            l.source_ref_id as source_id,
+            l.ref_id as source_id,
             l.remark as reason,
             l.created_at
         FROM badge_ledger l

@@ -54,6 +54,27 @@ fn system_routes() -> Router<AppState> {
             "/system/permissions/tree",
             get(handlers::system_role::get_permission_tree),
         )
+        // API Key 管理（外部系统接入）
+        .route(
+            "/system/api-keys",
+            get(handlers::api_key::list_api_keys),
+        )
+        .route(
+            "/system/api-keys",
+            post(handlers::api_key::create_api_key),
+        )
+        .route(
+            "/system/api-keys/{id}",
+            delete(handlers::api_key::delete_api_key),
+        )
+        .route(
+            "/system/api-keys/{id}/regenerate",
+            post(handlers::api_key::regenerate_api_key),
+        )
+        .route(
+            "/system/api-keys/{id}/status",
+            patch(handlers::api_key::toggle_api_key_status),
+        )
 }
 
 /// 构建徽章管理相关的路由
@@ -159,21 +180,40 @@ fn rule_routes() -> Router<AppState> {
     Router::new()
         .route("/rules", post(handlers::rule::create_rule))
         .route("/rules", get(handlers::rule::list_rules))
+        // 静态路径必须在参数路径之前注册，否则 "test" 会被 {id} 捕获
+        .route("/rules/test", post(handlers::rule::test_rule_definition))
         .route("/rules/{id}", get(handlers::rule::get_rule))
         .route("/rules/{id}", put(handlers::rule::update_rule))
         .route("/rules/{id}", delete(handlers::rule::delete_rule))
         .route("/rules/{id}/publish", post(handlers::rule::publish_rule))
+        .route("/rules/{id}/disable", post(handlers::rule::disable_rule))
         .route("/rules/{id}/test", post(handlers::rule::test_rule))
 }
 
 /// 构建发放管理路由
 ///
-/// 包含手动发放、批量发放和发放记录查询
+/// 包含手动发放、批量发放、发放记录查询、日志查询和导出
 fn grant_routes() -> Router<AppState> {
     Router::new()
         .route("/grants/manual", post(handlers::grant::manual_grant))
         .route("/grants/batch", post(handlers::grant::batch_grant))
+        .route("/grants/upload-csv", post(handlers::grant::upload_user_csv))
+        .route(
+            "/grants/preview-filter",
+            post(handlers::grant::preview_user_filter),
+        )
         .route("/grants", get(handlers::grant::list_grants))
+        // export 必须在 {id} 之前注册，避免 "export" 被当作路径参数匹配
+        .route(
+            "/grants/logs/export",
+            get(handlers::grant::export_grant_logs),
+        )
+        .route(
+            "/grants/logs/{id}",
+            get(handlers::grant::get_grant_log_detail),
+        )
+        .route("/grants/logs", get(handlers::grant::list_grant_logs))
+        .route("/grants/records", get(handlers::grant::list_grant_records))
 }
 
 /// 构建取消管理路由
@@ -347,6 +387,10 @@ fn redemption_routes() -> Router<AppState> {
         .route(
             "/redemption/orders",
             get(handlers::redemption::list_redemption_orders),
+        )
+        .route(
+            "/redemption/orders/{order_no}",
+            get(handlers::redemption::get_redemption_order),
         )
 }
 

@@ -42,6 +42,8 @@ pub enum AdminError {
     DependencyNotFound(i64),
     #[error("权益不存在: {0}")]
     BenefitNotFound(i64),
+    #[error("资源不存在: {0}")]
+    NotFound(String),
 
     // 业务错误
     #[error("徽章已发布，无法删除")]
@@ -82,7 +84,8 @@ impl AdminError {
             | Self::RuleNotFound(_)
             | Self::TaskNotFound(_)
             | Self::DependencyNotFound(_)
-            | Self::BenefitNotFound(_) => StatusCode::NOT_FOUND,
+            | Self::BenefitNotFound(_)
+            | Self::NotFound(_) => StatusCode::NOT_FOUND,
 
             Self::BadgeAlreadyPublished | Self::InsufficientStock | Self::InsufficientUserBadge => {
                 StatusCode::CONFLICT
@@ -115,6 +118,7 @@ impl AdminError {
             Self::TaskNotFound(_) => "TASK_NOT_FOUND",
             Self::DependencyNotFound(_) => "DEPENDENCY_NOT_FOUND",
             Self::BenefitNotFound(_) => "BENEFIT_NOT_FOUND",
+            Self::NotFound(_) => "NOT_FOUND",
             Self::BadgeAlreadyPublished => "BADGE_ALREADY_PUBLISHED",
             Self::InvalidRuleJson(_) => "INVALID_RULE_JSON",
             Self::FileProcessingError(_) => "FILE_PROCESSING_ERROR",

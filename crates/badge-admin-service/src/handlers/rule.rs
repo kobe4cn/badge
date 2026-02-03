@@ -14,7 +14,8 @@ use validator::Validate;
 
 use crate::{
     dto::{
-        ApiResponse, CreateRuleRequest, PageResponse, PaginationParams, RuleDto, UpdateRuleRequest,
+        ApiResponse, CreateRuleRequest, PageResponse, PaginationParams, RuleDto,
+        TestRuleDefinitionRequest, UpdateRuleRequest,
     },
     error::AdminError,
     state::AppState,
@@ -331,6 +332,63 @@ pub async fn test_rule(
         "matched": true,
         "matchedConditions": ["event.type == PURCHASE", "order.amount >= 500"],
         "evaluationTimeMs": 2
+    });
+
+    Ok(Json(ApiResponse::success(result)))
+}
+
+/// 禁用规则
+///
+/// POST /api/admin/rules/:id/disable
+///
+/// 将规则状态从启用切换为禁用，禁用后规则引擎不再匹配该规则
+pub async fn disable_rule(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<ApiResponse<RuleDto>>, AdminError> {
+    let rule: Option<(bool,)> = sqlx::query_as("SELECT enabled FROM badge_rules WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
+
+    let rule = rule.ok_or(AdminError::RuleNotFound(id))?;
+
+    if !rule.0 {
+        return Err(AdminError::Validation("规则已处于禁用状态".to_string()));
+    }
+
+    sqlx::query("UPDATE badge_rules SET enabled = false, updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+
+    info!(rule_id = id, "Rule disabled");
+
+    let dto = fetch_rule_by_id(&state.pool, id).await?;
+    Ok(Json(ApiResponse::success(dto)))
+}
+
+/// 测试规则定义（不持久化）
+///
+/// POST /api/admin/rules/test
+///
+/// 接收规则 JSON 和可选上下文，返回模拟评估结果。
+/// 用于在保存规则前预览其匹配行为。
+/// 后续会对接 rule-engine gRPC 服务进行真实评估。
+pub async fn test_rule_definition(
+    State(_state): State<AppState>,
+    Json(req): Json<TestRuleDefinitionRequest>,
+) -> Result<Json<ApiResponse<Value>>, AdminError> {
+    if req.rule_json.is_null() {
+        return Err(AdminError::InvalidRuleJson("规则内容不能为空".to_string()));
+    }
+
+    // TODO: 对接 rule-engine gRPC 服务进行真实规则评估
+    let result = serde_json::json!({
+        "matched": true,
+        "matchedConditions": ["mock condition 1", "mock condition 2"],
+        "evaluationTimeMs": 1,
+        "context": req.context,
     });
 
     Ok(Json(ApiResponse::success(result)))

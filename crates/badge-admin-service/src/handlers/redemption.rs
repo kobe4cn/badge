@@ -498,6 +498,56 @@ pub async fn redeem(
     }
 }
 
+/// 获取单个兑换订单详情
+///
+/// GET /api/admin/redemption/orders/:order_no
+///
+/// 通过订单号精确查询，同时关联 redemption_details 获取消耗的徽章信息
+pub async fn get_redemption_order(
+    State(state): State<AppState>,
+    Path(order_no): Path<String>,
+) -> Result<Json<ApiResponse<RedemptionOrderDto>>, AdminError> {
+    let row = sqlx::query_as::<_, RedemptionOrderRow>(
+        r#"
+        SELECT
+            o.id, o.order_no, o.user_id,
+            o.redemption_rule_id as rule_id,
+            r.name as rule_name,
+            o.benefit_id,
+            b.name as benefit_name,
+            o.status::text as status,
+            o.failure_reason,
+            o.created_at
+        FROM redemption_orders o
+        JOIN badge_redemption_rules r ON r.id = o.redemption_rule_id
+        JOIN benefits b ON b.id = o.benefit_id
+        WHERE o.order_no = $1
+        "#,
+    )
+    .bind(&order_no)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AdminError::NotFound(format!("兑换订单不存在: {}", order_no)))?;
+
+    let consumed_badges = fetch_order_details(&state.pool, row.id).await?;
+
+    let dto = RedemptionOrderDto {
+        id: row.id,
+        order_no: row.order_no,
+        user_id: row.user_id,
+        rule_id: row.rule_id,
+        rule_name: row.rule_name,
+        benefit_id: row.benefit_id,
+        benefit_name: row.benefit_name,
+        status: row.status,
+        failure_reason: row.failure_reason,
+        consumed_badges,
+        created_at: row.created_at,
+    };
+
+    Ok(Json(ApiResponse::success(dto)))
+}
+
 /// 获取兑换订单列表
 ///
 /// GET /api/admin/redemption/orders

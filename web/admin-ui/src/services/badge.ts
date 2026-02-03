@@ -118,7 +118,7 @@ export function deleteBadge(id: number): Promise<void> {
  * @param id - 徽章 ID
  */
 export function publishBadge(id: number): Promise<void> {
-  return patch<void>(`/admin/badges/${id}/publish`);
+  return post<void>(`/admin/badges/${id}/publish`);
 }
 
 /**
@@ -129,7 +129,7 @@ export function publishBadge(id: number): Promise<void> {
  * @param id - 徽章 ID
  */
 export function unpublishBadge(id: number): Promise<void> {
-  return patch<void>(`/admin/badges/${id}/unpublish`);
+  return post<void>(`/admin/badges/${id}/offline`);
 }
 
 /**
@@ -140,7 +140,7 @@ export function unpublishBadge(id: number): Promise<void> {
  * @param id - 徽章 ID
  */
 export function archiveBadge(id: number): Promise<void> {
-  return patch<void>(`/admin/badges/${id}/archive`);
+  return post<void>(`/admin/badges/${id}/archive`);
 }
 
 /**

@@ -102,8 +102,9 @@ export interface TestRule {
 export function createTestBenefit(overrides: Partial<TestBenefit> = {}): TestBenefit {
   return {
     name: uniqueId('权益_'),
-    type: 'coupon',
-    benefitType: 'coupon',
+    code: uniqueId('ben_'),
+    type: 'COUPON',
+    benefitType: 'COUPON',
     value: 100,
     externalId: uniqueId('ext_'),
     description: '测试权益',
@@ -114,6 +115,7 @@ export function createTestBenefit(overrides: Partial<TestBenefit> = {}): TestBen
 
 export interface TestBenefit {
   name: string;
+  code: string;
   type: string;
   value: number;
   externalId: string;

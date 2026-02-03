@@ -13,7 +13,7 @@ use validator::Validate;
 use crate::{
     CategoryStatus,
     dto::{
-        ApiResponse, CategoryDto, CreateCategoryRequest, PageResponse, PaginationParams,
+        ApiResponse, CategoryDto, CreateCategoryRequest, PageResponse,
         UpdateCategoryRequest,
     },
     error::AdminError,
@@ -85,29 +85,66 @@ pub async fn create_category(
     Ok(Json(ApiResponse::success(dto)))
 }
 
+/// 分类列表查询参数
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCategoriesParams {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_page_size")]
+    pub page_size: i64,
+    pub name: Option<String>,
+}
+
+fn default_page() -> i64 {
+    1
+}
+
+fn default_page_size() -> i64 {
+    20
+}
+
+impl ListCategoriesParams {
+    /// 计算数据库查询的 offset
+    pub fn offset(&self) -> i64 {
+        (self.page - 1).max(0) * self.page_size
+    }
+
+    /// 获取限制条数（最大100）
+    pub fn limit(&self) -> i64 {
+        self.page_size.clamp(1, 100)
+    }
+}
+
 /// 获取分类列表（分页）
 ///
 /// GET /api/admin/categories
 pub async fn list_categories(
     State(state): State<AppState>,
-    Query(pagination): Query<PaginationParams>,
+    Query(params): Query<ListCategoriesParams>,
 ) -> Result<Json<ApiResponse<PageResponse<CategoryDto>>>, AdminError> {
-    let offset = pagination.offset();
-    let limit = pagination.limit();
+    let offset = params.offset();
+    let limit = params.limit();
 
-    // 查询总数
-    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM badge_categories")
-        .fetch_one(&state.pool)
-        .await?;
+    // 构建模糊搜索参数：当提供 name 时，添加 % 通配符用于 ILIKE 查询
+    let name_pattern = params.name.as_ref().map(|n| format!("%{}%", n));
+
+    // 查询总数，支持按名称过滤
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM badge_categories WHERE ($1::text IS NULL OR name ILIKE $1)"
+    )
+    .bind(&name_pattern)
+    .fetch_one(&state.pool)
+    .await?;
 
     if total.0 == 0 {
         return Ok(Json(ApiResponse::success(PageResponse::empty(
-            pagination.page,
-            pagination.page_size,
+            params.page,
+            params.page_size,
         ))));
     }
 
-    // 查询分类并统计每个分类下的徽章数量
+    // 查询分类并统计每个分类下的徽章数量，支持按名称过滤
     let rows = sqlx::query_as::<_, CategoryWithCount>(
         r#"
         SELECT
@@ -126,10 +163,12 @@ pub async fn list_categories(
             LEFT JOIN badges b ON b.series_id = s.id
             GROUP BY s.category_id
         ) badge_counts ON badge_counts.category_id = c.id
+        WHERE ($1::text IS NULL OR c.name ILIKE $1)
         ORDER BY c.sort_order ASC, c.id ASC
-        LIMIT $1 OFFSET $2
+        LIMIT $2 OFFSET $3
         "#,
     )
+    .bind(&name_pattern)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
@@ -149,7 +188,7 @@ pub async fn list_categories(
         })
         .collect();
 
-    let response = PageResponse::new(categories, total.0, pagination.page, pagination.page_size);
+    let response = PageResponse::new(categories, total.0, params.page, params.page_size);
     Ok(Json(ApiResponse::success(response)))
 }
 
