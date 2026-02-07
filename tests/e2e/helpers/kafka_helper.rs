@@ -24,7 +24,6 @@ pub mod topics {
 /// Kafka 辅助工具
 pub struct KafkaHelper {
     producer: FutureProducer,
-    consumer: StreamConsumer,
     brokers: String,
 }
 
@@ -35,16 +34,8 @@ impl KafkaHelper {
             .set("message.timeout.ms", "5000")
             .create()?;
 
-        let consumer: StreamConsumer = ClientConfig::new()
-            .set("bootstrap.servers", brokers)
-            .set("group.id", format!("test-consumer-{}", Uuid::new_v4()))
-            .set("enable.partition.eof", "false")
-            .set("auto.offset.reset", "latest")
-            .create()?;
-
         Ok(Self {
             producer,
-            consumer,
             brokers: brokers.to_string(),
         })
     }

@@ -10,6 +10,7 @@ use super::environment::TestEnvConfig;
 
 /// 服务端口配置（与实际服务保持一致）
 pub mod ports {
+    #![allow(dead_code)] // 端口配置用于文档参考和将来扩展
     // HTTP/gRPC 服务端口
     pub const ADMIN_SERVICE: u16 = 8080;
     pub const RULE_ENGINE_GRPC: u16 = 50051;

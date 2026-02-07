@@ -10,6 +10,26 @@ use std::time::{Duration, Instant};
 mod e2e_benchmark_tests {
     use super::*;
 
+    /// 登录获取 JWT Token，所有 /api/admin/ 端点均需要认证
+    async fn get_auth_token(base_url: &str) -> String {
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{}/api/admin/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin123"
+            }))
+            .send()
+            .await
+            .expect("登录失败");
+        let body: serde_json::Value = resp.json().await.expect("解析登录响应失败");
+        body["data"]["token"]
+            .as_str()
+            .or_else(|| body["token"].as_str())
+            .expect("未找到 token")
+            .to_string()
+    }
+
     /// 完整消费流程基准测试
     /// 事件 -> 规则评估 -> 徽章发放 -> 权益发放
     #[tokio::test]
@@ -34,6 +54,7 @@ mod e2e_benchmark_tests {
             .build()
             .unwrap();
 
+        let token = get_auth_token(&admin_url).await;
         let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         let metrics = runner
@@ -41,6 +62,7 @@ mod e2e_benchmark_tests {
                 let client = client.clone();
                 let event_url = event_url.clone();
                 let admin_url = admin_url.clone();
+                let token = token.clone();
                 let cnt = counter.clone();
                 let seq = cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
@@ -48,7 +70,7 @@ mod e2e_benchmark_tests {
                     let user_id = format!("benchmark_user_{}", seq);
                     let start = Instant::now();
 
-                    // 1. 发送交易事件
+                    // 1. 发送交易事件（事件服务不需要 JWT 认证）
                     let event_response = client
                         .post(format!("{}/api/events", event_url))
                         .json(&serde_json::json!({
@@ -77,9 +99,13 @@ mod e2e_benchmark_tests {
                     // 2. 等待异步处理（模拟实际场景）
                     tokio::time::sleep(Duration::from_millis(100)).await;
 
-                    // 3. 验证徽章发放
+                    // 3. 验证徽章发放（管理服务需要 JWT 认证）
                     let badge_response = client
-                        .get(format!("{}/api/users/{}/badges", admin_url, user_id))
+                        .get(format!(
+                            "{}/api/admin/users/{}/badges",
+                            admin_url, user_id
+                        ))
+                        .header("Authorization", format!("Bearer {}", token))
                         .send()
                         .await;
 
@@ -131,6 +157,7 @@ mod e2e_benchmark_tests {
                     let user_id = format!("checkin_user_{}", seq % 1000);
                     let start = Instant::now();
 
+                    // 事件服务不需要 JWT 认证
                     let response = client
                         .post(&url)
                         .json(&serde_json::json!({
@@ -182,6 +209,7 @@ mod e2e_benchmark_tests {
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
         let client = reqwest::Client::new();
+        let token = get_auth_token(&admin_url).await;
         let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         // 假设徽章 1 触发级联
@@ -190,7 +218,8 @@ mod e2e_benchmark_tests {
         let metrics = runner
             .run(move || {
                 let client = client.clone();
-                let url = format!("{}/api/users", admin_url);
+                let admin_url = admin_url.clone();
+                let token = token.clone();
                 let cnt = counter.clone();
                 let seq = cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
@@ -198,15 +227,15 @@ mod e2e_benchmark_tests {
                     let user_id = format!("cascade_user_{}", seq);
                     let start = Instant::now();
 
-                    // 发放触发徽章
+                    // 通过手动发放接口触发级联
                     let response = client
-                        .post(format!(
-                            "{}/{}/badges/{}/grant",
-                            url, user_id, trigger_badge_id
-                        ))
+                        .post(format!("{}/api/admin/grants/manual", admin_url))
+                        .header("Authorization", format!("Bearer {}", token))
                         .json(&serde_json::json!({
-                            "source_type": "benchmark",
-                            "source_id": format!("cascade_{}", seq)
+                            "userId": user_id,
+                            "badgeId": trigger_badge_id,
+                            "sourceType": "benchmark",
+                            "sourceId": format!("cascade_{}", seq)
                         }))
                         .send()
                         .await;
@@ -253,12 +282,14 @@ mod e2e_benchmark_tests {
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
         let client = reqwest::Client::new();
+        let token = get_auth_token(&admin_url).await;
         let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         let metrics = runner
             .run(move || {
                 let client = client.clone();
-                let url = format!("{}/api/redemptions", admin_url);
+                let url = format!("{}/api/admin/redemption/redeem", admin_url);
+                let token = token.clone();
                 let cnt = counter.clone();
                 let seq = cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
@@ -268,6 +299,7 @@ mod e2e_benchmark_tests {
 
                     let response = client
                         .post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
                         .json(&serde_json::json!({
                             "user_id": user_id,
                             "rule_id": 1,
@@ -318,6 +350,7 @@ mod e2e_benchmark_tests {
             .unwrap_or_else(|_| "http://localhost:8081".to_string());
 
         let client = reqwest::Client::new();
+        let token = get_auth_token(&admin_url).await;
         let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         let metrics = runner
@@ -325,6 +358,7 @@ mod e2e_benchmark_tests {
                 let client = client.clone();
                 let admin_url = admin_url.clone();
                 let event_url = event_url.clone();
+                let token = token.clone();
                 let cnt = counter.clone();
                 let seq = cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
@@ -334,15 +368,19 @@ mod e2e_benchmark_tests {
                     // 根据序号选择不同操作（模拟真实流量分布）
                     let result = match seq % 10 {
                         0..=5 => {
-                            // 60% - 查询用户徽章
+                            // 60% - 查询用户徽章（管理服务需要认证）
                             let user_id = format!("user_{}", seq % 1000);
                             client
-                                .get(format!("{}/api/users/{}/badges", admin_url, user_id))
+                                .get(format!(
+                                    "{}/api/admin/users/{}/badges",
+                                    admin_url, user_id
+                                ))
+                                .header("Authorization", format!("Bearer {}", token))
                                 .send()
                                 .await
                         }
                         6..=7 => {
-                            // 20% - 发送签到事件
+                            // 20% - 发送签到事件（事件服务不需要认证）
                             client
                                 .post(format!("{}/api/events", event_url))
                                 .json(&serde_json::json!({
@@ -356,16 +394,18 @@ mod e2e_benchmark_tests {
                                 .await
                         }
                         8 => {
-                            // 10% - 查询徽章列表
+                            // 10% - 查询徽章列表（管理服务需要认证）
                             client
-                                .get(format!("{}/api/badges", admin_url))
+                                .get(format!("{}/api/admin/badges", admin_url))
+                                .header("Authorization", format!("Bearer {}", token))
                                 .send()
                                 .await
                         }
                         _ => {
-                            // 10% - 查询规则列表
+                            // 10% - 查询规则列表（管理服务需要认证）
                             client
-                                .get(format!("{}/api/rules", admin_url))
+                                .get(format!("{}/api/admin/rules", admin_url))
+                                .header("Authorization", format!("Bearer {}", token))
                                 .send()
                                 .await
                         }

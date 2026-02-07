@@ -12,18 +12,18 @@
 -- 2. 基础分类和系列
 -- ============================================
 INSERT INTO badge_categories (id, name, icon_url, sort_order, status) VALUES
-  (1, '新手任务', 'https://cdn.example.com/cat/newbie.png', 1, 'ACTIVE'),
-  (2, '消费成就', 'https://cdn.example.com/cat/purchase.png', 2, 'ACTIVE'),
-  (3, '社交互动', 'https://cdn.example.com/cat/social.png', 3, 'ACTIVE'),
-  (4, '限定活动', 'https://cdn.example.com/cat/event.png', 4, 'ACTIVE')
-ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
+  (1, '新手任务', 'https://cdn.example.com/cat/newbie.png', 1, 'active'),
+  (2, '消费成就', 'https://cdn.example.com/cat/purchase.png', 2, 'active'),
+  (3, '社交互动', 'https://cdn.example.com/cat/social.png', 3, 'active'),
+  (4, '限定活动', 'https://cdn.example.com/cat/event.png', 4, 'active')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status;
 
 INSERT INTO badge_series (id, category_id, name, description, sort_order, status) VALUES
-  (1, 1, '入门系列', '完成基础任务获得', 1, 'ACTIVE'),
-  (2, 2, '购物系列', '消费达成获得', 1, 'ACTIVE'),
-  (3, 3, '社交系列', '互动分享获得', 1, 'ACTIVE'),
-  (4, 4, '活动系列', '限时活动获得', 1, 'ACTIVE')
-ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
+  (1, 1, '入门系列', '完成基础任务获得', 1, 'active'),
+  (2, 2, '购物系列', '消费达成获得', 1, 'active'),
+  (3, 3, '社交系列', '互动分享获得', 1, 'active'),
+  (4, 4, '活动系列', '限时活动获得', 1, 'active')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status;
 
 -- ============================================
 -- 3. 徽章定义
@@ -32,39 +32,39 @@ INSERT INTO badges (id, series_id, badge_type, name, description, obtain_descrip
   -- 新手任务
   (1, 1, 'NORMAL', '新用户徽章', '欢迎加入', '注册即获得',
    '{"iconUrl": "https://cdn.example.com/badge/newbie.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
   (2, 1, 'NORMAL', '首次签到', '完成首次签到', '签到一次即可获得',
    '{"iconUrl": "https://cdn.example.com/badge/checkin.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
 
   -- 购物系列
   (3, 2, 'NORMAL', '首次购买', '完成首次购买', '购买任意商品即可获得',
    '{"iconUrl": "https://cdn.example.com/badge/first-buy.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
   (4, 2, 'NORMAL', '购物新星', '购买金额满100元', '单笔购买满100元',
    '{"iconUrl": "https://cdn.example.com/badge/shopping-star.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
   (5, 2, 'ACHIEVEMENT', '购物达人', '累计购买满1000元', '累计消费满1000元',
    '{"iconUrl": "https://cdn.example.com/badge/shopping-master.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
 
   -- 社交系列
   (6, 3, 'NORMAL', '社交达人', '首次分享', '分享到社交平台',
    '{"iconUrl": "https://cdn.example.com/badge/social.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
   (7, 3, 'NORMAL', '评价达人', '发表首条评价', '评价任意商品',
    '{"iconUrl": "https://cdn.example.com/badge/review.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
 
   -- 成就徽章（级联触发）
   (8, 3, 'ACHIEVEMENT', '互动KOC', '签到+社交双达成', '同时拥有首次签到和社交达人徽章',
    '{"iconUrl": "https://cdn.example.com/badge/koc.png"}',
-   '{"validityType": "PERMANENT"}', 'ACTIVE'),
+   '{"validityType": "PERMANENT"}', 'active'),
 
   -- 限定兑换徽章
   (9, 4, 'LIMITED', '乐园新星', '兑换限定徽章', '使用互动KOC+首次购买兑换',
    '{"iconUrl": "https://cdn.example.com/badge/park-star.png"}',
-   '{"validityType": "RELATIVE_DAYS", "relativeDays": 365}', 'ACTIVE')
+   '{"validityType": "RELATIVE_DAYS", "relativeDays": 365}', 'active')
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status;
 
 -- 重置序列
@@ -75,31 +75,33 @@ SELECT setval('badge_categories_id_seq', (SELECT MAX(id) FROM badge_categories))
 -- ============================================
 -- 4. 规则配置
 -- ============================================
-INSERT INTO badge_rules (id, code, name, badge_id, event_type, rule_json, service_group, enabled) VALUES
-  -- 签到规则
-  (1, 'first_checkin', '首次签到规则', 2, 'checkin',
-   '{"root": {"type": "condition", "field": "event.type", "operator": "eq", "value": "checkin"}}',
-   'engagement', true),
+INSERT INTO badge_rules (id, rule_code, badge_id, event_type, rule_json, enabled) VALUES
+  -- 签到规则（checkin 事件 data 内含 location=app）
+  (1, 'first_checkin', 2, 'checkin',
+   '{"type":"condition","field":"location","operator":"eq","value":"app"}',
+   true),
 
-  -- 购买规则
-  (2, 'first_purchase', '首次购买规则', 3, 'purchase',
-   '{"root": {"type": "condition", "field": "event.type", "operator": "eq", "value": "purchase"}}',
-   'transaction', true),
-  (3, 'purchase_100', '购物新星规则', 4, 'purchase',
-   '{"root": {"type": "logical_group", "operator": "and", "children": [
-     {"type": "condition", "field": "event.type", "operator": "eq", "value": "purchase"},
-     {"type": "condition", "field": "order.amount", "operator": "gte", "value": 100}
-   ]}}',
-   'transaction', true),
+  -- 购买规则（purchase 事件 data 内含 amount）
+  (2, 'first_purchase', 3, 'purchase',
+   '{"type":"condition","field":"amount","operator":"gte","value":0}',
+   true),
+  (3, 'purchase_100', 4, 'purchase',
+   '{"type":"condition","field":"amount","operator":"gte","value":100}',
+   true),
 
-  -- 社交规则
-  (4, 'first_share', '社交达人规则', 6, 'share',
-   '{"root": {"type": "condition", "field": "event.type", "operator": "eq", "value": "share"}}',
-   'engagement', true),
-  (5, 'first_review', '评价达人规则', 7, 'review',
-   '{"root": {"type": "condition", "field": "event.type", "operator": "eq", "value": "review"}}',
-   'engagement', true)
-ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled;
+  -- 社交规则（share 事件 data 内含 content_type）
+  (4, 'first_share', 6, 'share',
+   '{"type":"condition","field":"content_type","operator":"neq","value":""}',
+   true),
+  (5, 'first_review', 7, 'review',
+   '{"type":"condition","field":"rating","operator":"gte","value":1}',
+   true)
+ON CONFLICT (id) DO UPDATE SET
+  rule_code = EXCLUDED.rule_code,
+  badge_id = EXCLUDED.badge_id,
+  event_type = EXCLUDED.event_type,
+  rule_json = EXCLUDED.rule_json,
+  enabled = EXCLUDED.enabled;
 
 SELECT setval('badge_rules_id_seq', (SELECT MAX(id) FROM badge_rules));
 
@@ -149,7 +151,7 @@ SELECT setval('badge_redemption_rules_id_seq', (SELECT MAX(id) FROM badge_redemp
 DO $$
 BEGIN
   RAISE NOTICE '=== 测试数据初始化完成 ===';
-  RAISE NOTICE '徽章数量: %', (SELECT COUNT(*) FROM badges WHERE status = 'ACTIVE');
+  RAISE NOTICE '徽章数量: %', (SELECT COUNT(*) FROM badges WHERE status = 'active');
   RAISE NOTICE '规则数量: %', (SELECT COUNT(*) FROM badge_rules WHERE enabled = true);
   RAISE NOTICE '级联依赖: %', (SELECT COUNT(*) FROM badge_dependencies WHERE enabled = true);
   RAISE NOTICE '兑换规则: %', (SELECT COUNT(*) FROM badge_redemption_rules WHERE enabled = true);

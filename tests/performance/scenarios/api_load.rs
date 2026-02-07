@@ -9,6 +9,26 @@ use std::time::{Duration, Instant};
 mod api_load_tests {
     use super::*;
 
+    /// 登录获取 JWT Token，所有 /api/admin/ 端点均需要认证
+    async fn get_auth_token(base_url: &str) -> String {
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{}/api/admin/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin123"
+            }))
+            .send()
+            .await
+            .expect("登录失败");
+        let body: serde_json::Value = resp.json().await.expect("解析登录响应失败");
+        body["data"]["token"]
+            .as_str()
+            .or_else(|| body["token"].as_str())
+            .expect("未找到 token")
+            .to_string()
+    }
+
     /// 徽章查询 API 负载测试
     #[tokio::test]
     #[ignore = "需要运行服务"]
@@ -26,13 +46,20 @@ mod api_load_tests {
         let base_url =
             std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        let token = get_auth_token(&base_url).await;
+
         let metrics = runner
             .run(move || {
                 let client = client.clone();
-                let url = format!("{}/api/badges", base_url);
+                let url = format!("{}/api/admin/badges", base_url);
+                let token = token.clone();
                 async move {
                     let start = Instant::now();
-                    let response = client.get(&url).send().await;
+                    let response = client
+                        .get(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .send()
+                        .await;
                     let latency = start.elapsed();
 
                     match response {
@@ -67,13 +94,20 @@ mod api_load_tests {
         let base_url =
             std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        let token = get_auth_token(&base_url).await;
+
         let metrics = runner
             .run(move || {
                 let client = client.clone();
-                let url = format!("{}/api/rules", base_url);
+                let url = format!("{}/api/admin/rules", base_url);
+                let token = token.clone();
                 async move {
                     let start = Instant::now();
-                    let response = client.get(&url).send().await;
+                    let response = client
+                        .get(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .send()
+                        .await;
                     let latency = start.elapsed();
 
                     match response {
@@ -106,15 +140,22 @@ mod api_load_tests {
         let base_url =
             std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        let token = get_auth_token(&base_url).await;
+
         let metrics = runner
             .run(move || {
                 let client = client.clone();
                 // 使用随机用户 ID 模拟真实场景
                 let user_id = format!("user_{}", rand::random::<u32>() % 10000);
-                let url = format!("{}/api/users/{}/badges", base_url, user_id);
+                let url = format!("{}/api/admin/users/{}/badges", base_url, user_id);
+                let token = token.clone();
                 async move {
                     let start = Instant::now();
-                    let response = client.get(&url).send().await;
+                    let response = client
+                        .get(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .send()
+                        .await;
                     let latency = start.elapsed();
 
                     match response {

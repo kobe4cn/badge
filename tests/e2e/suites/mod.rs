@@ -6,6 +6,7 @@ pub mod basic_config;
 pub mod benefit_config;
 pub mod cascade_trigger;
 pub mod data_consistency;
+pub mod deep_nesting;
 pub mod event_trigger;
 pub mod notification;
 pub mod redemption;

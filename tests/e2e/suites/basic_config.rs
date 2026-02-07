@@ -43,8 +43,8 @@ mod category_tests {
         let env = TestEnvironment::setup().await.unwrap();
         env.prepare_test_data().await.unwrap();
 
-        // 创建父分类
-        let parent = env
+        // 创建父分类（当前 API 不支持嵌套分类，仅验证分类创建）
+        let _parent = env
             .api
             .create_category(&TestCategories::achievement())
             .await

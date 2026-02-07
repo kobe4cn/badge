@@ -91,6 +91,34 @@ fn register_common_metrics(service_name: &str) {
     metrics::describe_counter!("benefit_grants_total", "Total number of benefit grants");
     metrics::describe_gauge!("benefit_remaining_stock", "Remaining stock for benefits");
 
+    // 批量任务指标
+    metrics::describe_counter!("batch_tasks_total", "Total number of batch tasks");
+    metrics::describe_histogram!(
+        "batch_task_duration_seconds",
+        "Batch task processing duration in seconds"
+    );
+    metrics::describe_gauge!("batch_task_pending_count", "Number of pending batch tasks");
+
+    // 撤销指标
+    metrics::describe_counter!("badge_revokes_total", "Total number of badge revocations");
+    metrics::describe_histogram!(
+        "badge_revoke_duration_seconds",
+        "Badge revocation duration in seconds"
+    );
+
+    // 过期处理指标
+    metrics::describe_counter!(
+        "badge_expirations_total",
+        "Total number of badge expirations processed"
+    );
+    metrics::describe_counter!(
+        "expire_reminders_total",
+        "Total number of expiration reminders sent"
+    );
+
+    // Worker 健康指标
+    metrics::describe_gauge!("worker_last_run_timestamp", "Last successful worker run timestamp");
+
     // 记录服务启动
     metrics::counter!("service_starts_total", "service" => service_name.to_string()).increment(1);
 }
@@ -250,6 +278,73 @@ pub fn set_benefit_stock(benefit_id: i64, stock: f64) {
         "benefit_id" => benefit_id.to_string()
     )
     .set(stock);
+}
+
+/// 记录批量任务
+#[inline]
+pub fn record_batch_task(task_type: &str, status: &str, duration_secs: f64) {
+    metrics::counter!(
+        "batch_tasks_total",
+        "task_type" => task_type.to_string(),
+        "status" => status.to_string()
+    )
+    .increment(1);
+
+    metrics::histogram!(
+        "batch_task_duration_seconds",
+        "task_type" => task_type.to_string()
+    )
+    .record(duration_secs);
+}
+
+/// 更新待处理批量任务数量
+#[inline]
+pub fn set_pending_batch_tasks(count: f64) {
+    metrics::gauge!("batch_task_pending_count").set(count);
+}
+
+/// 记录徽章撤销
+#[inline]
+pub fn record_badge_revoke(source: &str, status: &str, duration_secs: f64) {
+    metrics::counter!(
+        "badge_revokes_total",
+        "source" => source.to_string(),
+        "status" => status.to_string()
+    )
+    .increment(1);
+
+    metrics::histogram!(
+        "badge_revoke_duration_seconds",
+        "source" => source.to_string()
+    )
+    .record(duration_secs);
+}
+
+/// 记录徽章过期处理
+#[inline]
+pub fn record_badge_expiration(count: u64) {
+    metrics::counter!("badge_expirations_total").increment(count);
+}
+
+/// 记录过期提醒发送
+#[inline]
+pub fn record_expire_reminder(count: u64) {
+    metrics::counter!("expire_reminders_total").increment(count);
+}
+
+/// 更新 Worker 最后运行时间戳
+#[inline]
+pub fn set_worker_last_run(worker_name: &str) {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+
+    metrics::gauge!(
+        "worker_last_run_timestamp",
+        "worker" => worker_name.to_string()
+    )
+    .set(timestamp);
 }
 
 #[cfg(test)]

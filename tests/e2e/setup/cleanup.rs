@@ -181,6 +181,7 @@ impl TestCleanup {
     }
 
     /// 清理用户徽章（按 user_id 匹配）
+    #[allow(dead_code)] // 备用清理方法，与 clean_user_badges_by_badge_ids 互补
     async fn clean_user_badges(&self) -> Result<()> {
         sqlx::query("DELETE FROM user_badges WHERE user_id LIKE 'test_%'")
             .execute(&self.pool)

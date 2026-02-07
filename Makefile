@@ -1,4 +1,4 @@
-.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate kafka-init kafka-topics e2e-test e2e-cascade e2e-redemption e2e-refund test-infra-up test-infra-down test-e2e test-e2e-backend test-e2e-frontend test-e2e-perf test-coverage test-clean
+.PHONY: all setup build test clean dev-backend dev-backend-core dev-frontend infra-up infra-down mock-server mock-generate kafka-init kafka-topics e2e-test e2e-cascade e2e-redemption e2e-refund test-infra-up test-infra-down test-e2e test-e2e-backend test-e2e-frontend test-e2e-perf test-coverage test-clean test-docker-up test-docker-down test-e2e-docker
 
 # 默认目标
 all: build
@@ -277,6 +277,30 @@ test-coverage:
 	cargo llvm-cov --all-features --workspace --html --output-dir coverage-report
 	@echo "覆盖率报告已生成: coverage-report/html/index.html"
 
+# 启动完整测试 Docker 环境（基础设施 + 全部应用服务）
+test-docker-up:
+	docker-compose -f docker-compose.test.yml --profile full up -d
+	@echo "等待所有服务健康就绪..."
+	@docker-compose -f docker-compose.test.yml --profile full ps
+	@echo "测试 Docker 环境已启动"
+
+# 停止测试 Docker 环境并清理 volumes
+test-docker-down:
+	docker-compose -f docker-compose.test.yml --profile full down -v
+	@echo "测试 Docker 环境已停止"
+
+# 在 Docker 环境中运行完整 E2E 测试（启动环境 → 后端测试 → 前端测试 → 清理）
+test-e2e-docker: test-docker-up
+	@echo "=== 运行后端 E2E 测试 ==="
+	cargo test --test e2e -- --ignored --test-threads=1 || ($(MAKE) test-docker-down && exit 1)
+	@echo ""
+	@echo "=== 运行前端 Playwright 测试 ==="
+	cd web/admin-ui && npm ci && npx playwright install --with-deps && npx playwright test || ($(MAKE) test-docker-down && exit 1)
+	@echo ""
+	@echo "=== 清理测试环境 ==="
+	$(MAKE) test-docker-down
+	@echo "E2E Docker 测试完成"
+
 # 清理测试产物
 test-clean:
 	rm -rf target/test-results coverage-report
@@ -319,6 +343,9 @@ help:
 	@echo "  test-e2e-perf    - Run performance tests"
 	@echo "  test-coverage    - Generate code coverage report"
 	@echo "  test-clean       - Clean test artifacts"
+	@echo "  test-docker-up   - Start full test Docker env (infra + services)"
+	@echo "  test-docker-down - Stop test Docker env and cleanup volumes"
+	@echo "  test-e2e-docker  - Run full E2E tests in Docker (up→test→down)"
 	@echo ""
 	@echo "Infrastructure:"
 	@echo "  infra-up         - Start infrastructure (Podman)"

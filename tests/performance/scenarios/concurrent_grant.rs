@@ -12,6 +12,26 @@ use tokio::sync::Mutex;
 mod concurrent_grant_tests {
     use super::*;
 
+    /// 登录获取 JWT Token，所有 /api/admin/ 端点均需要认证
+    async fn get_auth_token(base_url: &str) -> String {
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{}/api/admin/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin123"
+            }))
+            .send()
+            .await
+            .expect("登录失败");
+        let body: serde_json::Value = resp.json().await.expect("解析登录响应失败");
+        body["data"]["token"]
+            .as_str()
+            .or_else(|| body["token"].as_str())
+            .expect("未找到 token")
+            .to_string()
+    }
+
     /// 并发发放同一徽章测试 - 验证幂等性
     #[tokio::test]
     #[ignore = "需要运行服务"]
@@ -29,6 +49,8 @@ mod concurrent_grant_tests {
         let base_url =
             std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        let token = get_auth_token(&base_url).await;
+
         // 固定用户和徽章，测试幂等性
         let user_id = "test_user_idempotency";
         let badge_id = 1;
@@ -36,17 +58,19 @@ mod concurrent_grant_tests {
         let metrics = runner
             .run(move || {
                 let client = client.clone();
-                let url = format!(
-                    "{}/api/users/{}/badges/{}/grant",
-                    base_url, user_id, badge_id
-                );
+                let url = format!("{}/api/admin/grants/manual", base_url);
+                let token = token.clone();
+                let user_id = user_id.to_string();
                 async move {
                     let start = Instant::now();
                     let response = client
                         .post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
                         .json(&serde_json::json!({
-                            "source_type": "test",
-                            "source_id": "perf_test"
+                            "userId": user_id,
+                            "badgeId": badge_id,
+                            "sourceType": "test",
+                            "sourceId": "perf_test"
                         }))
                         .send()
                         .await;
@@ -85,6 +109,7 @@ mod concurrent_grant_tests {
         let base_url =
             std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        let token = get_auth_token(&base_url).await;
         let user_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let badge_id = 1;
 
@@ -96,17 +121,18 @@ mod concurrent_grant_tests {
                     "perf_user_{}",
                     counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
                 );
-                let url = format!(
-                    "{}/api/users/{}/badges/{}/grant",
-                    base_url, user_id, badge_id
-                );
+                let url = format!("{}/api/admin/grants/manual", base_url);
+                let token = token.clone();
                 async move {
                     let start = Instant::now();
                     let response = client
                         .post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
                         .json(&serde_json::json!({
-                            "source_type": "test",
-                            "source_id": "perf_test"
+                            "userId": user_id,
+                            "badgeId": badge_id,
+                            "sourceType": "test",
+                            "sourceId": "perf_test"
                         }))
                         .send()
                         .await;
@@ -137,6 +163,7 @@ mod concurrent_grant_tests {
         let base_url =
             std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        let token = get_auth_token(&base_url).await;
         let successful_redemptions = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let redeemed_users = Arc::new(Mutex::new(HashSet::<String>::new()));
 
@@ -145,14 +172,16 @@ mod concurrent_grant_tests {
         for i in 0..concurrent_requests {
             let client = client.clone();
             let base_url = base_url.clone();
+            let token = token.clone();
             let successful = successful_redemptions.clone();
             let users = redeemed_users.clone();
             let user_id = format!("redeem_user_{}", i);
 
             let handle = tokio::spawn(async move {
-                let url = format!("{}/api/redemptions", base_url);
+                let url = format!("{}/api/admin/redemption/redeem", base_url);
                 let response = client
                     .post(&url)
+                    .header("Authorization", format!("Bearer {}", token))
                     .json(&serde_json::json!({
                         "user_id": user_id,
                         "rule_id": 1,

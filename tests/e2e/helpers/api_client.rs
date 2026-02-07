@@ -290,6 +290,7 @@ impl ApiClient {
         self.handle_response(resp).await
     }
 
+    #[allow(dead_code)] // API 完整性预留，PATCH 方法可能在将来的端点中使用
     async fn patch<T: DeserializeOwned, R: Serialize>(&self, path: &str, body: &R) -> Result<T> {
         let resp = self.client.patch(self.url(path)).json(body).send().await?;
         self.handle_response(resp).await

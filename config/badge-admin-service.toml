@@ -9,3 +9,8 @@ consumer_group = "badge-admin-service"
 
 [observability]
 metrics_port = 9991
+
+# JWT 配置（通过环境变量注入，不在 TOML 中存储密钥）
+# BADGE_JWT_SECRET      - JWT 签名密钥（生产环境必须设置）
+# BADGE_JWT_EXPIRES_SECS - Token 过期时间，默认 86400 秒（24小时）
+# BADGE_ENV             - 运行环境标识，production 时强制要求密钥

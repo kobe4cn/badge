@@ -10,6 +10,26 @@ use std::time::{Duration, Instant};
 mod rule_engine_tests {
     use super::*;
 
+    /// 登录获取 JWT Token，所有 /api/admin/ 端点均需要认证
+    async fn get_auth_token(base_url: &str) -> String {
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("{}/api/admin/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin123"
+            }))
+            .send()
+            .await
+            .expect("登录失败");
+        let body: serde_json::Value = resp.json().await.expect("解析登录响应失败");
+        body["data"]["token"]
+            .as_str()
+            .or_else(|| body["token"].as_str())
+            .expect("未找到 token")
+            .to_string()
+    }
+
     /// 规则评估性能测试
     /// 模拟大量事件触发规则评估
     #[tokio::test]
@@ -40,6 +60,7 @@ mod rule_engine_tests {
 
                 async move {
                     let start = Instant::now();
+                    // 事件服务不需要 JWT 认证
                     let response = client
                         .post(&url)
                         .json(&serde_json::json!({
@@ -103,6 +124,7 @@ mod rule_engine_tests {
 
                 async move {
                     let start = Instant::now();
+                    // 事件服务不需要 JWT 认证
                     let response = client
                         .post(&url)
                         .json(&serde_json::json!({
@@ -156,13 +178,21 @@ mod rule_engine_tests {
         let admin_url = std::env::var("ADMIN_SERVICE_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        // 缓存刷新接口位于管理服务下，需要认证
+        let token = get_auth_token(&admin_url).await;
+
         // 启动后台任务定期刷新规则
         let reload_client = reqwest::Client::new();
-        let reload_url = format!("{}/api/cache/rules/refresh", admin_url);
+        let reload_url = format!("{}/api/admin/cache/auto-benefit/refresh", admin_url);
+        let reload_token = token.clone();
         let reload_handle = tokio::spawn(async move {
             for _ in 0..5 {
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                let _ = reload_client.post(&reload_url).send().await;
+                let _ = reload_client
+                    .post(&reload_url)
+                    .header("Authorization", format!("Bearer {}", reload_token))
+                    .send()
+                    .await;
                 println!("规则热更新触发");
             }
         });
@@ -179,6 +209,7 @@ mod rule_engine_tests {
 
                 async move {
                     let start = Instant::now();
+                    // 事件服务不需要 JWT 认证
                     let response = client
                         .post(&url)
                         .json(&serde_json::json!({
@@ -226,15 +257,20 @@ mod rule_engine_tests {
         let base_url = std::env::var("ADMIN_SERVICE_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        // 规则测试接口位于管理服务下，需要认证
+        let token = get_auth_token(&base_url).await;
+
         let metrics = runner
             .run(move || {
                 let client = client.clone();
-                let url = format!("{}/api/rules/evaluate", base_url);
+                let url = format!("{}/api/admin/rules/test", base_url);
+                let token = token.clone();
 
                 async move {
                     let start = Instant::now();
                     let response = client
                         .post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
                         .json(&serde_json::json!({
                             "user_id": format!("user_{}", rand::random::<u32>() % 10000),
                             "event_type": "purchase",

@@ -140,7 +140,6 @@ mod benefit_crud_tests {
 mod benefit_link_tests {
     use super::*;
     use crate::helpers::*;
-    use serde_json::json;
 
     /// 测试关联权益到徽章
     ///
