@@ -14,7 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY benches/ benches/
 
-RUN cargo build --release --bin mock-server
+RUN cargo build --release -p mock-services --bin mock-server
 
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim

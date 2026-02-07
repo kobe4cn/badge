@@ -14,7 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY benches/ benches/
 
-RUN cargo build --release --bin badge-management
+RUN cargo build --release -p badge-management-service --bin badge-management
 
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim

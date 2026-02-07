@@ -14,7 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY benches/ benches/
 
-RUN cargo build --release --bin rule-engine
+RUN cargo build --release -p unified-rule-engine --bin rule-engine
 
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim

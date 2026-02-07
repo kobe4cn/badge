@@ -14,7 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY benches/ benches/
 
-RUN cargo build --release --bin notification-worker
+RUN cargo build --release -p notification-worker --bin notification-worker
 
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim

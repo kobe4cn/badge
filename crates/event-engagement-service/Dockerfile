@@ -14,7 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY benches/ benches/
 
-RUN cargo build --release --bin event-engagement
+RUN cargo build --release -p event-engagement-service --bin event-engagement
 
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim
