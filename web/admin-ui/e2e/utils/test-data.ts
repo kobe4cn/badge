@@ -1,12 +1,27 @@
 /**
  * 测试数据生成工具
+ *
+ * 所有测试数据都通过 uniqueId / testRunPrefix 保证跨测试/跨并行运行的隔离性。
+ * 前缀格式: e2e_{timestamp}_{random} — 方便事后按前缀批量清理残留数据。
  */
 
+/** 自增计数器，同一进程内保证即使同毫秒调用也不会碰撞 */
+let _seq = 0;
+
 /**
- * 生成唯一 ID
+ * 生成唯一 ID，组合时间戳 + 自增序号 + 随机串，三重保障唯一性
  */
 export function uniqueId(prefix = ''): string {
-  return `${prefix}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  _seq += 1;
+  return `${prefix}${Date.now()}_${_seq}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * 生成当前测试运行的隔离前缀，每个 spec 文件调用一次即可，
+ * 后续所有测试数据都基于此前缀创建和清理
+ */
+export function testRunPrefix(): string {
+  return `e2e_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_`;
 }
 
 /**
@@ -129,4 +144,36 @@ export interface TestBenefit {
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 资源收集器：在测试过程中记录创建的资源 ID，teardown 阶段按反向依赖顺序批量清理。
+ * 避免测试残留数据影响后续运行或其他并行测试。
+ */
+export class TestResourceCollector {
+  private resources: Array<{ type: string; id: number }> = [];
+
+  track(type: 'badge' | 'rule' | 'series' | 'category' | 'benefit' | 'redemptionRule', id: number): void {
+    this.resources.push({ type, id });
+  }
+
+  /**
+   * 返回按安全删除顺序排列的资源列表（先删依赖方，再删被依赖方）
+   */
+  getOrderedForCleanup(): Array<{ type: string; id: number }> {
+    const order: Record<string, number> = {
+      badge: 0,
+      rule: 1,
+      redemptionRule: 2,
+      benefit: 3,
+      series: 4,
+      category: 5,
+    };
+    return [...this.resources]
+      .sort((a, b) => (order[a.type] ?? 99) - (order[b.type] ?? 99));
+  }
+
+  clear(): void {
+    this.resources = [];
+  }
 }

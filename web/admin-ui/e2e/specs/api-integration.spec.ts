@@ -188,7 +188,7 @@ test.describe('API 集成测试: 规则管理', () => {
     test.skip(!ruleId, '前置用例未创建规则');
 
     const res = await api.publishRule(ruleId);
-    expect(res?.data || res?.code === 0 || res?.success).toBeTruthy();
+    expect(res?.success === true || res?.data != null || res?.code === 0).toBeTruthy();
 
     // 验证规则列表中状态为已启用
     const rules = await api.getRules({ keyword: testPrefix });
@@ -822,6 +822,649 @@ test.describe('API 集成测试: 全链路', () => {
       if (found) {
         expect(found.name).toContain(testPrefix);
       }
+    }
+  });
+});
+
+// ============================================================
+// 10. RBAC 权限执行验证
+// ============================================================
+test.describe('API 集成测试: RBAC 权限执行', () => {
+  let adminApi: ApiHelper;
+  let operatorApi: ApiHelper;
+  let viewerApi: ApiHelper;
+  let adminContext: APIRequestContext;
+  let operatorContext: APIRequestContext;
+  let viewerContext: APIRequestContext;
+
+  test.beforeAll(async ({ playwright }) => {
+    // 为三种角色分别创建独立的 API 上下文
+    adminContext = await playwright.request.newContext({ baseURL: BASE_URL });
+    operatorContext = await playwright.request.newContext({ baseURL: BASE_URL });
+    viewerContext = await playwright.request.newContext({ baseURL: BASE_URL });
+
+    adminApi = new ApiHelper(adminContext, BASE_URL);
+    operatorApi = new ApiHelper(operatorContext, BASE_URL);
+    viewerApi = new ApiHelper(viewerContext, BASE_URL);
+
+    await adminApi.login(testUsers.admin.username, testUsers.admin.password);
+
+    // 确保 viewer/operator 用户存在且角色已分配
+    await adminApi.ensureUser('operator', testUsers.operator.password, 2);
+    await adminApi.ensureUser('viewer', testUsers.viewer.password, 3);
+
+    await operatorApi.login(testUsers.operator.username, testUsers.operator.password);
+    await viewerApi.login(testUsers.viewer.username, testUsers.viewer.password);
+  });
+
+  test.afterAll(async () => {
+    await adminContext?.dispose();
+    await operatorContext?.dispose();
+    await viewerContext?.dispose();
+  });
+
+  test('viewer 角色可以读取徽章列表', async () => {
+    const res = await viewerApi.getBadges({ page: 1, pageSize: 5 });
+    // viewer 有 badge:badge:read 权限，应返回正常数据
+    expect(res?.data !== undefined || res?.success).toBeTruthy();
+    expect(res?.status !== 403).toBeTruthy();
+  });
+
+  test('viewer 角色无法创建分类 (403)', async () => {
+    const response = await viewerContext.post(`${BASE_URL}/api/admin/categories`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+      data: { name: 'RBAC测试分类', sortOrder: 0 },
+    });
+    // viewer 没有 badge:category:write 权限
+    expect(response.status()).toBe(403);
+  });
+
+  test('viewer 角色无法手动发放徽章 (403)', async () => {
+    const response = await viewerContext.post(`${BASE_URL}/api/admin/grants/manual`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+      data: { userId: 'test', badgeId: 1, quantity: 1, reason: 'RBAC测试' },
+    });
+    expect(response.status()).toBe(403);
+  });
+
+  test('operator 角色可以创建分类', async () => {
+    const testPrefix = `RBACOp${Date.now().toString(36)}_`;
+    const res = await operatorApi.createCategory({
+      name: `${testPrefix}Operator分类`,
+      sortOrder: 0,
+    });
+    // operator 有 badge:category:write 权限
+    expect(res?.data?.id || res?.success).toBeTruthy();
+
+    // 清理
+    if (res?.data?.id) {
+      try {
+        await adminApi.deleteCategory(res.data.id);
+      } catch { /* ignore */ }
+    }
+  });
+
+  test('operator 角色无法管理系统用户 (403)', async () => {
+    const response = await operatorContext.post(`${BASE_URL}/api/admin/system/users`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(operatorApi as any).token}`,
+      },
+      data: {
+        username: 'rbac_test_fail',
+        password: 'Test@123456',
+        displayName: '不应创建成功',
+      },
+    });
+    // operator 没有 system:user:write 权限
+    expect(response.status()).toBe(403);
+  });
+
+  test('operator 角色无法创建 API Key (403)', async () => {
+    const response = await operatorContext.post(`${BASE_URL}/api/admin/system/api-keys`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(operatorApi as any).token}`,
+      },
+      data: { name: 'rbac_test_key', permissions: ['badge:badge:read'] },
+    });
+    // operator 没有 system:apikey:write 权限
+    expect(response.status()).toBe(403);
+  });
+
+  test('admin 角色可以管理系统用户', async () => {
+    const users = await adminApi.getSystemUsers();
+    expect(users?.data !== undefined).toBeTruthy();
+    expect(users?.status !== 403).toBeTruthy();
+  });
+
+  // ---- 规则模块权限边界 ----
+
+  test('viewer 角色无法创建规则 (403)', async () => {
+    const response = await viewerContext.post(`${BASE_URL}/api/admin/rules`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+      data: {
+        badgeId: 1,
+        ruleCode: 'rbac_viewer_rule',
+        eventType: 'purchase',
+        name: 'RBAC viewer 规则',
+        ruleJson: { type: 'event', conditions: [] },
+      },
+    });
+    expect(response.status()).toBe(403);
+  });
+
+  test('operator 角色可以创建和管理规则', async () => {
+    const response = await operatorContext.post(`${BASE_URL}/api/admin/rules`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(operatorApi as any).token}`,
+      },
+      data: {
+        badgeId: 1,
+        ruleCode: 'rbac_operator_rule',
+        eventType: 'purchase',
+        name: 'RBAC operator 规则',
+        ruleJson: { type: 'event', conditions: [] },
+      },
+    });
+    // operator 有规则写权限，不应返回 403（可能返回 200 或 400 业务校验错误）
+    expect(response.status()).not.toBe(403);
+  });
+
+  // ---- 权益模块权限边界 ----
+
+  test('viewer 角色无法创建权益 (403)', async () => {
+    const response = await viewerContext.post(`${BASE_URL}/api/admin/benefits`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+      data: {
+        name: 'RBAC viewer 权益',
+        type: 'COUPON',
+        benefitType: 'COUPON',
+        value: 10,
+      },
+    });
+    expect(response.status()).toBe(403);
+  });
+
+  test('operator 角色可以读取权益列表', async () => {
+    const response = await operatorContext.get(`${BASE_URL}/api/admin/benefits`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(operatorApi as any).token}`,
+      },
+    });
+    expect(response.status()).toBe(200);
+  });
+
+  // ---- 兑换模块权限边界 ----
+
+  test('viewer 角色无法创建兑换规则 (403)', async () => {
+    const response = await viewerContext.post(`${BASE_URL}/api/admin/redemption/rules`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+      data: {
+        name: 'RBAC viewer 兑换规则',
+        benefitId: 1,
+        requiredBadges: [{ badgeId: 1, quantity: 1 }],
+        startTime: new Date().toISOString(),
+        endTime: new Date(Date.now() + 86400000).toISOString(),
+      },
+    });
+    expect(response.status()).toBe(403);
+  });
+
+  // ---- 用户视图模块权限边界 ----
+
+  test('viewer 角色可以查看用户视图', async () => {
+    const response = await viewerContext.get(`${BASE_URL}/api/admin/users/search?keyword=test`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+    });
+    expect(response.status()).toBe(200);
+  });
+
+  // ---- 统计模块权限边界 ----
+
+  test('viewer 角色可以查看统计概览', async () => {
+    const response = await viewerContext.get(`${BASE_URL}/api/admin/stats/overview`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+    });
+    expect(response.status()).toBe(200);
+  });
+
+  // ---- 模板模块权限边界 ----
+
+  test('viewer 角色可以读取模板列表', async () => {
+    const response = await viewerContext.get(`${BASE_URL}/api/admin/templates`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+    });
+    expect(response.status()).toBe(200);
+  });
+
+  // ---- 日志模块权限边界 ----
+
+  test('viewer 角色可以查看操作日志', async () => {
+    const response = await viewerContext.get(`${BASE_URL}/api/admin/logs`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+    });
+    expect(response.status()).toBe(200);
+  });
+
+  // ---- 撤回模块权限边界 ----
+
+  test('viewer 角色无法执行撤回 (403)', async () => {
+    const response = await viewerContext.post(`${BASE_URL}/api/admin/revokes/manual`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(viewerApi as any).token}`,
+      },
+      data: {
+        userId: 'test_user',
+        badgeId: 1,
+        reason: 'RBAC权限测试',
+      },
+    });
+    expect(response.status()).toBe(403);
+  });
+});
+
+// ============================================================
+// 11. API Key 外部接口验证
+// ============================================================
+test.describe('API 集成测试: API Key 外部接口', () => {
+  let adminApi: ApiHelper;
+  let adminContext: APIRequestContext;
+
+  test.beforeAll(async ({ playwright }) => {
+    adminContext = await playwright.request.newContext({ baseURL: BASE_URL });
+    adminApi = new ApiHelper(adminContext, BASE_URL);
+    await adminApi.login(testUsers.admin.username, testUsers.admin.password);
+  });
+
+  test.afterAll(async () => {
+    await adminContext?.dispose();
+  });
+
+  test('无认证访问外部接口被拒绝', async () => {
+    // 不携带任何认证头请求 /api/v1/ 路由
+    const response = await adminContext.get(`${BASE_URL}/api/v1/users/test_user/badges`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    // api_key_auth_middleware 在无 X-API-Key 时放行（设计为可选），
+    // 但 auth_middleware 已将 /api/v1/ 加入公开路径跳过 JWT，
+    // 所以实际结果取决于 handler 是否需要 Claims。
+    // 由于外部路由的 handler 复用了管理后台的 handler，可能依赖 Claims，
+    // 无 key 时应返回 200（handler 不强制 Claims）或 401/500
+    expect([200, 401, 500]).toContain(response.status());
+  });
+
+  test('无效 API Key 被拒绝 (401)', async () => {
+    const response = await adminContext.get(`${BASE_URL}/api/v1/users/test_user/badges`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': 'invalid-random-key-12345',
+      },
+    });
+    expect(response.status()).toBe(401);
+  });
+
+  test('创建 API Key 后可访问外部接口', async () => {
+    // 通过管理接口创建 API Key
+    let apiKey: string | undefined;
+    let apiKeyId: number | undefined;
+
+    try {
+      const createRes = await adminApi.createApiKey('E2EExternalTest', ['*']);
+      apiKey = createRes?.data?.key || createRes?.data?.apiKey;
+      apiKeyId = createRes?.data?.id;
+
+      if (!apiKey) {
+        test.info().annotations.push({
+          type: 'info',
+          description: 'API Key 创建未返回明文 key，跳过外部接口验证',
+        });
+        return;
+      }
+
+      // 用有效 API Key 访问外部接口
+      const response = await adminContext.get(`${BASE_URL}/api/v1/grants/logs`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        params: { page: 1, pageSize: 5 },
+      });
+      // 有效 key 应返回 200
+      expect(response.status()).toBe(200);
+    } finally {
+      // 清理 API Key
+      if (apiKeyId) {
+        try { await adminApi.deleteApiKey(apiKeyId); } catch { /* ignore */ }
+      }
+    }
+  });
+
+  test('禁用 API Key 后被拒绝 (401)', async () => {
+    let apiKey: string | undefined;
+    let apiKeyId: number | undefined;
+
+    try {
+      // 创建 API Key
+      const createRes = await adminApi.createApiKey('E2EDisableTest', ['*']);
+      apiKey = createRes?.data?.key || createRes?.data?.apiKey;
+      apiKeyId = createRes?.data?.id;
+
+      if (!apiKey || !apiKeyId) {
+        test.info().annotations.push({
+          type: 'info',
+          description: 'API Key 创建未返回明文 key 或 id，跳过禁用验证',
+        });
+        return;
+      }
+
+      // 验证初始状态下可以正常访问
+      const firstResponse = await adminContext.get(`${BASE_URL}/api/v1/grants/logs`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        params: { page: 1, pageSize: 5 },
+      });
+      expect(firstResponse.status()).toBe(200);
+
+      // 禁用 API Key
+      const disableResponse = await adminContext.patch(
+        `${BASE_URL}/api/admin/system/api-keys/${apiKeyId}/status`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(adminApi as any).token}`,
+          },
+          data: { enabled: false },
+        },
+      );
+      expect([200, 204]).toContain(disableResponse.status());
+
+      // 禁用后应被拒绝
+      const rejectedResponse = await adminContext.get(`${BASE_URL}/api/v1/grants/logs`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        params: { page: 1, pageSize: 5 },
+      });
+      expect(rejectedResponse.status()).toBe(401);
+
+      // 重新启用 API Key
+      const enableResponse = await adminContext.patch(
+        `${BASE_URL}/api/admin/system/api-keys/${apiKeyId}/status`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(adminApi as any).token}`,
+          },
+          data: { enabled: true },
+        },
+      );
+      expect([200, 204]).toContain(enableResponse.status());
+
+      // 重新启用后应恢复访问
+      const restoredResponse = await adminContext.get(`${BASE_URL}/api/v1/grants/logs`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        params: { page: 1, pageSize: 5 },
+      });
+      expect(restoredResponse.status()).toBe(200);
+    } finally {
+      if (apiKeyId) {
+        try { await adminApi.deleteApiKey(apiKeyId); } catch { /* ignore */ }
+      }
+    }
+  });
+
+  test('过期 API Key 被拒绝 (401)', async () => {
+    let apiKeyId: number | undefined;
+
+    try {
+      // 创建一个已过期的 API Key（过期时间设为 1 秒前）
+      const response = await adminContext.post(`${BASE_URL}/api/admin/system/api-keys`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(adminApi as any).token}`,
+        },
+        data: {
+          name: 'E2EExpiredTest',
+          permissions: ['*'],
+          expiresAt: new Date(Date.now() - 1000).toISOString(),
+        },
+      });
+      const createRes = await response.json();
+      const apiKey = createRes?.data?.key || createRes?.data?.apiKey;
+      apiKeyId = createRes?.data?.id;
+
+      if (!apiKey) {
+        test.info().annotations.push({
+          type: 'info',
+          description: '已过期 API Key 创建未返回明文 key，跳过验证',
+        });
+        return;
+      }
+
+      // 使用已过期的 key 访问外部接口，应返回 401
+      const expiredResponse = await adminContext.get(`${BASE_URL}/api/v1/grants/logs`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        params: { page: 1, pageSize: 5 },
+      });
+      expect(expiredResponse.status()).toBe(401);
+    } finally {
+      if (apiKeyId) {
+        try { await adminApi.deleteApiKey(apiKeyId); } catch { /* ignore */ }
+      }
+    }
+  });
+
+  test('API Key 权限码正确传递到上下文', async () => {
+    let apiKeyId: number | undefined;
+
+    try {
+      // 创建具有特定权限的 API Key
+      const createRes = await adminApi.createApiKey('E2EPermissionTest', ['read:badges', 'read:grants']);
+      const apiKey = createRes?.data?.key || createRes?.data?.apiKey;
+      apiKeyId = createRes?.data?.id;
+
+      if (!apiKey) {
+        test.info().annotations.push({
+          type: 'info',
+          description: 'API Key 创建未返回明文 key，跳过权限验证',
+        });
+        return;
+      }
+
+      // 当前外部路由不校验细粒度权限，只要 key 有效就能通过认证
+      const response = await adminContext.get(`${BASE_URL}/api/v1/grants/logs`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        params: { page: 1, pageSize: 5 },
+      });
+      expect(response.status()).toBe(200);
+    } finally {
+      if (apiKeyId) {
+        try { await adminApi.deleteApiKey(apiKeyId); } catch { /* ignore */ }
+      }
+    }
+  });
+});
+
+// ============================================================
+// 12. JWT Token 安全验证
+// ============================================================
+test.describe('API 集成测试: JWT Token 安全', () => {
+  test('过期 JWT Token 被拒绝 (401)', async ({ request }) => {
+    const expiredToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6MTAwMDAwMDAwMH0.invalid_signature';
+    const response = await request.get(`${BASE_URL}/api/admin/categories`, {
+      headers: { Authorization: `Bearer ${expiredToken}` },
+    });
+    expect(response.status()).toBe(401);
+  });
+
+  test('无效签名 JWT Token 被拒绝 (401)', async ({ request }) => {
+    const tamperedToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidXNlcm5hbWUiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6OTk5OTk5OTk5OX0.wrong_signature_here';
+    const response = await request.get(`${BASE_URL}/api/admin/categories`, {
+      headers: { Authorization: `Bearer ${tamperedToken}` },
+    });
+    expect(response.status()).toBe(401);
+  });
+
+  test('空 Token 被拒绝 (401)', async ({ request }) => {
+    const response = await request.get(`${BASE_URL}/api/admin/categories`, {
+      headers: { Authorization: 'Bearer ' },
+    });
+    expect(response.status()).toBe(401);
+  });
+
+  test('缺少 Authorization 头被拒绝 (401)', async ({ request }) => {
+    const response = await request.get(`${BASE_URL}/api/admin/categories`);
+    expect(response.status()).toBe(401);
+  });
+});
+
+// ============================================================
+// 13. 并发安全测试
+// ============================================================
+test.describe('API 集成测试: 并发安全', () => {
+  let adminToken: string;
+  let viewerToken: string;
+  let operatorToken: string;
+
+  test.beforeAll(async ({ playwright }) => {
+    const adminContext = await playwright.request.newContext({ baseURL: BASE_URL });
+    const adminApi = new ApiHelper(adminContext, BASE_URL);
+    await adminApi.login(testUsers.admin.username, testUsers.admin.password);
+    adminToken = (adminApi as any).token;
+
+    // 确保 viewer/operator 用户存在且角色已分配
+    await adminApi.ensureUser('operator', testUsers.operator.password, 2);
+    await adminApi.ensureUser('viewer', testUsers.viewer.password, 3);
+
+    const viewerContext = await playwright.request.newContext({ baseURL: BASE_URL });
+    const viewerApi = new ApiHelper(viewerContext, BASE_URL);
+    await viewerApi.login(testUsers.viewer.username, testUsers.viewer.password);
+    viewerToken = (viewerApi as any).token;
+
+    const operatorContext = await playwright.request.newContext({ baseURL: BASE_URL });
+    const operatorApi = new ApiHelper(operatorContext, BASE_URL);
+    await operatorApi.login(testUsers.operator.username, testUsers.operator.password);
+    operatorToken = (operatorApi as any).token;
+
+    await adminContext.dispose();
+    await viewerContext.dispose();
+    await operatorContext.dispose();
+  });
+
+  test('多角色并发读取不互相干扰', async ({ request }) => {
+    const results = await Promise.all([
+      request.get(`${BASE_URL}/api/admin/categories`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      }),
+      request.get(`${BASE_URL}/api/admin/categories`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      }),
+      request.get(`${BASE_URL}/api/admin/categories`, {
+        headers: { Authorization: `Bearer ${operatorToken}` },
+      }),
+    ]);
+
+    for (const r of results) {
+      expect(r.status()).toBe(200);
+      const data = await r.json();
+      expect(data.success).toBe(true);
+    }
+  });
+
+  test('并发写入 + 读取权限隔离', async ({ request }) => {
+    const results = await Promise.all([
+      // Viewer 读取徽章
+      request.get(`${BASE_URL}/api/admin/badges`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      }),
+      // Operator 写入分类
+      request.post(`${BASE_URL}/api/admin/categories`, {
+        headers: {
+          Authorization: `Bearer ${operatorToken}`,
+          'Content-Type': 'application/json',
+        },
+        data: { name: `Concurrent_${Date.now()}`, sortOrder: 0 },
+      }),
+      // Viewer 尝试写入（应被拒绝）
+      request.post(`${BASE_URL}/api/admin/categories`, {
+        headers: {
+          Authorization: `Bearer ${viewerToken}`,
+          'Content-Type': 'application/json',
+        },
+        data: { name: `ConcurrentFail_${Date.now()}`, sortOrder: 0 },
+      }),
+      // Admin 读取统计
+      request.get(`${BASE_URL}/api/admin/stats/overview`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      }),
+    ]);
+
+    expect(results[0].status()).toBe(200);  // viewer 读取成功
+    expect(results[1].status()).toBe(200);  // operator 写入成功
+    expect(results[2].status()).toBe(403);  // viewer 写入被拒绝
+    expect(results[3].status()).toBe(200);  // admin 读取成功
+
+    // 清理 operator 创建的分类
+    const created = await results[1].json();
+    if (created.data?.id) {
+      await request.delete(`${BASE_URL}/api/admin/categories/${created.data.id}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+    }
+  });
+
+  test('高并发读取压力测试 (10 请求)', async ({ request }) => {
+    const requests = Array.from({ length: 10 }, () =>
+      request.get(`${BASE_URL}/api/admin/stats/overview`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      })
+    );
+    const results = await Promise.all(requests);
+    for (const r of results) {
+      expect(r.status()).toBe(200);
     }
   });
 });

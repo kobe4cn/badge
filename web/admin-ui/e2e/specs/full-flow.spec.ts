@@ -25,9 +25,9 @@ test.describe('全链路测试: 徽章管理流程', () => {
     await badgeListPage.goto();
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证列表页面
-    const hasContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 100;
-    expect(hasContent).toBeTruthy();
+    // 列表页面必须显示表格和创建按钮，这是徽章管理的基本 UI 结构
+    await expect(badgeListPage.table).toBeVisible();
+    await expect(badgeListPage.createButton).toBeVisible();
 
     // 2. 点击创建按钮
     const createButton = page.locator('button').filter({ hasText: /新建|创建|添加/ }).first();
@@ -45,33 +45,36 @@ test.describe('全链路测试: 徽章管理流程', () => {
       }
     }
 
-    // 3. 返回列表验证
+    // 3. 返回列表后，表格应仍然可见，验证导航未破坏页面状态
     await badgeListPage.goto();
-    const hasListContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 100;
-    expect(hasListContent).toBeTruthy();
+    await expect(badgeListPage.table).toBeVisible();
   });
 
   test('规则编辑器页面加载', async ({ page }) => {
-    // 访问规则创建页
     await page.goto('/rules/create');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证画布或表单加载
-    const hasCanvas = await page.locator('.react-flow').isVisible({ timeout: 5000 }).catch(() => false);
-    const hasForm = await page.locator('form, .ant-form').isVisible({ timeout: 3000 }).catch(() => false);
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 100;
+    // 规则编辑器应渲染画布或表单
+    const canvas = page.locator('.react-flow');
+    const form = page.locator('form, .ant-form');
+    const mainContent = page.locator('main, .ant-layout-content').first();
 
-    expect(hasCanvas || hasForm || hasAnyContent).toBeTruthy();
+    const hasCanvas = await canvas.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasForm = await form.isVisible({ timeout: 3000 }).catch(() => false);
+
+    // 至少需要画布或表单之一可见
+    expect(hasCanvas || hasForm).toBeTruthy();
+    // 页面主体容器也必须渲染
+    await expect(mainContent).toBeVisible();
   });
 
   test('用户徽章页面', async ({ page }) => {
-    // 访问用户徽章页面
     await page.goto('/users/test_user/badges');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 用户徽章页应显示内容区域（表格、卡片或空状态）
+    const contentArea = page.locator('table, .ant-table, .ant-card, .ant-list, .ant-empty, .ant-layout-content, main').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -85,13 +88,12 @@ test.describe('全链路测试: 依赖配置流程', () => {
   });
 
   test('徽章详情 -> 依赖配置', async ({ page }) => {
-    // 访问徽章依赖页面
     await page.goto('/badges/1/dependencies');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 依赖配置页应显示内容区域（列表、按钮或空状态）
+    const contentArea = page.locator('table, .ant-table, .ant-card, .ant-empty, .ant-layout-content, main, button').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -109,27 +111,26 @@ test.describe('全链路测试: 兑换配置流程', () => {
     await page.goto('/redemptions/rules');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    let hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 列表页应包含表格或空状态
+    const listContent = page.locator('table, .ant-table, .ant-empty, .ant-pro-page-container').first();
+    await expect(listContent).toBeVisible({ timeout: 10000 });
 
     // 2. 访问创建页面
     await page.goto('/redemptions/rules/create');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证创建页面
-    hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 创建页应包含表单或页面容器
+    const createContent = page.locator('form, .ant-form, .ant-card, .ant-pro-page-container, main').first();
+    await expect(createContent).toBeVisible({ timeout: 10000 });
   });
 
   test('兑换记录页面', async ({ page }) => {
-    // 访问兑换记录页面
     await page.goto('/redemptions/records');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 兑换记录页应包含表格或空状态
+    const contentArea = page.locator('table, .ant-table, .ant-list, .ant-empty, .ant-pro-page-container').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -143,22 +144,22 @@ test.describe('全链路测试: 权益管理流程', () => {
   });
 
   test('权益列表 -> 权益同步 -> 发放记录', async ({ page }) => {
-    // 1. 权益列表
+    // 1. 权益列表 - 应显示表格或空状态
     await page.goto('/benefits');
     await page.waitForLoadState('networkidle').catch(() => {});
-    let hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    const benefitsList = page.locator('table, .ant-table, .ant-empty, .ant-pro-page-container').first();
+    await expect(benefitsList).toBeVisible({ timeout: 10000 });
 
-    // 2. 权益同步
+    // 2. 权益同步 - 应显示内容区域
     await page.goto('/benefits/sync');
     await page.waitForLoadState('networkidle').catch(() => {});
-    hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    const syncContent = page.locator('button, .ant-card, .ant-table, .ant-layout-content, main').first();
+    await expect(syncContent).toBeVisible({ timeout: 10000 });
 
-    // 3. 发放记录
+    // 3. 发放记录 - 应显示表格或空状态
     await page.goto('/benefits/grants');
     await page.waitForLoadState('networkidle').catch(() => {});
-    hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    const grantsContent = page.locator('table, .ant-table, .ant-list, .ant-empty, .ant-pro-page-container').first();
+    await expect(grantsContent).toBeVisible({ timeout: 10000 });
   });
 });

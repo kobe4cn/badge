@@ -1,4 +1,5 @@
 import { APIRequestContext } from '@playwright/test';
+import { TestResourceCollector } from './test-data';
 
 /**
  * API 辅助工具
@@ -36,19 +37,35 @@ export class ApiHelper {
   }
 
   /**
-   * 安全地解析 JSON 响应，避免非 JSON 响应体（如 4xx/5xx 纯文本错误）导致 .json() 抛出异常
+   * 解析 JSON 响应并在失败时抛出异常，确保测试数据准备阶段的错误不会被静默吞掉
    */
   private async safeJson(response: any, context: string = ''): Promise<any> {
     if (!response.ok()) {
       const text = await response.text();
-      console.error(`API Error [${response.status()}] ${context}: ${text.substring(0, 200)}`);
+      throw new Error(`API Error [${response.status()}] ${context}: ${text.substring(0, 200)}`);
+    }
+    try {
+      return await response.json();
+    } catch (e) {
+      const text = await response.text();
+      throw new Error(`JSON Parse Error ${context}: ${text.substring(0, 200)}`);
+    }
+  }
+
+  /**
+   * 宽松版本的 JSON 解析，用于清理、查询等允许失败的场景
+   */
+  private async safeJsonSoft(response: any, context: string = ''): Promise<any> {
+    if (!response.ok()) {
+      const text = await response.text();
+      console.warn(`API Warning [${response.status()}] ${context}: ${text.substring(0, 200)}`);
       return { success: false, error: text, status: response.status() };
     }
     try {
       return await response.json();
     } catch (e) {
       const text = await response.text();
-      console.error(`JSON Parse Error ${context}: ${text.substring(0, 200)}`);
+      console.warn(`JSON Parse Warning ${context}: ${text.substring(0, 200)}`);
       return { success: false, error: text, status: response.status() };
     }
   }
@@ -92,7 +109,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getCategories');
+    return this.safeJsonSoft(response, 'getCategories');
   }
 
   /**
@@ -125,7 +142,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getSeries');
+    return this.safeJsonSoft(response, 'getSeries');
   }
 
   /**
@@ -158,7 +175,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getBadges');
+    return this.safeJsonSoft(response, 'getBadges');
   }
 
   /**
@@ -191,7 +208,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getRules');
+    return this.safeJsonSoft(response, 'getRules');
   }
 
   /**
@@ -294,7 +311,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getGrantLogs');
+    return this.safeJsonSoft(response, 'getGrantLogs');
   }
 
   // ===== 用户视图 =====
@@ -303,7 +320,7 @@ export class ApiHelper {
     const response = await this.request.get(`${this.baseUrl}/api/admin/users/${userId}/badges`, {
       headers: this.getHeaders(),
     });
-    return this.safeJson(response, 'getUserBadges');
+    return this.safeJsonSoft(response, 'getUserBadges');
   }
 
   async searchUsers(keyword: string): Promise<any> {
@@ -311,14 +328,14 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params: { keyword },
     });
-    return this.safeJson(response, 'searchUsers');
+    return this.safeJsonSoft(response, 'searchUsers');
   }
 
   async getUserStats(userId: string): Promise<any> {
     const response = await this.request.get(`${this.baseUrl}/api/admin/users/${userId}/stats`, {
       headers: this.getHeaders(),
     });
-    return this.safeJson(response, 'getUserStats');
+    return this.safeJsonSoft(response, 'getUserStats');
   }
 
   // ===== 兑换管理 =====
@@ -336,7 +353,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getRedemptionRules');
+    return this.safeJsonSoft(response, 'getRedemptionRules');
   }
 
   async deleteRedemptionRule(id: number): Promise<void> {
@@ -358,7 +375,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getRedemptionOrders');
+    return this.safeJsonSoft(response, 'getRedemptionOrders');
   }
 
   // ===== 权益管理扩展 =====
@@ -368,7 +385,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getBenefits');
+    return this.safeJsonSoft(response, 'getBenefits');
   }
 
   async deleteBenefit(id: number): Promise<void> {
@@ -390,7 +407,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getBenefitGrants');
+    return this.safeJsonSoft(response, 'getBenefitGrants');
   }
 
   // ===== 依赖管理 =====
@@ -407,7 +424,7 @@ export class ApiHelper {
     const response = await this.request.get(`${this.baseUrl}/api/admin/badges/${badgeId}/dependencies`, {
       headers: this.getHeaders(),
     });
-    return this.safeJson(response, 'getDependencies');
+    return this.safeJsonSoft(response, 'getDependencies');
   }
 
   async deleteDependency(id: number): Promise<void> {
@@ -431,7 +448,47 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getSystemUsers');
+    return this.safeJsonSoft(response, 'getSystemUsers');
+  }
+
+  async updateSystemUser(id: number, data: any): Promise<any> {
+    const response = await this.request.put(`${this.baseUrl}/api/admin/system/users/${id}`, {
+      headers: this.getHeaders(),
+      data,
+    });
+    return this.safeJson(response, 'updateSystemUser');
+  }
+
+  /** 确保用户存在且拥有指定角色，若不存在则创建并分配角色 */
+  async ensureUser(username: string, password: string, roleId: number): Promise<void> {
+    // 尝试创建用户，如果已存在则忽略错误
+    let userId: number | null = null;
+    try {
+      const created = await this.createSystemUser({
+        username, password, nickname: username, email: `${username}@test.com`,
+      });
+      userId = created?.data?.id;
+    } catch (e: any) {
+      // 用户已存在（中文消息或数据库唯一约束冲突），通过登录获取用户信息确定 ID
+      if (e.message?.includes('已存在') || e.message?.includes('duplicate key') || e.message?.includes('409')) {
+        const tempContext = this.request;
+        const meResp = await tempContext.post(`${this.baseUrl}/api/admin/auth/login`, {
+          data: { username, password },
+        });
+        const meData = await meResp.json();
+        userId = meData?.data?.user?.id;
+      } else {
+        throw e;
+      }
+    }
+    // 分配角色
+    if (userId) {
+      try {
+        await this.updateSystemUser(userId, { roleIds: [roleId] });
+      } catch {
+        // 角色分配失败不阻塞（可能已分配）
+      }
+    }
   }
 
   async deleteSystemUser(id: number): Promise<void> {
@@ -453,7 +510,7 @@ export class ApiHelper {
       headers: this.getHeaders(),
       params,
     });
-    return this.safeJson(response, 'getRoles');
+    return this.safeJsonSoft(response, 'getRoles');
   }
 
   async deleteRole(id: number): Promise<void> {
@@ -466,7 +523,7 @@ export class ApiHelper {
     const response = await this.request.get(`${this.baseUrl}/api/admin/system/permissions/tree`, {
       headers: this.getHeaders(),
     });
-    return this.safeJson(response, 'getPermissionTree');
+    return this.safeJsonSoft(response, 'getPermissionTree');
   }
 
   async createApiKey(name: string, permissions: string[]): Promise<any> {
@@ -481,7 +538,7 @@ export class ApiHelper {
     const response = await this.request.get(`${this.baseUrl}/api/admin/system/api-keys`, {
       headers: this.getHeaders(),
     });
-    return this.safeJson(response, 'getApiKeys');
+    return this.safeJsonSoft(response, 'getApiKeys');
   }
 
   async deleteApiKey(id: number): Promise<void> {
@@ -496,7 +553,7 @@ export class ApiHelper {
     const response = await this.request.get(`${this.baseUrl}/api/admin/stats/overview`, {
       headers: this.getHeaders(),
     });
-    return this.safeJson(response, 'getStatsOverview');
+    return this.safeJsonSoft(response, 'getStatsOverview');
   }
 
   // ===== 模板 =====
@@ -505,7 +562,7 @@ export class ApiHelper {
     const response = await this.request.get(`${this.baseUrl}/api/admin/templates`, {
       headers: this.getHeaders(),
     });
-    return this.safeJson(response, 'getTemplates');
+    return this.safeJsonSoft(response, 'getTemplates');
   }
 
   // ===== 清理 =====
@@ -557,18 +614,42 @@ export class ApiHelper {
   }
 
   /**
+   * 根据 TestResourceCollector 中记录的资源 ID 进行精确清理，
+   * 比基于关键字搜索的 cleanup() 更可靠，不会误删其他并行测试的数据
+   */
+  async cleanupCollected(collector: TestResourceCollector): Promise<void> {
+    const deleters: Record<string, (id: number) => Promise<void>> = {
+      badge: (id) => this.deleteBadge(id),
+      rule: (id) => this.deleteRule(id),
+      redemptionRule: (id) => this.deleteRedemptionRule(id),
+      benefit: (id) => this.deleteBenefit(id),
+      series: (id) => this.deleteSeries(id),
+      category: (id) => this.deleteCategory(id),
+    };
+
+    for (const { type, id } of collector.getOrderedForCleanup()) {
+      try {
+        await deleters[type]?.(id);
+      } catch {
+        // 清理阶段的错误不应阻塞其余资源的删除
+      }
+    }
+    collector.clear();
+  }
+
+  /**
    * 确保测试所需的基础数据存在
    */
   async ensureTestData(prefix: string): Promise<{ categoryId: number; seriesId: number }> {
     // 创建测试分类（若重名冲突则查询已有的）
     let categoryId: number;
-    const categoryResult = await this.createCategory({
-      name: `${prefix}默认分类`,
-      sortOrder: 0,
-    });
-    if (categoryResult?.data?.id) {
-      categoryId = categoryResult.data.id;
-    } else {
+    try {
+      const categoryResult = await this.createCategory({
+        name: `${prefix}默认分类`,
+        sortOrder: 0,
+      });
+      categoryId = categoryResult?.data?.id || 0;
+    } catch {
       const existing = await this.getCategories({ name: `${prefix}默认分类` });
       const found = (existing?.data?.items || []).find((c: any) => c.name === `${prefix}默认分类`);
       categoryId = found?.id || 0;
@@ -576,14 +657,14 @@ export class ApiHelper {
 
     // 创建测试系列（若重名冲突则查询已有的）
     let seriesId: number;
-    const seriesResult = await this.createSeries({
-      name: `${prefix}默认系列`,
-      categoryId,
-      sortOrder: 0,
-    });
-    if (seriesResult?.data?.id) {
-      seriesId = seriesResult.data.id;
-    } else {
+    try {
+      const seriesResult = await this.createSeries({
+        name: `${prefix}默认系列`,
+        categoryId,
+        sortOrder: 0,
+      });
+      seriesId = seriesResult?.data?.id || 0;
+    } catch {
       const existing = await this.getSeries({ name: `${prefix}默认系列` });
       const found = (existing?.data?.items || []).find((s: any) => s.name === `${prefix}默认系列`);
       seriesId = found?.id || 0;

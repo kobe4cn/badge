@@ -11,6 +11,8 @@ import { ApiHelper } from '../utils/api-helper';
  */
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3001';
+// ApiHelper 直接请求后端，绕过 Vite mock 层，避免 mock token 导致 CRUD 操作 401
+const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8080';
 
 async function loginAndWait(page: import('@playwright/test').Page, username: string, password: string) {
   const loginPage = new LoginPage(page);
@@ -27,12 +29,33 @@ async function waitForTable(page: import('@playwright/test').Page) {
 }
 
 // 辅助函数：通过搜索框过滤列表数据，防止分页导致目标项不在当前页
+// 点击搜索后等待后端 API 响应完成再继续，避免断言时数据尚未刷新
 async function searchInTable(page: import('@playwright/test').Page, keyword: string) {
-  const searchInput = page.locator('input[placeholder="请输入"]').first();
-  if (await searchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await searchInput.fill(keyword);
-    await page.locator('button').filter({ hasText: /查\s*询/ }).click();
-    await page.waitForTimeout(1000);
+  const candidates = [
+    page.locator('input[placeholder="请输入"]').first(),
+    page.locator('input[placeholder="请输入名称"]').first(),
+    page.locator('.ant-pro-form input[type="text"]').first(),
+    page.locator('.ant-pro-table-search input[type="text"]').first(),
+    page.locator('.ant-form input[type="text"]').first(),
+  ];
+
+  let filled = false;
+  for (const input of candidates) {
+    if (await input.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await input.fill(keyword);
+      filled = true;
+      break;
+    }
+  }
+
+  if (filled) {
+    const searchBtn = page.locator('button').filter({ hasText: /查\s*询/ }).first();
+    if (await searchBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await searchBtn.click();
+    } else {
+      await page.keyboard.press('Enter');
+    }
+    await page.waitForTimeout(1500);
     await waitForTable(page);
   }
 }
@@ -48,8 +71,8 @@ test.describe('UI 集成测试: 系列管理', () => {
   let categoryId: number;
 
   test.beforeAll(async ({ playwright }) => {
-    apiContext = await playwright.request.newContext({ baseURL: BASE_URL });
-    api = new ApiHelper(apiContext, BASE_URL);
+    apiContext = await playwright.request.newContext({ baseURL: API_BASE_URL });
+    api = new ApiHelper(apiContext, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
 
     // 所有系列测试依赖一个预置分类（处理重名冲突）
@@ -68,9 +91,13 @@ test.describe('UI 集成测试: 系列管理', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    const cleanup = new ApiHelper(request, BASE_URL);
-    await cleanup.login(testUsers.admin.username, testUsers.admin.password);
-    await cleanup.cleanup(testPrefix);
+    try {
+      const cleanup = new ApiHelper(request, API_BASE_URL);
+      await cleanup.login(testUsers.admin.username, testUsers.admin.password);
+      await cleanup.cleanup(testPrefix);
+    } catch (e) {
+      console.warn('Cleanup failed:', e);
+    }
     await apiContext?.dispose();
   });
 
@@ -127,12 +154,11 @@ test.describe('UI 集成测试: 系列管理', () => {
 
     await expect(
       page.locator(`[title*="${seriesName}"]`).first()
-        .or(page.getByText(seriesName).first())
     ).toBeVisible({ timeout: 10000 });
   });
 
   test('通过 UI 编辑系列名称', async ({ page, request }) => {
-    const localApi = new ApiHelper(request, BASE_URL);
+    const localApi = new ApiHelper(request, API_BASE_URL);
     await localApi.login(testUsers.admin.username, testUsers.admin.password);
     await localApi.createSeries({
       name: `${testPrefix}EditSeries`,
@@ -152,7 +178,7 @@ test.describe('UI 集成测试: 系列管理', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    await expect(page.locator(`[title*="${testPrefix}EditSeries"]`).first().or(page.getByText(`${testPrefix}EditSeries`).first())).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${testPrefix}EditSeries"]`).first()).toBeVisible({ timeout: 10000 });
 
     const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}EditSeries"]`) });
     await row.getByText('编辑').click();
@@ -183,12 +209,11 @@ test.describe('UI 集成测试: 系列管理', () => {
 
     await expect(
       page.locator(`[title*="${newName}"]`).first()
-        .or(page.getByText(newName).first())
     ).toBeVisible({ timeout: 10000 });
   });
 
   test('通过 UI 删除系列', async ({ page, request }) => {
-    const localApi = new ApiHelper(request, BASE_URL);
+    const localApi = new ApiHelper(request, API_BASE_URL);
     await localApi.login(testUsers.admin.username, testUsers.admin.password);
     await localApi.createSeries({
       name: `${testPrefix}DelSeries`,
@@ -208,7 +233,7 @@ test.describe('UI 集成测试: 系列管理', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    await expect(page.locator(`[title*="${testPrefix}DelSeries"]`).first().or(page.getByText(`${testPrefix}DelSeries`).first())).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${testPrefix}DelSeries"]`).first()).toBeVisible({ timeout: 10000 });
 
     const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}DelSeries"]`) });
     await row.getByText('删').click();
@@ -228,7 +253,7 @@ test.describe('UI 集成测试: 系列管理', () => {
     // 使用搜索框过滤数据，确保在过滤后的结果中验证删除
     await searchInTable(page, testPrefix);
 
-    await expect(page.locator(`[title*="${testPrefix}DelSeries"]`).or(page.getByText(`${testPrefix}DelSeries`))).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator(`[title*="${testPrefix}DelSeries"]`)).not.toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -243,8 +268,8 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
   let categoryId: number;
 
   test.beforeAll(async ({ playwright }) => {
-    apiContext = await playwright.request.newContext({ baseURL: BASE_URL });
-    api = new ApiHelper(apiContext, BASE_URL);
+    apiContext = await playwright.request.newContext({ baseURL: API_BASE_URL });
+    api = new ApiHelper(apiContext, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
     const testData = await api.ensureTestData(testPrefix);
     seriesId = testData.seriesId;
@@ -256,9 +281,13 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    const cleanup = new ApiHelper(request, BASE_URL);
-    await cleanup.login(testUsers.admin.username, testUsers.admin.password);
-    await cleanup.cleanup(testPrefix);
+    try {
+      const cleanup = new ApiHelper(request, API_BASE_URL);
+      await cleanup.login(testUsers.admin.username, testUsers.admin.password);
+      await cleanup.cleanup(testPrefix);
+    } catch (e) {
+      console.warn('Cleanup failed:', e);
+    }
     await apiContext?.dispose();
   });
 
@@ -283,7 +312,7 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    await expect(page.locator(`[title*="${testPrefix}Publish"]`).first().or(page.getByText(`${testPrefix}Publish`).first())).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${testPrefix}Publish"]`).first()).toBeVisible({ timeout: 10000 });
 
     const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Publish"]`) });
 
@@ -352,7 +381,7 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    await expect(page.locator(`[title*="${testPrefix}Offline"]`).first().or(page.getByText(`${testPrefix}Offline`).first())).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${testPrefix}Offline"]`).first()).toBeVisible({ timeout: 10000 });
 
     const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Offline"]`) });
 
@@ -414,8 +443,8 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
     await searchInTable(page, keyword);
 
     // 验证搜索结果包含目标徽章
-    await expect(page.locator(`[title*="${keyword}Alpha"]`).first().or(page.getByText(`${keyword}Alpha`).first())).toBeVisible({ timeout: 10000 });
-    await expect(page.locator(`[title*="${keyword}Beta"]`).first().or(page.getByText(`${keyword}Beta`).first())).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${keyword}Alpha"]`).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${keyword}Beta"]`).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('通过 UI 编辑徽章描述', async ({ page }) => {
@@ -438,7 +467,7 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    await expect(page.locator(`[title*="${testPrefix}EditBdg"]`).first().or(page.getByText(`${testPrefix}EditBdg`).first())).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${testPrefix}EditBdg"]`).first()).toBeVisible({ timeout: 10000 });
 
     const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}EditBdg"]`) });
     await row.getByText('编辑').click();
@@ -481,8 +510,8 @@ test.describe('UI 集成测试: 发放管理', () => {
   let badgeId: number;
 
   test.beforeAll(async ({ playwright }) => {
-    apiContext = await playwright.request.newContext({ baseURL: BASE_URL });
-    api = new ApiHelper(apiContext, BASE_URL);
+    apiContext = await playwright.request.newContext({ baseURL: API_BASE_URL });
+    api = new ApiHelper(apiContext, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
     const testData = await api.ensureTestData(testPrefix);
     seriesId = testData.seriesId;
@@ -507,9 +536,13 @@ test.describe('UI 集成测试: 发放管理', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    const cleanup = new ApiHelper(request, BASE_URL);
-    await cleanup.login(testUsers.admin.username, testUsers.admin.password);
-    await cleanup.cleanup(testPrefix);
+    try {
+      const cleanup = new ApiHelper(request, API_BASE_URL);
+      await cleanup.login(testUsers.admin.username, testUsers.admin.password);
+      await cleanup.cleanup(testPrefix);
+    } catch (e) {
+      console.warn('Cleanup failed:', e);
+    }
     await apiContext?.dispose();
   });
 
@@ -588,8 +621,8 @@ test.describe('UI 集成测试: 系统管理', () => {
   const testPrefix = `UIM${Date.now().toString(36)}_`;
 
   test.beforeAll(async ({ playwright }) => {
-    apiContext = await playwright.request.newContext({ baseURL: BASE_URL });
-    api = new ApiHelper(apiContext, BASE_URL);
+    apiContext = await playwright.request.newContext({ baseURL: API_BASE_URL });
+    api = new ApiHelper(apiContext, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
   });
 
@@ -598,32 +631,35 @@ test.describe('UI 集成测试: 系统管理', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    const cleanup = new ApiHelper(request, BASE_URL);
-    await cleanup.login(testUsers.admin.username, testUsers.admin.password);
+    try {
+      const cleanup = new ApiHelper(request, API_BASE_URL);
+      await cleanup.login(testUsers.admin.username, testUsers.admin.password);
 
-    // 清理系统用户
-    const usersResp = await cleanup.getSystemUsers({ keyword: testPrefix }).catch(() => null);
-    const users = usersResp?.data?.items || [];
-    for (const user of users) {
-      await cleanup.deleteSystemUser(user.id).catch(() => {});
-    }
-
-    // 清理角色
-    const rolesResp = await cleanup.getRoles({ keyword: testPrefix }).catch(() => null);
-    const roles = rolesResp?.data?.items || [];
-    for (const role of roles) {
-      await cleanup.deleteRole(role.id).catch(() => {});
-    }
-
-    // 清理 API Key
-    const keysResp = await cleanup.getApiKeys().catch(() => null);
-    const keys = keysResp?.data?.items || keysResp?.data || [];
-    for (const key of keys) {
-      if (key.name?.startsWith(testPrefix)) {
-        await cleanup.deleteApiKey(key.id).catch(() => {});
+      // 清理系统用户
+      const usersResp = await cleanup.getSystemUsers({ keyword: testPrefix }).catch(() => null);
+      const users = usersResp?.data?.items || [];
+      for (const user of users) {
+        await cleanup.deleteSystemUser(user.id).catch(() => {});
       }
-    }
 
+      // 清理角色
+      const rolesResp = await cleanup.getRoles({ keyword: testPrefix }).catch(() => null);
+      const roles = rolesResp?.data?.items || [];
+      for (const role of roles) {
+        await cleanup.deleteRole(role.id).catch(() => {});
+      }
+
+      // 清理 API Key
+      const keysResp = await cleanup.getApiKeys().catch(() => null);
+      const keys = keysResp?.data?.items || keysResp?.data || [];
+      for (const key of keys) {
+        if (key.name?.startsWith(testPrefix)) {
+          await cleanup.deleteApiKey(key.id).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('Cleanup failed:', e);
+    }
     await apiContext?.dispose();
   });
 
@@ -694,7 +730,7 @@ test.describe('UI 集成测试: 系统管理', () => {
       await waitForTable(page);
       await searchInTable(page, testPrefix);
       const hasUser = await page.locator(`[title*="${userName}"]`).first()
-        .or(page.getByText(userName).first()).isVisible({ timeout: 10000 }).catch(() => false);
+        .isVisible({ timeout: 10000 }).catch(() => false);
       expect(hasUser).toBeTruthy();
     } else {
       // 表单可能有校验未通过（如角色为空），验证 UI 交互正常即可
@@ -710,8 +746,9 @@ test.describe('UI 集成测试: 系统管理', () => {
     // API 创建角色
     await api.createRole({
       name: `${testPrefix}Role`,
+      code: `${testPrefix}role`.toLowerCase().replace(/[^a-z0-9_]/g, ''),
       description: '测试角色',
-      permissions: ['badge:read'],
+      permissions: ['badge:badge:read'],
     });
 
     await page.goto('/system/roles');
@@ -720,13 +757,13 @@ test.describe('UI 集成测试: 系统管理', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    const roleVisible = await page.locator(`[title*="${testPrefix}Role"]`).first().or(page.getByText(`${testPrefix}Role`).first()).isVisible({ timeout: 10000 }).catch(() => false);
+    const roleVisible = await page.locator(`[title*="${testPrefix}Role"]`).first().isVisible({ timeout: 10000 }).catch(() => false);
     if (!roleVisible) {
       test.info().annotations.push({ type: 'note', description: '角色列表中未找到目标角色，可能搜索不支持' });
       return;
     }
 
-    const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Role"]`).or(page.getByText(`${testPrefix}Role`)) });
+    const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Role"]`) });
     await row.getByText('编辑').click();
 
     const modal = page.locator('.ant-modal, .ant-drawer');
@@ -759,15 +796,8 @@ test.describe('UI 集成测试: 系统管理', () => {
   });
 
   test('API Key 管理：创建验证与删除', async ({ page }) => {
-    // 前端路由可能不存在 /system/api-keys，先检测 404
     await page.goto('/system/api-keys');
     await page.waitForLoadState('networkidle').catch(() => {});
-    const is404 = await page.locator('text=404').isVisible({ timeout: 5000 }).catch(() => false);
-    if (is404) {
-      test.info().annotations.push({ type: 'note', description: 'API Key 管理页面尚未实现' });
-      test.skip(true, 'API Key 管理页面 404，前端路由未配置');
-      return;
-    }
 
     // API 创建一个 Key
     const keyName = `${testPrefix}ApiKey`;
@@ -785,7 +815,7 @@ test.describe('UI 集成测试: 系统管理', () => {
     await expect(page.getByText(keyName).first()).toBeVisible({ timeout: 10000 });
 
     // 点击删除
-    const row = page.locator('tr, .ant-list-item, .ant-card').filter({ hasText: keyName });
+    const row = page.locator('tr, .ant-list-item, .ant-card').filter({ has: page.locator(`[title*="${keyName}"]`) });
     const deleteBtn = row.locator('button, a').filter({ hasText: /删/ });
     if (await deleteBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await deleteBtn.click();
@@ -918,8 +948,8 @@ test.describe('UI 集成测试: 会员视图', () => {
   let seriesId: number;
 
   test.beforeAll(async ({ playwright }) => {
-    apiContext = await playwright.request.newContext({ baseURL: BASE_URL });
-    api = new ApiHelper(apiContext, BASE_URL);
+    apiContext = await playwright.request.newContext({ baseURL: API_BASE_URL });
+    api = new ApiHelper(apiContext, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
     const testData = await api.ensureTestData(testPrefix);
     seriesId = testData.seriesId;
@@ -945,9 +975,13 @@ test.describe('UI 集成测试: 会员视图', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    const cleanup = new ApiHelper(request, BASE_URL);
-    await cleanup.login(testUsers.admin.username, testUsers.admin.password);
-    await cleanup.cleanup(testPrefix);
+    try {
+      const cleanup = new ApiHelper(request, API_BASE_URL);
+      await cleanup.login(testUsers.admin.username, testUsers.admin.password);
+      await cleanup.cleanup(testPrefix);
+    } catch (e) {
+      console.warn('Cleanup failed:', e);
+    }
     await apiContext?.dispose();
   });
 

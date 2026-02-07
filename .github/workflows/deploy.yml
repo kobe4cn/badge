@@ -1,0 +1,122 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Services to build (comma-separated, or "all")'
+        default: 'all'
+        required: true
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  # 后端服务：使用 matrix 并行构建 6 个 Rust 微服务镜像
+  build-backend:
+    name: Build ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - badge-admin-service
+          - badge-management-service
+          - unified-rule-engine
+          - event-engagement-service
+          - event-transaction-service
+          - notification-worker
+
+    # 手动触发时支持按服务名过滤，避免不必要的构建
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.services == 'all' ||
+      contains(github.event.inputs.services, matrix.service)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录 GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 启用 BuildKit
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建并推送 ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # 前端服务：先构建前端产物，再打包为 nginx 镜像
+  build-frontend:
+    name: Build admin-ui
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.services == 'all' ||
+      contains(github.event.inputs.services, 'admin-ui')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/admin-ui/package-lock.json
+
+      # 先在 CI 环境完成前端构建，确保 dist/ 产物可用于后续 Docker COPY
+      - name: 安装依赖并构建前端
+        run: |
+          cd web/admin-ui
+          npm ci
+          npm run build
+
+      - name: 登录 GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 启用 BuildKit
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建并推送 admin-ui
+        uses: docker/build-push-action@v6
+        with:
+          context: web/admin-ui
+          file: web/admin-ui/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/admin-ui:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/admin-ui:${{ github.sha }}
+          cache-from: type=gha,scope=admin-ui
+          cache-to: type=gha,mode=max,scope=admin-ui

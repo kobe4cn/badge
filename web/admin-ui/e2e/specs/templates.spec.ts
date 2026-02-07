@@ -25,42 +25,53 @@ test.describe('规则模板管理', () => {
     await expect(templatePage.createButton).toBeVisible();
   });
 
-  test('搜索模板', async () => {
+  test('搜索模板', async ({ page }) => {
     await templatePage.goto();
     await templatePage.search('消费');
 
-    // 应该只显示匹配的模板
+    // 搜索后模板列表区域应保持可见（即使没有匹配结果也应显示空状态）
+    await expect(templatePage.templateList).toBeVisible();
+
+    // 如果有匹配结果，验证结果中确实包含搜索关键词
     const count = await templatePage.getTemplateCount();
-    expect(count).toBeGreaterThanOrEqual(0);
+    if (count > 0) {
+      const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
+      expect(firstTemplateName?.includes('消费')).toBeTruthy();
+    }
   });
 
   test('预览模板', async ({ page }) => {
     await templatePage.goto();
 
-    // 如果有模板，预览第一个
     const count = await templatePage.getTemplateCount();
-    if (count > 0) {
-      const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
-      if (firstTemplateName) {
-        await templatePage.previewTemplate(firstTemplateName);
-        await expect(templatePage.previewModal).toBeVisible();
-      }
+    if (count === 0) {
+      test.skip(true, '无可用模板，跳过预览测试');
+      return;
     }
+
+    const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
+    expect(firstTemplateName).toBeTruthy();
+
+    await templatePage.previewTemplate(firstTemplateName!);
+    await expect(templatePage.previewModal).toBeVisible();
   });
 
   test('从模板创建规则', async ({ page }) => {
     await templatePage.goto();
 
     const count = await templatePage.getTemplateCount();
-    if (count > 0) {
-      const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
-      if (firstTemplateName) {
-        await templatePage.useTemplate(firstTemplateName);
-
-        // 应该跳转到规则编辑器
-        await expect(page).toHaveURL(/\/rules\/create/);
-      }
+    if (count === 0) {
+      test.skip(true, '无可用模板，跳过从模板创建规则测试');
+      return;
     }
+
+    const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
+    expect(firstTemplateName).toBeTruthy();
+
+    await templatePage.useTemplate(firstTemplateName!);
+
+    // 应该跳转到规则编辑器
+    await expect(page).toHaveURL(/\/rules\/create/);
   });
 
   test('规则编辑器可保存', async ({ page }) => {
@@ -75,17 +86,25 @@ test.describe('规则模板管理', () => {
   });
 
   test('删除模板', async ({ page }) => {
-    // 需要先有测试模板
     await templatePage.goto();
 
     const count = await templatePage.getTemplateCount();
-    if (count > 0) {
-      const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
-      if (firstTemplateName && firstTemplateName.includes(testPrefix)) {
-        await templatePage.deleteTemplate(firstTemplateName);
-        await expect(page.locator('.ant-message-success')).toBeVisible();
-      }
+    if (count === 0) {
+      test.skip(true, '无可用模板，跳过删除测试');
+      return;
     }
+
+    // 仅删除测试前缀创建的模板，避免误删系统内置模板
+    const testTemplate = page.locator(`.template-card .template-name:has-text("${testPrefix}")`).first();
+    if (!(await testTemplate.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '无测试前缀匹配的模板可删除');
+      return;
+    }
+
+    const templateName = await testTemplate.textContent();
+    expect(templateName).toBeTruthy();
+    await templatePage.deleteTemplate(templateName!);
+    await expect(page.locator('.ant-message-success')).toBeVisible();
   });
 });
 
@@ -106,12 +125,18 @@ test.describe('内置模板', () => {
 
     // 查找系统模板
     const systemTemplate = page.locator('.template-card.system-template').first();
-    if (await systemTemplate.isVisible()) {
-      // 删除按钮应该禁用或不存在
-      const deleteBtn = systemTemplate.locator('button:has-text("删除")');
-      if (await deleteBtn.isVisible()) {
-        await expect(deleteBtn).toBeDisabled();
-      }
+    if (!(await systemTemplate.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '无系统内置模板，跳过验证');
+      return;
+    }
+
+    // 系统模板的删除按钮应该禁用或不存在，防止误删
+    const deleteBtn = systemTemplate.locator('button:has-text("删除")');
+    if (await deleteBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await expect(deleteBtn).toBeDisabled();
+    } else {
+      // 删除按钮不存在也是符合预期的安全设计
+      expect(await deleteBtn.count()).toBe(0);
     }
   });
 
@@ -120,12 +145,15 @@ test.describe('内置模板', () => {
     await templatePage.search('消费累计');
 
     const count = await templatePage.getTemplateCount();
-    if (count > 0) {
-      await templatePage.previewTemplate('消费累计');
-
-      // 验证模板包含条件和动作节点
-      await expect(templatePage.previewCanvas.locator('.react-flow__node')).toHaveCount(2);
+    if (count === 0) {
+      test.skip(true, '消费累计模板不存在，跳过结构验证');
+      return;
     }
+
+    await templatePage.previewTemplate('消费累计');
+
+    // 消费累计模板应包含条件节点和动作节点（共 2 个）
+    await expect(templatePage.previewCanvas.locator('.react-flow__node')).toHaveCount(2);
   });
 
   test('连续签到模板结构正确', async ({ page }) => {
@@ -133,11 +161,14 @@ test.describe('内置模板', () => {
     await templatePage.search('连续签到');
 
     const count = await templatePage.getTemplateCount();
-    if (count > 0) {
-      await templatePage.previewTemplate('连续签到');
-      // 验证模板有节点（数量可能因模板复杂度而异）
-      const nodeCount = await templatePage.previewCanvas.locator('.react-flow__node').count();
-      expect(nodeCount).toBeGreaterThan(0);
+    if (count === 0) {
+      test.skip(true, '连续签到模板不存在，跳过结构验证');
+      return;
     }
+
+    await templatePage.previewTemplate('连续签到');
+    // 签到模板应至少包含一个节点
+    const nodeCount = await templatePage.previewCanvas.locator('.react-flow__node').count();
+    expect(nodeCount).toBeGreaterThan(0);
   });
 });

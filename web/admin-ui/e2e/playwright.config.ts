@@ -1,5 +1,39 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// 所有 project 共享的 baseURL，确保 page.goto('/path') 能正确解析
+const baseURL = process.env.BASE_URL || 'http://localhost:3001';
+
+// CI 默认同时跑 chromium 和 firefox 以保证跨浏览器兼容；本地只跑 chromium 加快反馈
+const enabledProjects = (
+  process.env.PLAYWRIGHT_PROJECTS || (process.env.CI ? 'chromium,firefox' : 'chromium')
+)
+  .split(',')
+  .map((s) => s.trim());
+
+// 所有可用的浏览器 project 定义
+const allProjects = [
+  {
+    name: 'chromium',
+    use: { ...devices['Desktop Chrome'], baseURL },
+  },
+  {
+    name: 'firefox',
+    use: { ...devices['Desktop Firefox'], baseURL },
+  },
+  {
+    name: 'webkit',
+    use: { ...devices['Desktop Safari'], baseURL },
+  },
+  {
+    name: 'mobile-chrome',
+    use: { ...devices['Pixel 5'], baseURL },
+  },
+  {
+    name: 'mobile-safari',
+    use: { ...devices['iPhone 12'], baseURL },
+  },
+];
+
 /**
  * Playwright E2E 测试配置
  */
@@ -28,7 +62,7 @@ export default defineConfig({
 
   // 全局配置
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3001',
+    baseURL,
 
     // 截图配置
     screenshot: 'only-on-failure',
@@ -52,35 +86,13 @@ export default defineConfig({
     timeout: 10000,
   },
 
-  // 浏览器配置
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-    // 移动端测试
-    {
-      name: 'mobile-chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-    {
-      name: 'mobile-safari',
-      use: { ...devices['iPhone 12'] },
-    },
-  ],
+  // 根据 PLAYWRIGHT_PROJECTS 环境变量筛选要运行的浏览器
+  projects: allProjects.filter((p) => enabledProjects.includes(p.name)),
 
-  // 开发服务器
+  // 开发服务器（集成测试模式下禁用 mock）
   webServer: process.env.CI ? undefined : {
-    command: 'npm run dev',
-    url: 'http://localhost:3001',
+    command: process.env.VITE_DISABLE_MOCK === 'true' ? 'npm run dev:real' : 'npm run dev',
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },

@@ -12,11 +12,8 @@ test.describe('徽章分类管理', () => {
   let categoryPage: CategoryPage;
 
   test.beforeEach(async ({ page }, testInfo) => {
-    // 跳过移动端测试（布局问题）
-    const projectName = testInfo.project.name;
-    if (projectName.includes('mobile') || projectName.includes('Mobile')) {
-      test.skip(true, 'Skipping mobile browser tests due to layout issues');
-    }
+    const isMobile = testInfo.project.name.toLowerCase().includes('mobile');
+    test.skip(isMobile, 'Skipping mobile browser tests due to layout issues');
 
     loginPage = new LoginPage(page);
     categoryPage = new CategoryPage(page);
@@ -139,35 +136,53 @@ test.describe('徽章分类管理', () => {
     await categoryPage.goto();
     await categoryPage.waitForLoading();
 
-    // 如果有数据，验证编辑按钮
+    // 表格加载完成后，行数决定了是否应该出现编辑按钮
+    const rows = page.locator('.ant-table-tbody tr[data-row-key]');
+    const rowCount = await rows.count();
     const editButton = page.locator('button').filter({ hasText: /编辑/ }).first();
     const isVisible = await editButton.isVisible({ timeout: 3000 }).catch(() => false);
 
-    // 只验证页面不崩溃
-    expect(true).toBeTruthy();
+    // 有数据行时编辑按钮必须存在，无数据时允许不存在
+    if (rowCount > 0) {
+      expect(isVisible).toBeTruthy();
+    } else {
+      expect(isVisible).toBe(false);
+    }
   });
 
   test('删除按钮存在', async ({ page }) => {
     await categoryPage.goto();
     await categoryPage.waitForLoading();
 
-    // 如果有数据，验证删除按钮
+    // 表格加载完成后，行数决定了是否应该出现删除按钮
+    const rows = page.locator('.ant-table-tbody tr[data-row-key]');
+    const rowCount = await rows.count();
     const deleteButton = page.locator('button').filter({ hasText: /删除/ }).first();
     const isVisible = await deleteButton.isVisible({ timeout: 3000 }).catch(() => false);
 
-    // 只验证页面不崩溃
-    expect(true).toBeTruthy();
+    // 有数据行时删除按钮必须存在，无数据时允许不存在
+    if (rowCount > 0) {
+      expect(isVisible).toBeTruthy();
+    } else {
+      expect(isVisible).toBe(false);
+    }
   });
 
   test('状态切换开关存在', async ({ page }) => {
     await categoryPage.goto();
     await categoryPage.waitForLoading();
 
-    // 如果有数据，验证状态开关
+    // 表格加载完成后，行数决定了是否应该出现状态开关
+    const rows = page.locator('.ant-table-tbody tr[data-row-key]');
+    const rowCount = await rows.count();
     const statusSwitch = page.locator('.ant-switch').first();
     const isVisible = await statusSwitch.isVisible({ timeout: 3000 }).catch(() => false);
 
-    // 只验证页面不崩溃
-    expect(true).toBeTruthy();
+    // 状态开关与数据行一一对应，有数据时必须可见
+    if (rowCount > 0) {
+      expect(isVisible).toBeTruthy();
+    } else {
+      expect(isVisible).toBe(false);
+    }
   });
 });

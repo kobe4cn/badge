@@ -47,94 +47,101 @@ test.describe('徽章依赖配置', () => {
     await page.goto('/badges/1/dependencies');
     await dependencyPage.waitForPageLoad();
 
-    // 点击添加按钮
     const addButton = page.locator('button').filter({ hasText: /添加|新增|新建/ }).first();
-    if (await addButton.isVisible().catch(() => false)) {
-      await addButton.click();
-
-      // 等待弹窗或表单出现
-      const modal = page.locator('.ant-modal, .ant-drawer');
-      const isModalVisible = await modal.isVisible({ timeout: 3000 }).catch(() => false);
-
-      if (isModalVisible) {
-        // 验证表单字段存在
-        const hasTypeField = await page.locator('text=依赖类型').isVisible().catch(() => false);
-        const hasBadgeField = await page.locator('text=依赖徽章').isVisible().catch(() => false);
-
-        // 关闭弹窗
-        await page.locator('.ant-modal-close, button:has-text("取消")').first().click().catch(() => {});
-      }
+    if (!(await addButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '添加按钮不可见，页面可能未正常加载');
+      return;
     }
+
+    await addButton.click();
+
+    // 弹窗或表单必须出现，否则添加按钮的交互存在问题
+    const modal = page.locator('.ant-modal, .ant-drawer');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+
+    // 验证表单中包含依赖配置所需的关键字段
+    const hasTypeField = await page.locator('text=依赖类型').isVisible({ timeout: 3000 }).catch(() => false);
+    const hasBadgeField = await page.locator('text=依赖徽章').isVisible({ timeout: 3000 }).catch(() => false);
+    expect(hasTypeField || hasBadgeField).toBeTruthy();
+
+    // 关闭弹窗
+    await page.locator('.ant-modal-close, button:has-text("取消")').first().click().catch(() => {});
   });
 
   test('依赖类型选项', async ({ page }) => {
     await page.goto('/badges/1/dependencies');
     await dependencyPage.waitForPageLoad();
 
-    // 点击添加按钮
     const addButton = page.locator('button').filter({ hasText: /添加|新增|新建/ }).first();
-    if (await addButton.isVisible().catch(() => false)) {
-      await addButton.click();
-
-      // 等待弹窗
-      await page.locator('.ant-modal, .ant-drawer').waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
-
-      // 点击类型选择框
-      const typeSelect = page.locator('.ant-select').filter({ hasText: /类型/ }).first();
-      if (await typeSelect.isVisible().catch(() => false)) {
-        await typeSelect.click();
-        await page.waitForTimeout(300);
-
-        // 验证类型选项（移动端可能展示不同）
-        const hasPrerequisite = await page.locator('.ant-select-item:has-text("前置条件")').isVisible().catch(() => false);
-        const hasConsume = await page.locator('.ant-select-item:has-text("消耗")').isVisible().catch(() => false);
-        const hasExclusive = await page.locator('.ant-select-item:has-text("互斥")').isVisible().catch(() => false);
-        const hasAnyOption = await page.locator('.ant-select-item').first().isVisible().catch(() => false);
-
-        // 至少有一个选项可见（包括任意类型）
-        expect(hasPrerequisite || hasConsume || hasExclusive || hasAnyOption).toBeTruthy();
-      }
-
-      // 关闭
-      await page.keyboard.press('Escape');
+    if (!(await addButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '添加按钮不可见，跳过依赖类型选项测试');
+      return;
     }
+
+    await addButton.click();
+    await page.locator('.ant-modal, .ant-drawer').waitFor({ state: 'visible', timeout: 5000 });
+
+    // 依赖类型选择器应存在且可交互
+    const typeSelect = page.locator('.ant-select').filter({ hasText: /类型/ }).first();
+    if (!(await typeSelect.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '依赖类型选择器不存在');
+      return;
+    }
+
+    await typeSelect.click();
+    await page.waitForTimeout(300);
+
+    // 下拉面板中至少应有一个依赖类型选项
+    const dropdown = page.locator('.ant-select-dropdown:visible');
+    await expect(dropdown).toBeVisible({ timeout: 3000 });
+
+    const options = dropdown.locator('.ant-select-item');
+    const optionCount = await options.count();
+    expect(optionCount).toBeGreaterThan(0);
+
+    // 关闭
+    await page.keyboard.press('Escape');
   });
 
   test('删除依赖确认弹窗', async ({ page }) => {
     await page.goto('/badges/1/dependencies');
     await dependencyPage.waitForPageLoad();
 
-    // 如果有依赖项，验证删除确认逻辑
+    // 删除按钮仅在有依赖项时出现
     const deleteButton = page.locator('button').filter({ hasText: /删除|移除/ }).first();
-    if (await deleteButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await deleteButton.click();
-
-      // 应该显示确认弹窗
-      const hasConfirm = await page.locator('.ant-popconfirm, .ant-modal-confirm').isVisible({ timeout: 2000 }).catch(() => false);
-
-      if (hasConfirm) {
-        // 取消删除
-        await page.locator('button:has-text("取消"), button:has-text("否")').first().click().catch(() => {});
-      }
+    if (!(await deleteButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '无依赖项可删除');
+      return;
     }
+
+    await deleteButton.click();
+
+    // 删除操作必须弹出二次确认，防止误删
+    const confirmPopup = page.locator('.ant-popconfirm, .ant-modal-confirm');
+    await expect(confirmPopup).toBeVisible({ timeout: 3000 });
+
+    // 取消删除，验证取消后弹窗消失
+    await page.locator('button:has-text("取消"), button:has-text("否")').first().click();
   });
 
   test('查看依赖图', async ({ page }) => {
     await page.goto('/badges/1/dependencies');
     await dependencyPage.waitForPageLoad();
 
-    // 点击查看依赖图按钮
     const graphButton = page.locator('button').filter({ hasText: /依赖图|关系图|查看图/ }).first();
-    if (await graphButton.isVisible().catch(() => false)) {
-      await graphButton.click();
-
-      // 验证图表显示
-      const graph = page.locator('.dependency-graph, .react-flow, [class*="graph"]');
-      const isGraphVisible = await graph.isVisible({ timeout: 3000 }).catch(() => false);
-
-      // 关闭图表弹窗（如果是弹窗）
-      await page.locator('.ant-modal-close, button:has-text("关闭")').first().click().catch(() => {});
+    if (!(await graphButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '依赖图按钮不可见，功能可能未实现');
+      return;
     }
+
+    await graphButton.click();
+
+    // 图表容器必须渲染可见
+    const graph = page.locator('.dependency-graph, .react-flow, [class*="graph"]');
+    await expect(graph.first()).toBeVisible({ timeout: 5000 });
+
+    // 关闭图表弹窗（如果是弹窗）
+    await page.locator('.ant-modal-close, button:has-text("关闭")').first().click().catch(() => {});
   });
 });
 
@@ -155,16 +162,19 @@ test.describe('依赖图可视化', () => {
     await dependencyPage.waitForPageLoad();
 
     const graphButton = page.locator('button').filter({ hasText: /依赖图|关系图|查看图/ }).first();
-    if (await graphButton.isVisible().catch(() => false)) {
-      await graphButton.click();
-
-      // 等待图表加载
-      await page.waitForTimeout(500);
-
-      // 验证节点存在（使用更宽泛的选择器）
-      const nodes = await page.locator('.dependency-graph .node, .react-flow__node, [class*="node"]').count();
-      expect(nodes).toBeGreaterThanOrEqual(0);
+    if (!(await graphButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '依赖图按钮不可见，功能可能未实现');
+      return;
     }
+
+    await graphButton.click();
+    await page.waitForTimeout(500);
+
+    // 依赖图中应至少包含当前徽章本身作为节点
+    const nodes = page.locator('.dependency-graph .node, .react-flow__node, [class*="node"]');
+    await expect(nodes.first()).toBeVisible({ timeout: 5000 });
+    const nodeCount = await nodes.count();
+    expect(nodeCount).toBeGreaterThan(0);
   });
 
   test('依赖图连线显示', async ({ page }) => {
@@ -172,15 +182,24 @@ test.describe('依赖图可视化', () => {
     await dependencyPage.waitForPageLoad();
 
     const graphButton = page.locator('button').filter({ hasText: /依赖图|关系图|查看图/ }).first();
-    if (await graphButton.isVisible().catch(() => false)) {
-      await graphButton.click();
-
-      // 等待图表加载
-      await page.waitForTimeout(500);
-
-      // 验证连线存在（使用更宽泛的选择器）
-      const edges = await page.locator('.dependency-graph .edge, .react-flow__edge, [class*="edge"]').count();
-      expect(edges).toBeGreaterThanOrEqual(0);
+    if (!(await graphButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+      test.skip(true, '依赖图按钮不可见，功能可能未实现');
+      return;
     }
+
+    await graphButton.click();
+    await page.waitForTimeout(500);
+
+    // 图表容器应可见
+    const graphContainer = page.locator('.dependency-graph, .react-flow, [class*="graph"]').first();
+    await expect(graphContainer).toBeVisible({ timeout: 5000 });
+
+    // 连线是否存在取决于是否有依赖关系，但图表容器必须正常渲染
+    const edges = page.locator('.dependency-graph .edge, .react-flow__edge, [class*="edge"]');
+    const edgeCount = await edges.count();
+    // 如果有节点之间存在依赖，则连线数应 > 0；无依赖时 0 条也是合理的
+    expect(edgeCount).toBeGreaterThanOrEqual(0);
+    // 但图表容器本身必须已渲染
+    expect(await graphContainer.isVisible()).toBeTruthy();
   });
 });

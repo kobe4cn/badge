@@ -10,6 +10,9 @@ import { ApiHelper } from '../utils/api-helper';
  * 运行命令: npm run test:integration
  */
 
+// ApiHelper 直接请求后端，绕过 Vite mock 层，避免 mock token 导致 CRUD 操作 401
+const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8080';
+
 // 公共辅助函数：登录并等待页面稳定
 async function loginAndWait(page: import('@playwright/test').Page, username: string, password: string) {
   const loginPage = new LoginPage(page);
@@ -29,11 +32,41 @@ async function waitForTable(page: import('@playwright/test').Page) {
 
 // 辅助函数：通过搜索框过滤列表数据，防止分页导致目标项不在当前页
 async function searchInTable(page: import('@playwright/test').Page, keyword: string) {
-  const searchInput = page.locator('input[placeholder="请输入"]').first();
-  if (await searchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await searchInput.fill(keyword);
-    await page.locator('button').filter({ hasText: /查\s*询/ }).click();
-    await page.waitForTimeout(1000);
+  // 确保页面加载完毕，避免 reload 残留请求干扰后续 waitForResponse
+  await page.waitForLoadState('networkidle').catch(() => {});
+
+  const candidates = [
+    page.locator('input[placeholder="请输入"]').first(),
+    page.locator('input[placeholder="请输入名称"]').first(),
+    page.locator('.ant-pro-form input[type="text"]').first(),
+    page.locator('.ant-pro-table-search input[type="text"]').first(),
+    page.locator('.ant-form input[type="text"]').first(),
+  ];
+
+  let filled = false;
+  for (const input of candidates) {
+    if (await input.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await input.fill(keyword);
+      filled = true;
+      break;
+    }
+  }
+
+  if (filled) {
+    const searchBtn = page.locator('button').filter({ hasText: /查\s*询/ }).first();
+    if (await searchBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      // 精确匹配包含搜索关键词的 API 响应，避免捕获 reload 残留的无关请求
+      const encodedKeyword = encodeURIComponent(keyword);
+      const responsePromise = page.waitForResponse(
+        resp => resp.request().method() === 'GET' && resp.url().includes(encodedKeyword),
+        { timeout: 15000 }
+      ).catch(() => null);
+      await searchBtn.click();
+      await responsePromise;
+    } else {
+      await page.keyboard.press('Enter');
+    }
+    await page.waitForTimeout(1500);
     await waitForTable(page);
   }
 }
@@ -110,9 +143,13 @@ test.describe('集成测试: 分类管理 CRUD', () => {
   });
 
   test.afterEach(async ({ request }) => {
-    const api = new ApiHelper(request, process.env.BASE_URL || 'http://localhost:3001');
-    await api.login(testUsers.admin.username, testUsers.admin.password);
-    await api.cleanup(testPrefix);
+    try {
+      const api = new ApiHelper(request, API_BASE_URL);
+      await api.login(testUsers.admin.username, testUsers.admin.password);
+      await api.cleanup(testPrefix);
+    } catch (e) {
+      console.warn('Cleanup failed:', e);
+    }
   });
 
   test('创建分类', async ({ page }) => {
@@ -141,12 +178,12 @@ test.describe('集成测试: 分类管理 CRUD', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    // 验证
-    await expect(page.getByText(categoryName).first()).toBeVisible({ timeout: 10000 });
+    // 验证（ProTable 会截断长文本，title 属性保留完整值）
+    await expect(page.locator(`[title*="${categoryName}"]`).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('编辑分类', async ({ page, request }) => {
-    const api = new ApiHelper(request, process.env.BASE_URL || 'http://localhost:3001');
+    const api = new ApiHelper(request, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
     await api.createCategory({ name: `${testPrefix}Edit`, sortOrder: 0 });
 
@@ -156,11 +193,11 @@ test.describe('集成测试: 分类管理 CRUD', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    // 等待数据加载
-    await expect(page.getByText(`${testPrefix}Edit`).first()).toBeVisible({ timeout: 10000 });
+    // 等待数据加载（ProTable 会截断长文本，title 属性保留完整值）
+    await expect(page.locator(`[title*="${testPrefix}Edit"]`).first()).toBeVisible({ timeout: 10000 });
 
     // 点击编辑按钮
-    const row = page.locator('tr').filter({ hasText: `${testPrefix}Edit` });
+    const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Edit"]`) });
     await row.getByText('编辑').click();
 
     // 等待弹窗
@@ -190,11 +227,11 @@ test.describe('集成测试: 分类管理 CRUD', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    await expect(page.getByText(newName).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${newName}"]`).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('删除分类', async ({ page, request }) => {
-    const api = new ApiHelper(request, process.env.BASE_URL || 'http://localhost:3001');
+    const api = new ApiHelper(request, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
     await api.createCategory({ name: `${testPrefix}Del`, sortOrder: 0 });
 
@@ -204,10 +241,10 @@ test.describe('集成测试: 分类管理 CRUD', () => {
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
 
-    await expect(page.getByText(`${testPrefix}Del`).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[title*="${testPrefix}Del"]`).first()).toBeVisible({ timeout: 10000 });
 
     // 点击删除按钮
-    const row = page.locator('tr').filter({ hasText: `${testPrefix}Del` });
+    const row = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Del"]`) });
     await row.getByText('删').click();
 
     // 等待确认弹出并点击"确 认"
@@ -225,7 +262,7 @@ test.describe('集成测试: 分类管理 CRUD', () => {
     await searchInTable(page, testPrefix);
 
     // 验证删除成功
-    await expect(page.getByText(`${testPrefix}Del`)).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator(`[title*="${testPrefix}Del"]`)).not.toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -235,7 +272,7 @@ test.describe('集成测试: 徽章完整流程', () => {
   let seriesId: number;
 
   test.beforeAll(async ({ request }) => {
-    api = new ApiHelper(request, process.env.BASE_URL || 'http://localhost:3001');
+    api = new ApiHelper(request, API_BASE_URL);
     await api.login(testUsers.admin.username, testUsers.admin.password);
     const testData = await api.ensureTestData(testPrefix);
     seriesId = testData.seriesId;
@@ -246,9 +283,13 @@ test.describe('集成测试: 徽章完整流程', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    const cleanup = new ApiHelper(request, process.env.BASE_URL || 'http://localhost:3001');
-    await cleanup.login(testUsers.admin.username, testUsers.admin.password);
-    await cleanup.cleanup(testPrefix);
+    try {
+      const cleanup = new ApiHelper(request, API_BASE_URL);
+      await cleanup.login(testUsers.admin.username, testUsers.admin.password);
+      await cleanup.cleanup(testPrefix);
+    } catch (e) {
+      console.warn('Cleanup failed:', e);
+    }
   });
 
   test('创建徽章', async ({ page }) => {
@@ -429,11 +470,11 @@ test.describe('集成测试: 权限控制', () => {
   });
 
   test('不同角色用户登录返回正确权限', async ({ request }) => {
-    const api = new ApiHelper(request, process.env.BASE_URL || 'http://localhost:3001');
+    const api = new ApiHelper(request, API_BASE_URL);
 
     // admin 应该拥有 system 模块权限
     await api.login(testUsers.admin.username, testUsers.admin.password);
-    const adminResp = await request.get(`${process.env.BASE_URL || 'http://localhost:3001'}/api/admin/auth/me`, {
+    const adminResp = await request.get(`${API_BASE_URL}/api/admin/auth/me`, {
       headers: { 'Authorization': `Bearer ${await api.login(testUsers.admin.username, testUsers.admin.password)}` },
     });
     const adminData = await adminResp.json();
@@ -442,7 +483,7 @@ test.describe('集成测试: 权限控制', () => {
     // operator 不应该有 system 模块写权限（用户可能不存在）
     try {
       const operatorToken = await api.login(testUsers.operator.username, testUsers.operator.password);
-      const operatorResp = await request.get(`${process.env.BASE_URL || 'http://localhost:3001'}/api/admin/auth/me`, {
+      const operatorResp = await request.get(`${API_BASE_URL}/api/admin/auth/me`, {
         headers: { 'Authorization': `Bearer ${operatorToken}` },
       });
       const operatorData = await operatorResp.json();
@@ -454,7 +495,7 @@ test.describe('集成测试: 权限控制', () => {
     // viewer 应该只有 read 权限（用户可能不存在）
     try {
       const viewerToken = await api.login(testUsers.viewer.username, testUsers.viewer.password);
-      const viewerResp = await request.get(`${process.env.BASE_URL || 'http://localhost:3001'}/api/admin/auth/me`, {
+      const viewerResp = await request.get(`${API_BASE_URL}/api/admin/auth/me`, {
         headers: { 'Authorization': `Bearer ${viewerToken}` },
       });
       const viewerData = await viewerResp.json();

@@ -12,97 +12,98 @@ test.describe('权益配置与同步', () => {
 
   test('权益列表页面加载', async ({ page }) => {
     await page.goto('/benefits');
-
-    // 等待页面稳定
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容（各种可能的元素）
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 100;
-    expect(hasAnyContent).toBeTruthy();
+    // 权益列表页应包含表格或列表容器（即使数据为空也应显示表格骨架或空状态）
+    const contentArea = page.locator('table, .ant-table, .ant-list, .ant-empty, .ant-pro-page-container').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
   test('新建权益按钮可见', async ({ page }) => {
     await page.goto('/benefits');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 查找新建按钮
+    // 权益管理页面必须提供创建入口
     const createButton = page.locator('button').filter({ hasText: /新建|创建|添加/ }).first();
-    const isVisible = await createButton.isVisible({ timeout: 5000 }).catch(() => false);
-
-    // 按钮可能存在也可能不存在
-    expect(true).toBeTruthy(); // 只验证页面不崩溃
+    await expect(createButton).toBeVisible({ timeout: 5000 });
   });
 
   test('新建权益表单打开', async ({ page }) => {
     await page.goto('/benefits');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 点击新建按钮
+    // 点击新建按钮后，应弹出表单或跳转到创建页
     const createButton = page.locator('button').filter({ hasText: /新建|创建|添加/ }).first();
     if (await createButton.isVisible({ timeout: 5000 }).catch(() => false)) {
       await createButton.click();
-
-      // 等待响应
       await page.waitForTimeout(500);
-    }
 
-    // 验证页面不崩溃
-    expect(true).toBeTruthy();
+      // 创建操作应触发弹窗或页面跳转
+      const modal = page.locator('.ant-modal, .ant-drawer');
+      const hasModal = await modal.isVisible({ timeout: 3000 }).catch(() => false);
+      const isOnCreatePage = page.url().includes('/create') || page.url().includes('/new');
+      expect(hasModal || isOnCreatePage).toBeTruthy();
+
+      if (hasModal) {
+        await page.locator('.ant-modal-close, button:has-text("取消")').first().click().catch(() => {});
+      }
+    } else {
+      test.skip(true, '新建按钮不可见，跳过表单测试');
+    }
   });
 
   test('徽章权益关联页面', async ({ page }) => {
-    // 尝试访问徽章权益页面
     await page.goto('/badges/1/benefits');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 权益关联页应显示内容区域（表格、卡片或空状态）
+    const contentArea = page.locator('table, .ant-table, .ant-card, .ant-empty, .ant-layout-content, main').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
   test('权益同步页面', async ({ page }) => {
     await page.goto('/benefits/sync');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 同步页面应包含同步按钮或状态展示区域
+    const contentArea = page.locator('button, .ant-card, .ant-table, .ant-layout-content, main').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
   test('同步按钮可见', async ({ page }) => {
     await page.goto('/benefits/sync');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 查找同步按钮
+    // 同步页面的核心功能入口是同步按钮
     const syncButton = page.locator('button').filter({ hasText: /同步|刷新/ }).first();
-    const isVisible = await syncButton.isVisible({ timeout: 5000 }).catch(() => false);
-
-    // 验证页面不崩溃
-    expect(true).toBeTruthy();
+    await expect(syncButton).toBeVisible({ timeout: 5000 });
   });
 
   test('权益发放记录页面', async ({ page }) => {
     await page.goto('/benefits/grants');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 发放记录页应包含表格或列表容器
+    const contentArea = page.locator('table, .ant-table, .ant-list, .ant-empty, .ant-pro-page-container').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
   test('权益发放记录搜索', async ({ page }) => {
     await page.goto('/benefits/grants');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 如果有搜索框，尝试搜索
+    // 搜索操作后页面应保持稳定
     const searchInput = page.locator('input[type="text"]').first();
     if (await searchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
       await searchInput.fill('test');
       await page.waitForTimeout(300);
+      // 搜索框输入后内容应被保留
+      await expect(searchInput).toHaveValue('test');
     }
 
-    // 验证页面不崩溃
-    expect(true).toBeTruthy();
+    // 页面主体内容区域应正常渲染
+    const mainContent = page.locator('.ant-pro-page-container, .ant-layout-content, main').first();
+    await expect(mainContent).toBeVisible();
   });
 });
 
@@ -119,54 +120,53 @@ test.describe('权益兑换流程', () => {
     await page.goto('/redemptions/rules');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 兑换规则列表页应包含表格或空状态
+    const contentArea = page.locator('table, .ant-table, .ant-empty, .ant-pro-page-container').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
   test('兑换规则新建按钮', async ({ page }) => {
     await page.goto('/redemptions/rules');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 查找新建按钮
+    // 兑换规则管理页面必须提供创建入口
     const createButton = page.locator('button').filter({ hasText: /新建|创建|添加/ }).first();
-    const isVisible = await createButton.isVisible({ timeout: 5000 }).catch(() => false);
-
-    // 验证页面不崩溃
-    expect(true).toBeTruthy();
+    await expect(createButton).toBeVisible({ timeout: 5000 });
   });
 
   test('兑换规则创建页面', async ({ page }) => {
     await page.goto('/redemptions/rules/create');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 创建页应包含表单或页面主体容器
+    const contentArea = page.locator('form, .ant-form, .ant-card, .ant-pro-page-container, main').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
   test('查看兑换记录', async ({ page }) => {
     await page.goto('/redemptions/records');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 验证页面有内容
-    const hasAnyContent = await page.locator('body').evaluate(el => el.textContent?.trim().length || 0) > 50;
-    expect(hasAnyContent).toBeTruthy();
+    // 兑换记录页应包含表格或空状态
+    const contentArea = page.locator('table, .ant-table, .ant-list, .ant-empty, .ant-pro-page-container').first();
+    await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
   test('兑换记录日期筛选', async ({ page }) => {
     await page.goto('/redemptions/records');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 如果有日期选择器，尝试操作
+    // 日期选择器交互后关闭，确保下拉面板正确收起
     const datePicker = page.locator('.ant-picker').first();
     if (await datePicker.isVisible({ timeout: 3000 }).catch(() => false)) {
       await datePicker.click();
-      await page.waitForTimeout(300);
+      const datePanel = page.locator('.ant-picker-dropdown');
+      await expect(datePanel).toBeVisible({ timeout: 3000 });
       await page.keyboard.press('Escape');
     }
 
-    // 验证页面不崩溃
-    expect(true).toBeTruthy();
+    // 页面主体内容区域应正常渲染
+    const mainContent = page.locator('.ant-pro-page-container, .ant-layout-content, main').first();
+    await expect(mainContent).toBeVisible();
   });
 });

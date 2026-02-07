@@ -11,11 +11,8 @@ test.describe('徽章 CRUD 操作', () => {
   let badgeListPage: BadgeListPage;
 
   test.beforeEach(async ({ page }, testInfo) => {
-    // 跳过移动端测试（布局问题）
-    const projectName = testInfo.project.name;
-    if (projectName.includes('mobile') || projectName.includes('Mobile')) {
-      test.skip(true, 'Skipping mobile browser tests due to layout issues');
-    }
+    const isMobile = testInfo.project.name.toLowerCase().includes('mobile');
+    test.skip(isMobile, 'Skipping mobile browser tests due to layout issues');
 
     loginPage = new LoginPage(page);
     badgeListPage = new BadgeListPage(page);
@@ -67,24 +64,36 @@ test.describe('徽章 CRUD 操作', () => {
     await badgeListPage.goto();
     await badgeListPage.waitForLoading();
 
-    // 如果有数据，验证编辑按钮
+    // 表格加载完成后，行数决定了是否应该出现编辑按钮
+    const rows = page.locator('.ant-table-tbody tr[data-row-key]');
+    const rowCount = await rows.count();
     const editButton = page.locator('button').filter({ hasText: /编辑/ }).first();
     const isVisible = await editButton.isVisible({ timeout: 3000 }).catch(() => false);
 
-    // 只验证页面不崩溃
-    expect(true).toBeTruthy();
+    // 有数据行时编辑按钮必须存在，无数据时允许不存在
+    if (rowCount > 0) {
+      expect(isVisible).toBeTruthy();
+    } else {
+      expect(isVisible).toBe(false);
+    }
   });
 
   test('删除徽章 - 按钮存在', async ({ page }) => {
     await badgeListPage.goto();
     await badgeListPage.waitForLoading();
 
-    // 如果有数据，验证删除按钮
+    // 表格加载完成后，行数决定了是否应该出现删除按钮
+    const rows = page.locator('.ant-table-tbody tr[data-row-key]');
+    const rowCount = await rows.count();
     const deleteButton = page.locator('button').filter({ hasText: /删除/ }).first();
     const isVisible = await deleteButton.isVisible({ timeout: 3000 }).catch(() => false);
 
-    // 只验证页面不崩溃
-    expect(true).toBeTruthy();
+    // 有数据行时删除按钮必须存在，无数据时允许不存在
+    if (rowCount > 0) {
+      expect(isVisible).toBeTruthy();
+    } else {
+      expect(isVisible).toBe(false);
+    }
   });
 
   test('搜索徽章 - 表单存在', async ({ page }) => {

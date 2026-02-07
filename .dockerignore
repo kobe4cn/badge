@@ -1,0 +1,31 @@
+# 构建产物
+target/
+
+# 前端代码（各服务独立构建，前端有自己的 Dockerfile）
+web/
+
+# 版本控制
+.git/
+.gitignore
+
+# 文档与说明文件
+*.md
+docs/
+
+# 测试与基准（运行时不需要，减少构建上下文体积）
+tests/
+benches/
+
+# CI/CD 配置
+.github/
+
+# Docker 配置（避免递归复制）
+docker/
+
+# 测试产物与覆盖率报告
+test-results/
+coverage-report/
+
+# 日志与环境变量（可能包含敏感信息）
+*.log
+.env*

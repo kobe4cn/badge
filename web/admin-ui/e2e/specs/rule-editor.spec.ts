@@ -11,11 +11,8 @@ test.describe('规则编辑器（画布）', () => {
   let ruleEditorPage: RuleEditorPage;
 
   test.beforeEach(async ({ page }, testInfo) => {
-    // 跳过移动端测试（画布交互在移动端有兼容性问题）
-    const projectName = testInfo.project.name;
-    if (projectName.includes('mobile') || projectName.includes('Mobile')) {
-      test.skip(true, 'Skipping mobile browser tests due to canvas compatibility issues');
-    }
+    const isMobile = testInfo.project.name.toLowerCase().includes('mobile');
+    test.skip(isMobile, 'Skipping mobile browser tests due to canvas compatibility issues');
 
     loginPage = new LoginPage(page);
     ruleEditorPage = new RuleEditorPage(page);
@@ -137,11 +134,8 @@ test.describe('规则模板', () => {
   let ruleEditorPage: RuleEditorPage;
 
   test.beforeEach(async ({ page }, testInfo) => {
-    // 跳过移动端测试
-    const projectName = testInfo.project.name;
-    if (projectName.includes('mobile') || projectName.includes('Mobile')) {
-      test.skip(true, 'Skipping mobile browser tests due to canvas compatibility issues');
-    }
+    const isMobile = testInfo.project.name.toLowerCase().includes('mobile');
+    test.skip(isMobile, 'Skipping mobile browser tests due to canvas compatibility issues');
 
     loginPage = new LoginPage(page);
     ruleEditorPage = new RuleEditorPage(page);

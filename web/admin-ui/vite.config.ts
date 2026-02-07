@@ -3,9 +3,17 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
 /**
+ * 是否启用 Mock 模式
+ *
+ * 通过 VITE_DISABLE_MOCK=true 环境变量禁用 mock，用于集成测试
+ */
+const isMockEnabled = process.env.VITE_DISABLE_MOCK !== 'true';
+
+/**
  * Mock API 插件
  *
  * 在开发环境中拦截认证 API 请求，返回 mock 数据
+ * 设置 VITE_DISABLE_MOCK=true 可禁用此插件，直接使用真实后端
  */
 function mockApiPlugin(): Plugin {
   return {
@@ -220,7 +228,7 @@ function mockApiPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), mockApiPlugin()],
+  plugins: isMockEnabled ? [react(), mockApiPlugin()] : [react()],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -229,15 +237,36 @@ export default defineConfig({
   server: {
     port: 3001,
     proxy: {
-      // 非认证 API 代理到后端服务
+      // API 代理到后端服务
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
-        // 排除已被 mock 处理的认证 API
-        bypass: (req) => {
-          if (req.url?.startsWith('/api/admin/auth')) {
-            return req.url;
-          }
+        // Mock 模式下排除认证 API（由 mock 插件处理）
+        bypass: isMockEnabled
+          ? (req) => {
+              if (req.url?.startsWith('/api/admin/auth')) {
+                return req.url;
+              }
+            }
+          : undefined,
+      },
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // 将大型第三方依赖拆分为独立 chunk，避免单个产物过大影响首屏加载
+        manualChunks: {
+          // UI 框架核心：React 生态
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // UI 组件库：Ant Design
+          'vendor-antd': ['antd', '@ant-design/icons'],
+          // Pro 组件：表格、表单等高级组件
+          'vendor-pro': ['@ant-design/pro-components'],
+          // 图表库：ECharts
+          'vendor-charts': ['echarts', 'echarts-for-react'],
+          // 流程图：规则编辑器画布
+          'vendor-flow': ['@xyflow/react'],
         },
       },
     },
