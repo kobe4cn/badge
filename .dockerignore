@@ -12,9 +12,9 @@ web/
 *.md
 docs/
 
-# 测试与基准（运行时不需要，减少构建上下文体积）
+# 测试（运行时不需要，减少构建上下文体积）
 tests/
-benches/
+# 注意：benches/ 需要被复制，因为 Cargo.toml 引用了它
 
 # CI/CD 配置
 .github/
