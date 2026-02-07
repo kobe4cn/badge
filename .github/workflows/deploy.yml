@@ -39,10 +39,7 @@ jobs:
           - notification-worker
 
     # 手动触发时支持按服务名过滤，避免不必要的构建
-    if: |
-      github.event_name == 'push' ||
-      inputs.services == 'all' ||
-      contains(inputs.services, matrix.service)
+    if: github.event_name == 'push' || inputs.services == 'all' || contains(inputs.services, matrix.service)
 
     steps:
       - uses: actions/checkout@v4
@@ -77,10 +74,7 @@ jobs:
       contents: read
       packages: write
 
-    if: |
-      github.event_name == 'push' ||
-      inputs.services == 'all' ||
-      contains(inputs.services, 'admin-ui')
+    if: github.event_name == 'push' || inputs.services == 'all' || contains(inputs.services, 'admin-ui')
 
     steps:
       - uses: actions/checkout@v4
