@@ -3,7 +3,7 @@
 
 -- ==================== 规则模板 ====================
 
-CREATE TABLE rule_templates (
+CREATE TABLE IF NOT EXISTS rule_templates (
     id BIGSERIAL PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,       -- 模板代码，如 'purchase_gte'
     name VARCHAR(100) NOT NULL,
@@ -29,11 +29,12 @@ COMMENT ON COLUMN rule_templates.version IS '模板版本号，用于追踪模�
 COMMENT ON COLUMN rule_templates.is_system IS '是否为系统内置模板，内置模板不允许删除';
 
 -- 索引
-CREATE INDEX idx_rule_templates_category ON rule_templates(category, subcategory);
-CREATE INDEX idx_rule_templates_code ON rule_templates(code);
-CREATE INDEX idx_rule_templates_enabled ON rule_templates(enabled) WHERE enabled = TRUE;
+CREATE INDEX IF NOT EXISTS idx_rule_templates_category ON rule_templates(category, subcategory);
+CREATE INDEX IF NOT EXISTS idx_rule_templates_code ON rule_templates(code);
+CREATE INDEX IF NOT EXISTS idx_rule_templates_enabled ON rule_templates(enabled) WHERE enabled = TRUE;
 
 -- 触发器：自动更新 updated_at
+DROP TRIGGER IF EXISTS update_rule_templates_updated_at ON rule_templates;
 CREATE TRIGGER update_rule_templates_updated_at
     BEFORE UPDATE ON rule_templates
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -50,4 +51,4 @@ COMMENT ON COLUMN badge_rules.template_version IS '创建时使用的模板版�
 COMMENT ON COLUMN badge_rules.template_params IS '模板参数值，JSON格式，如 {"amount": 500, "days": 30}';
 
 -- 索引：加速模板关联查询
-CREATE INDEX idx_badge_rules_template ON badge_rules(template_id) WHERE template_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_badge_rules_template ON badge_rules(template_id) WHERE template_id IS NOT NULL;

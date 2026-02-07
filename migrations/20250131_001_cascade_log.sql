@@ -3,7 +3,7 @@
 
 -- ==================== 级联评估日志 ====================
 
-CREATE TABLE cascade_evaluation_logs (
+CREATE TABLE IF NOT EXISTS cascade_evaluation_logs (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL,
     trigger_badge_id BIGINT NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
@@ -35,20 +35,20 @@ COMMENT ON COLUMN cascade_evaluation_logs.blocked_badges IS '本次评估被阻�
 COMMENT ON COLUMN cascade_evaluation_logs.duration_ms IS '评估耗时（毫秒），用于性能监控和超时分析';
 
 -- 按用户查询评估历史
-CREATE INDEX idx_cascade_logs_user ON cascade_evaluation_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_cascade_logs_user ON cascade_evaluation_logs(user_id);
 
 -- 按触发徽章分析级联影响
-CREATE INDEX idx_cascade_logs_trigger ON cascade_evaluation_logs(trigger_badge_id);
+CREATE INDEX IF NOT EXISTS idx_cascade_logs_trigger ON cascade_evaluation_logs(trigger_badge_id);
 
 -- 按状态筛选异常记录（如循环、超时）
-CREATE INDEX idx_cascade_logs_status ON cascade_evaluation_logs(result_status);
+CREATE INDEX IF NOT EXISTS idx_cascade_logs_status ON cascade_evaluation_logs(result_status);
 
 -- 按时间范围查询，支持审计和统计
-CREATE INDEX idx_cascade_logs_created ON cascade_evaluation_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_cascade_logs_created ON cascade_evaluation_logs(created_at);
 
 -- ==================== 分布式锁 ====================
 
-CREATE TABLE distributed_locks (
+CREATE TABLE IF NOT EXISTS distributed_locks (
     lock_key VARCHAR(255) PRIMARY KEY,
     owner_id VARCHAR(100) NOT NULL, -- instance_id + thread_id 组合
     expires_at TIMESTAMPTZ NOT NULL,
@@ -63,4 +63,4 @@ COMMENT ON COLUMN distributed_locks.expires_at IS '锁过期时间，过期后�
 COMMENT ON COLUMN distributed_locks.metadata IS '可选的额外信息，如获取锁的原因、关联的业务ID等';
 
 -- 定期清理过期锁时使用，支持批量删除过期记录
-CREATE INDEX idx_distributed_locks_expires ON distributed_locks(expires_at);
+CREATE INDEX IF NOT EXISTS idx_distributed_locks_expires ON distributed_locks(expires_at);

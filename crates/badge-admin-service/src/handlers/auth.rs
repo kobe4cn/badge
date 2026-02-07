@@ -8,13 +8,18 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::FromRow;
+use std::time::Duration;
 use validator::Validate;
 
 use crate::auth::{verify_password, Claims};
 use crate::dto::ApiResponse;
 use crate::error::{AdminError, Result};
 use crate::state::AppState;
+
+/// Token 黑名单在 Redis 中的 key 前缀
+const TOKEN_BLACKLIST_PREFIX: &str = "token_blacklist:";
 
 // ============================================
 // 请求/响应 DTO
@@ -149,20 +154,29 @@ pub async fn login(
     }
 
     // 检查是否被锁定
-    if let Some(locked_until) = user.locked_until {
-        if locked_until > Utc::now() {
-            return Err(AdminError::UserLocked);
-        }
+    if let Some(locked_until) = user.locked_until
+        && locked_until > Utc::now()
+    {
+        return Err(AdminError::UserLocked);
     }
 
     // 验证密码
     let password_valid = verify_password(&req.password, &user.password_hash)?;
     if !password_valid {
+        // 允许通过环境变量调整防暴力破解策略，便于不同部署环境差异化配置
+        let max_attempts: i32 = std::env::var("BADGE_MAX_LOGIN_ATTEMPTS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5);
+        let lock_duration_mins: i64 = std::env::var("BADGE_LOCK_DURATION_MINS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+
         // 更新失败次数
         let new_attempts = user.failed_login_attempts + 1;
-        let locked_until = if new_attempts >= 5 {
-            // 锁定 30 分钟
-            Some(Utc::now() + chrono::Duration::minutes(30))
+        let locked_until = if new_attempts >= max_attempts {
+            Some(Utc::now() + chrono::Duration::minutes(lock_duration_mins))
         } else {
             None
         };
@@ -179,6 +193,13 @@ pub async fn login(
         .bind(user.id)
         .execute(&state.pool)
         .await?;
+
+        tracing::warn!(
+            username = %req.username,
+            attempts = new_attempts,
+            max_attempts = max_attempts,
+            "登录失败"
+        );
 
         return Err(AdminError::InvalidCredentials);
     }
@@ -257,10 +278,63 @@ pub async fn login(
 /// 用户登出
 ///
 /// POST /api/admin/auth/logout
-pub async fn logout() -> Result<Json<ApiResponse<()>>> {
-    // JWT 是无状态的，登出只需前端清除 Token
-    // 如果需要 Token 黑名单，可在此处实现
+///
+/// 将当前 Token 加入 Redis 黑名单，使其在过期前也无法再被使用。
+/// TTL 设为 Token 剩余有效期，过期后 Redis 自动清理，避免黑名单无限增长。
+pub async fn logout(
+    State(state): State<AppState>,
+    request: Request,
+) -> Result<Json<ApiResponse<()>>> {
+    // 从 Authorization header 提取原始 token
+    let token = request
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or_else(|| AdminError::Unauthorized("缺少认证 Token".to_string()))?;
+
+    // 解析 token 获取过期时间，用于计算黑名单 TTL
+    let claims = state.jwt_manager.verify_token(token)?;
+
+    let now = Utc::now().timestamp();
+    let remaining_secs = (claims.exp - now).max(0) as u64;
+
+    if remaining_secs > 0 {
+        // 使用 SHA-256 摘要作为 Redis key，避免将完整 token 暴露在缓存键中
+        let token_hash = sha256_hex(token);
+        let key = format!("{}{}", TOKEN_BLACKLIST_PREFIX, token_hash);
+
+        // 值为 true 即可，重要的是 key 的存在性
+        state
+            .cache
+            .set(&key, &true, Duration::from_secs(remaining_secs))
+            .await
+            .map_err(|e| AdminError::Redis(e.to_string()))?;
+
+        tracing::info!(
+            username = %claims.username,
+            remaining_secs = remaining_secs,
+            "用户主动登出，Token 已加入黑名单"
+        );
+    }
+
     Ok(Json(ApiResponse::success(())))
+}
+
+/// 检查 Token 是否在黑名单中
+///
+/// 供认证中间件调用，在 JWT 签名校验通过后做二次检查
+pub async fn is_token_blacklisted(cache: &badge_shared::cache::Cache, token: &str) -> bool {
+    let token_hash = sha256_hex(token);
+    let key = format!("{}{}", TOKEN_BLACKLIST_PREFIX, token_hash);
+    cache.exists(&key).await.unwrap_or(false)
+}
+
+/// 对 token 做 SHA-256 哈希，返回十六进制字符串
+fn sha256_hex(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 /// 获取当前用户信息

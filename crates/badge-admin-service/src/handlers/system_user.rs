@@ -3,7 +3,7 @@
 //! 提供用户的 CRUD 操作和密码管理
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     Json,
 };
 use chrono::{DateTime, Utc};
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use validator::Validate;
 
-use crate::auth::hash_password;
+use crate::auth::{hash_password, Claims};
 use crate::dto::{ApiResponse, PageResponse, PaginationParams};
 use crate::error::{AdminError, Result};
 use crate::state::AppState;
@@ -158,7 +158,7 @@ pub async fn list_users(
     Query(params): Query<UserQueryParams>,
 ) -> Result<Json<ApiResponse<PageResponse<UserListItem>>>> {
     let page = params.pagination.page.max(1);
-    let page_size = params.pagination.page_size.min(100).max(1);
+    let page_size = params.pagination.page_size.clamp(1, 100);
     let offset = (page - 1) * page_size;
 
     // 构建查询条件
@@ -178,9 +178,14 @@ pub async fn list_users(
             "EXISTS (SELECT 1 FROM user_role ur WHERE ur.user_id = u.id AND ur.role_id = ${})",
             bind_index
         ));
+        bind_index += 1;
     }
 
     let where_clause = conditions.join(" AND ");
+
+    // LIMIT/OFFSET 也必须使用绑定参数，避免 SQL 注入风险
+    let limit_param = bind_index;
+    let offset_param = bind_index + 1;
 
     // 查询总数
     let count_sql = format!(
@@ -210,9 +215,9 @@ pub async fn list_users(
         FROM admin_user u
         WHERE {}
         ORDER BY u.created_at DESC
-        LIMIT {} OFFSET {}
+        LIMIT ${} OFFSET ${}
         "#,
-        where_clause, page_size, offset
+        where_clause, limit_param, offset_param
     );
 
     let mut list_query = sqlx::query_as::<_, UserRow>(&list_sql);
@@ -225,6 +230,7 @@ pub async fn list_users(
     if let Some(role_id) = params.role_id {
         list_query = list_query.bind(role_id);
     }
+    list_query = list_query.bind(page_size).bind(offset);
 
     let users = list_query.fetch_all(&state.pool).await?;
 
@@ -335,8 +341,24 @@ pub async fn get_user(
 /// POST /api/admin/system/users
 pub async fn create_user(
     State(state): State<AppState>,
-    Json(req): Json<CreateUserRequest>,
+    request: Request,
 ) -> Result<Json<ApiResponse<UserDetail>>> {
+    // 从 JWT Claims 中提取当前操作者 ID，用于记录创建者
+    let claims = request
+        .extensions()
+        .get::<Claims>()
+        .ok_or_else(|| AdminError::Unauthorized("未认证".to_string()))?
+        .clone();
+    let created_by: i64 = claims
+        .sub
+        .parse()
+        .map_err(|_| AdminError::Internal("无效的用户 ID".to_string()))?;
+
+    // 手动解析请求体为 CreateUserRequest
+    let body = axum::body::to_bytes(request.into_body(), 1024 * 64).await
+        .map_err(|_| AdminError::Validation("请求体过大或读取失败".to_string()))?;
+    let req: CreateUserRequest = serde_json::from_slice(&body)
+        .map_err(|e| AdminError::Validation(format!("请求体解析失败: {}", e)))?;
     req.validate()?;
 
     // 检查用户名是否已存在
@@ -358,8 +380,8 @@ pub async fn create_user(
     // 创建用户
     let user_id: i64 = sqlx::query_scalar(
         r#"
-        INSERT INTO admin_user (username, password_hash, email, display_name, avatar_url, status, password_changed_at)
-        VALUES ($1, $2, $3, $4, $5, 'ACTIVE', NOW())
+        INSERT INTO admin_user (username, password_hash, email, display_name, avatar_url, status, password_changed_at, created_by)
+        VALUES ($1, $2, $3, $4, $5, 'ACTIVE', NOW(), $6)
         RETURNING id
         "#,
     )
@@ -368,6 +390,7 @@ pub async fn create_user(
     .bind(&req.email)
     .bind(&req.display_name)
     .bind(&req.avatar_url)
+    .bind(created_by)
     .fetch_one(&state.pool)
     .await?;
 

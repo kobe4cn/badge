@@ -181,6 +181,10 @@ impl EventPayload {
             "user_id": self.user_id,
             "timestamp": self.timestamp.to_rfc3339(),
             "source": self.source,
+            // 兼容规则表达式中使用 event.type 的场景
+            "event": {
+                "type": self.event_type
+            },
         });
 
         // 将 data 中的字段展开到顶层，便于规则引擎直接访问

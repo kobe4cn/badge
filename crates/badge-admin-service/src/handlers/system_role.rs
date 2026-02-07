@@ -178,7 +178,7 @@ pub async fn list_roles(
     Query(params): Query<RoleQueryParams>,
 ) -> Result<Json<ApiResponse<PageResponse<RoleListItem>>>> {
     let page = params.pagination.page.max(1);
-    let page_size = params.pagination.page_size.min(100).max(1);
+    let page_size = params.pagination.page_size.clamp(1, 100);
     let offset = (page - 1) * page_size;
 
     // 构建查询条件

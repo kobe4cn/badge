@@ -7,11 +7,11 @@ pub mod response;
 
 // 重新导出常用类型
 pub use request::{
-    BadgeQueryFilter, BatchGrantRequest, BatchRevokeRequest, BatchTaskFilter, CreateBadgeRequest,
-    CreateCategoryRequest, CreateRuleRequest, CreateSeriesRequest, GrantLogFilter,
-    ManualGrantRequest, ManualRevokeRequest, OperationLogFilter, PaginationParams,
-    TestRuleDefinitionRequest, TimeRangeParams, UpdateBadgeRequest, UpdateCategoryRequest,
-    UpdateRuleRequest, UpdateSeriesRequest,
+    AutoRevokeRequest, AutoRevokeScenario, BadgeQueryFilter, BatchGrantRequest, BatchRevokeRequest,
+    BatchTaskFilter, CreateBadgeRequest, CreateCategoryRequest, CreateRuleRequest,
+    CreateSeriesRequest, GrantLogFilter, ManualGrantRequest, ManualRevokeRequest,
+    OperationLogFilter, PaginationParams, RecipientType, TestRuleDefinitionRequest, TimeRangeParams,
+    UpdateBadgeRequest, UpdateCategoryRequest, UpdateRuleRequest, UpdateSeriesRequest,
 };
 
 pub use response::{

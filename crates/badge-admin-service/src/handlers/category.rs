@@ -32,7 +32,7 @@ struct CategoryRow {
     updated_at: DateTime<Utc>,
 }
 
-/// 带徽章数量的分类查询结果
+/// 带徽章数量和系列数量的分类查询结果
 #[derive(sqlx::FromRow)]
 struct CategoryWithCount {
     id: i64,
@@ -43,6 +43,7 @@ struct CategoryWithCount {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     badge_count: i64,
+    series_count: i64,
 }
 
 /// 创建分类
@@ -77,7 +78,8 @@ pub async fn create_category(
         icon_url: row.icon_url,
         sort_order: row.sort_order,
         status: row.status,
-        badge_count: 0, // 新创建的分类没有徽章
+        badge_count: 0,
+        series_count: 0,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -144,7 +146,7 @@ pub async fn list_categories(
         ))));
     }
 
-    // 查询分类并统计每个分类下的徽章数量，支持按名称过滤
+    // 查询分类并统计每个分类下的徽章数量和系列数量，支持按名称过滤
     let rows = sqlx::query_as::<_, CategoryWithCount>(
         r#"
         SELECT
@@ -155,7 +157,8 @@ pub async fn list_categories(
             c.status,
             c.created_at,
             c.updated_at,
-            COALESCE(badge_counts.count, 0) as badge_count
+            COALESCE(badge_counts.count, 0) as badge_count,
+            COALESCE(series_counts.count, 0) as series_count
         FROM badge_categories c
         LEFT JOIN (
             SELECT s.category_id, COUNT(b.id) as count
@@ -163,6 +166,11 @@ pub async fn list_categories(
             LEFT JOIN badges b ON b.series_id = s.id
             GROUP BY s.category_id
         ) badge_counts ON badge_counts.category_id = c.id
+        LEFT JOIN (
+            SELECT category_id, COUNT(*) as count
+            FROM badge_series
+            GROUP BY category_id
+        ) series_counts ON series_counts.category_id = c.id
         WHERE ($1::text IS NULL OR c.name ILIKE $1)
         ORDER BY c.sort_order ASC, c.id ASC
         LIMIT $2 OFFSET $3
@@ -183,6 +191,7 @@ pub async fn list_categories(
             sort_order: row.sort_order,
             status: row.status,
             badge_count: row.badge_count,
+            series_count: row.series_count,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -210,7 +219,8 @@ pub async fn list_all_categories(
             c.status,
             c.created_at,
             c.updated_at,
-            COALESCE(badge_counts.count, 0) as badge_count
+            COALESCE(badge_counts.count, 0) as badge_count,
+            COALESCE(series_counts.count, 0) as series_count
         FROM badge_categories c
         LEFT JOIN (
             SELECT s.category_id, COUNT(b.id) as count
@@ -218,6 +228,11 @@ pub async fn list_all_categories(
             LEFT JOIN badges b ON b.series_id = s.id
             GROUP BY s.category_id
         ) badge_counts ON badge_counts.category_id = c.id
+        LEFT JOIN (
+            SELECT category_id, COUNT(*) as count
+            FROM badge_series
+            GROUP BY category_id
+        ) series_counts ON series_counts.category_id = c.id
         WHERE c.status = 'active'
         ORDER BY c.sort_order ASC, c.id ASC
         "#,
@@ -234,6 +249,7 @@ pub async fn list_all_categories(
             sort_order: row.sort_order,
             status: row.status,
             badge_count: row.badge_count,
+            series_count: row.series_count,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -259,7 +275,8 @@ pub async fn get_category(
             c.status,
             c.created_at,
             c.updated_at,
-            COALESCE(badge_counts.count, 0) as badge_count
+            COALESCE(badge_counts.count, 0) as badge_count,
+            COALESCE(series_counts.count, 0) as series_count
         FROM badge_categories c
         LEFT JOIN (
             SELECT s.category_id, COUNT(b.id) as count
@@ -267,6 +284,11 @@ pub async fn get_category(
             LEFT JOIN badges b ON b.series_id = s.id
             GROUP BY s.category_id
         ) badge_counts ON badge_counts.category_id = c.id
+        LEFT JOIN (
+            SELECT category_id, COUNT(*) as count
+            FROM badge_series
+            GROUP BY category_id
+        ) series_counts ON series_counts.category_id = c.id
         WHERE c.id = $1
         "#,
     )
@@ -282,6 +304,7 @@ pub async fn get_category(
         sort_order: row.sort_order,
         status: row.status,
         badge_count: row.badge_count,
+        series_count: row.series_count,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -332,13 +355,12 @@ pub async fn update_category(
 
     info!(category_id = id, "Category updated");
 
-    // 查询徽章数量
-    let badge_count: (i64,) = sqlx::query_as(
+    // 查询徽章数量和系列数量
+    let counts: (i64, i64) = sqlx::query_as(
         r#"
-        SELECT COUNT(b.id)
-        FROM badge_series s
-        LEFT JOIN badges b ON b.series_id = s.id
-        WHERE s.category_id = $1
+        SELECT
+            (SELECT COUNT(b.id) FROM badge_series s LEFT JOIN badges b ON b.series_id = s.id WHERE s.category_id = $1),
+            (SELECT COUNT(*) FROM badge_series WHERE category_id = $1)
         "#,
     )
     .bind(id)
@@ -351,7 +373,8 @@ pub async fn update_category(
         icon_url: row.icon_url,
         sort_order: row.sort_order,
         status: row.status,
-        badge_count: badge_count.0,
+        badge_count: counts.0,
+        series_count: counts.1,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -408,7 +431,7 @@ pub async fn update_category_status(
         "UPDATE badge_categories SET status = $2, updated_at = NOW() WHERE id = $1",
     )
     .bind(id)
-    .bind(&req.status)
+    .bind(req.status)
     .execute(&state.pool)
     .await?;
 
@@ -429,7 +452,8 @@ pub async fn update_category_status(
             c.status,
             c.created_at,
             c.updated_at,
-            COALESCE(badge_counts.count, 0) as badge_count
+            COALESCE(badge_counts.count, 0) as badge_count,
+            COALESCE(series_counts.count, 0) as series_count
         FROM badge_categories c
         LEFT JOIN (
             SELECT s.category_id, COUNT(b.id) as count
@@ -437,6 +461,11 @@ pub async fn update_category_status(
             LEFT JOIN badges b ON b.series_id = s.id
             GROUP BY s.category_id
         ) badge_counts ON badge_counts.category_id = c.id
+        LEFT JOIN (
+            SELECT category_id, COUNT(*) as count
+            FROM badge_series
+            GROUP BY category_id
+        ) series_counts ON series_counts.category_id = c.id
         WHERE c.id = $1
         "#,
     )
@@ -451,6 +480,7 @@ pub async fn update_category_status(
         sort_order: row.sort_order,
         status: row.status,
         badge_count: row.badge_count,
+        series_count: row.series_count,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };

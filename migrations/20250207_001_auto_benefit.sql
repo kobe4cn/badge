@@ -8,7 +8,7 @@
 -- 核心作用：幂等控制
 -- 当用户获得徽章时，系统自动评估是否满足兑换规则，若满足则自动发放权益
 -- 通过 idempotency_key 确保同一触发条件不会重复发放
-CREATE TABLE auto_benefit_grants (
+CREATE TABLE IF NOT EXISTS auto_benefit_grants (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(100) NOT NULL,                                              -- SWID，用户唯一标识
     rule_id BIGINT NOT NULL REFERENCES badge_redemption_rules(id),              -- 触发的兑换规则
@@ -54,7 +54,7 @@ COMMENT ON COLUMN auto_benefit_grants.completed_at IS '处理完成时间，无�
 
 -- 核心作用：调试和审计
 -- 记录每次徽章获得时的自动权益评估过程，便于问题排查和业务分析
-CREATE TABLE auto_benefit_evaluation_logs (
+CREATE TABLE IF NOT EXISTS auto_benefit_evaluation_logs (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(100) NOT NULL,                                              -- SWID，被评估的用户
     trigger_badge_id BIGINT NOT NULL REFERENCES badges(id),                     -- 触发评估的徽章
@@ -90,39 +90,40 @@ COMMENT ON COLUMN auto_benefit_evaluation_logs.duration_ms IS '评估过程总�
 -- auto_benefit_grants 索引
 
 -- 用户+规则组合查询：检查用户是否已通过某规则获得过自动权益
-CREATE INDEX idx_auto_benefit_grants_user_rule ON auto_benefit_grants(user_id, rule_id);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_grants_user_rule ON auto_benefit_grants(user_id, rule_id);
 
 -- 触发徽章查询：通过用户徽章ID反查自动发放记录
-CREATE INDEX idx_auto_benefit_grants_trigger ON auto_benefit_grants(trigger_user_badge_id);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_grants_trigger ON auto_benefit_grants(trigger_user_badge_id);
 
 -- 状态查询：查找待处理或失败的记录
-CREATE INDEX idx_auto_benefit_grants_status ON auto_benefit_grants(status);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_grants_status ON auto_benefit_grants(status);
 
 -- 时间范围查询：按创建时间统计和清理
-CREATE INDEX idx_auto_benefit_grants_created ON auto_benefit_grants(created_at);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_grants_created ON auto_benefit_grants(created_at);
 
 -- 权益发放关联查询：通过 benefit_grant_id 反查
-CREATE INDEX idx_auto_benefit_grants_benefit ON auto_benefit_grants(benefit_grant_id)
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_grants_benefit ON auto_benefit_grants(benefit_grant_id)
     WHERE benefit_grant_id IS NOT NULL;
 
 -- auto_benefit_evaluation_logs 索引
 
 -- 用户+时间组合查询：查询用户的评估历史
-CREATE INDEX idx_auto_benefit_eval_user ON auto_benefit_evaluation_logs(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_eval_user ON auto_benefit_evaluation_logs(user_id, created_at);
 
 -- 触发徽章查询：分析某徽章触发的评估情况
-CREATE INDEX idx_auto_benefit_eval_badge ON auto_benefit_evaluation_logs(trigger_badge_id);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_eval_badge ON auto_benefit_evaluation_logs(trigger_badge_id);
 
 -- 时间范围查询：按时间统计和清理历史数据
-CREATE INDEX idx_auto_benefit_eval_time ON auto_benefit_evaluation_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_eval_time ON auto_benefit_evaluation_logs(created_at);
 
 -- 徽章+时间复合查询：分析某徽章在时间区间内的触发情况
-CREATE INDEX idx_auto_benefit_eval_badge_time ON auto_benefit_evaluation_logs(trigger_badge_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_auto_benefit_eval_badge_time ON auto_benefit_evaluation_logs(trigger_badge_id, created_at);
 
 -- ============================================
 -- 4. 创建触发器
 -- ============================================
 
+DROP TRIGGER IF EXISTS update_auto_benefit_grants_updated_at ON auto_benefit_grants;
 CREATE TRIGGER update_auto_benefit_grants_updated_at
     BEFORE UPDATE ON auto_benefit_grants
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

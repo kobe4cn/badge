@@ -39,12 +39,16 @@ const queryClient = new QueryClient({
  * 认证路由守卫
  *
  * 检查用户登录状态，未登录时重定向到登录页
+ * 同时检查 localStorage 作为降级方案，解决 Zustand hydration 延迟问题
  */
 const AuthenticatedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { isAuthenticated } = useAuthStore();
 
-  if (!isAuthenticated) {
+  // 同时检查 localStorage 中的 token，解决 Zustand persist hydration 延迟问题
+  const hasToken = !!localStorage.getItem('auth_token');
+
+  if (!isAuthenticated && !hasToken) {
     // 保存当前路径用于登录后跳转
     const returnUrl = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?returnUrl=${returnUrl}`} replace />;

@@ -28,6 +28,7 @@ import {
   Statistic,
   Row,
   Col,
+  Radio,
 } from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
 import {
@@ -47,6 +48,7 @@ import { useManualGrant } from '@/hooks/useGrant';
 import { getMembershipConfig } from '@/types/user';
 import type { GrantResult, UserGrantResult } from '@/services/grant';
 import type { ColumnsType } from 'antd/es/table';
+import type { RecipientType } from '@/types/grant';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -59,6 +61,10 @@ interface GrantFormData {
   badge: BadgeSelectValue | undefined;
   quantity: number;
   reason: string;
+  /** 发放对象类型：OWNER-账号注册人，USER-实际使用人 */
+  recipientType: RecipientType;
+  /** 实际使用人 ID（当 recipientType = USER 时使用） */
+  actualUserId: string;
 }
 
 /**
@@ -69,6 +75,8 @@ const initialFormData: GrantFormData = {
   badge: undefined,
   quantity: 1,
   reason: '',
+  recipientType: 'OWNER',
+  actualUserId: '',
 };
 
 /**
@@ -127,6 +135,8 @@ const ManualGrantPage: React.FC = () => {
         badgeId: formData.badge.value,
         quantity: formData.quantity,
         reason: formData.reason || undefined,
+        recipientType: formData.recipientType,
+        actualUserId: formData.recipientType === 'USER' ? formData.actualUserId || undefined : undefined,
       });
       setGrantResult(result);
       setCurrentStep(3);
@@ -142,8 +152,14 @@ const ManualGrantPage: React.FC = () => {
     switch (currentStep) {
       case 0:
         return formData.users.length > 0;
-      case 1:
-        return formData.badge !== undefined && formData.quantity > 0;
+      case 1: {
+        const badgeValid = formData.badge !== undefined && formData.quantity > 0;
+        // 当发放对象类型为 USER 时，必须填写实际使用人 ID
+        const recipientValid =
+          formData.recipientType === 'OWNER' ||
+          (formData.recipientType === 'USER' && formData.actualUserId.trim() !== '');
+        return badgeValid && recipientValid;
+      }
       case 2:
         return true;
       default:
@@ -311,6 +327,36 @@ const ManualGrantPage: React.FC = () => {
         />
       </div>
 
+      <div style={{ marginBottom: 16 }}>
+        <Title level={5}>发放对象类型</Title>
+        <Radio.Group
+          value={formData.recipientType}
+          onChange={(e) => updateFormData('recipientType', e.target.value)}
+        >
+          <Radio.Button value="OWNER">账号注册人</Radio.Button>
+          <Radio.Button value="USER">实际使用人</Radio.Button>
+        </Radio.Group>
+        <div style={{ marginTop: 8 }}>
+          <Typography.Text type="secondary">
+            {formData.recipientType === 'OWNER'
+              ? '徽章将发放给账号注册人（默认行为）'
+              : '徽章将发放给实际使用人，需要填写使用人 ID'}
+          </Typography.Text>
+        </div>
+      </div>
+
+      {formData.recipientType === 'USER' && (
+        <div style={{ marginBottom: 16 }}>
+          <Title level={5}>实际使用人 ID</Title>
+          <Input
+            value={formData.actualUserId}
+            onChange={(e) => updateFormData('actualUserId', e.target.value)}
+            placeholder="请输入实际使用人 ID"
+            style={{ width: 300 }}
+          />
+        </div>
+      )}
+
       <div>
         <Title level={5}>发放原因（可选）</Title>
         <TextArea
@@ -390,6 +436,16 @@ const ManualGrantPage: React.FC = () => {
               <Descriptions.Item label="所属系列">
                 {formData.badge.badge.seriesName || '-'}
               </Descriptions.Item>
+              <Descriptions.Item label="发放对象">
+                <Tag color={formData.recipientType === 'OWNER' ? 'blue' : 'orange'}>
+                  {formData.recipientType === 'OWNER' ? '账号注册人' : '实际使用人'}
+                </Tag>
+              </Descriptions.Item>
+              {formData.recipientType === 'USER' && (
+                <Descriptions.Item label="实际使用人 ID">
+                  {formData.actualUserId}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="发放原因" span={2}>
                 {formData.reason || '未填写'}
               </Descriptions.Item>

@@ -18,7 +18,7 @@
 -- 2. 创建 benefit_grants 表
 -- ============================================
 
-CREATE TABLE benefit_grants (
+CREATE TABLE IF NOT EXISTS benefit_grants (
     id BIGSERIAL PRIMARY KEY,
     grant_no VARCHAR(200) NOT NULL,  -- 加长以支持自动权益的幂等键格式
 
@@ -92,43 +92,44 @@ COMMENT ON COLUMN benefit_grants.next_retry_at IS '下次重试时间，用于�
 -- ============================================
 
 -- 用户查询：查询用户的所有权益发放记录
-CREATE INDEX idx_benefit_grants_user ON benefit_grants(user_id);
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_user ON benefit_grants(user_id);
 
 -- 状态查询：查询待处理、失败需重试的记录
-CREATE INDEX idx_benefit_grants_status ON benefit_grants(status);
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_status ON benefit_grants(status);
 
 -- 权益查询：按权益类型统计发放情况
-CREATE INDEX idx_benefit_grants_benefit ON benefit_grants(benefit_id);
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_benefit ON benefit_grants(benefit_id);
 
 -- 订单关联：通过兑换订单查询发放记录
-CREATE INDEX idx_benefit_grants_order ON benefit_grants(redemption_order_id)
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_order ON benefit_grants(redemption_order_id)
     WHERE redemption_order_id IS NOT NULL;
 
 -- 用户+状态组合查询：查询用户的有效权益
-CREATE INDEX idx_benefit_grants_user_status ON benefit_grants(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_user_status ON benefit_grants(user_id, status);
 
 -- 重试任务扫描：定时任务查找需要重试的记录
-CREATE INDEX idx_benefit_grants_retry ON benefit_grants(next_retry_at)
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_retry ON benefit_grants(next_retry_at)
     WHERE status = 'failed' AND next_retry_at IS NOT NULL;
 
 -- 过期扫描：查找即将过期或已过期的权益
-CREATE INDEX idx_benefit_grants_expires ON benefit_grants(expires_at)
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_expires ON benefit_grants(expires_at)
     WHERE expires_at IS NOT NULL AND status = 'success';
 
 -- 外部引用查询：通过外部系统单号反查
-CREATE INDEX idx_benefit_grants_external_ref ON benefit_grants(external_ref)
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_external_ref ON benefit_grants(external_ref)
     WHERE external_ref IS NOT NULL;
 
 -- 时间范围查询：按创建时间统计
-CREATE INDEX idx_benefit_grants_created ON benefit_grants(created_at);
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_created ON benefit_grants(created_at);
 
 -- 来源类型查询：按来源统计
-CREATE INDEX idx_benefit_grants_source ON benefit_grants(source_type);
+CREATE INDEX IF NOT EXISTS idx_benefit_grants_source ON benefit_grants(source_type);
 
 -- ============================================
 -- 4. 创建触发器
 -- ============================================
 
+DROP TRIGGER IF EXISTS update_benefit_grants_updated_at ON benefit_grants;
 CREATE TRIGGER update_benefit_grants_updated_at
     BEFORE UPDATE ON benefit_grants
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

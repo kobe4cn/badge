@@ -673,6 +673,9 @@ impl BenefitService {
     }
 
     /// 持久化权益发放记录到数据库
+    ///
+    /// 使用事务确保发放记录插入和库存扣减的原子性。
+    /// 当发放成功时，同时扣减 benefits 表中的 remaining_stock。
     #[allow(clippy::too_many_arguments)]
     async fn persist_grant_to_db(
         &self,
@@ -697,6 +700,9 @@ impl BenefitService {
             GrantStatus::Revoked => "revoked",
         };
 
+        // 使用事务保证发放记录和库存扣减的原子性
+        let mut tx = pool.begin().await?;
+
         // benefit_type 存储在 benefits 表中，通过 benefit_id 关联查询
         let id: (i64,) = sqlx::query_as(
             r#"
@@ -717,8 +723,25 @@ impl BenefitService {
         .bind(status_str)
         .bind(external_ref)
         .bind(payload)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await?;
+
+        // 发放成功时扣减库存，remaining_stock > 0 条件防止超卖
+        if status == GrantStatus::Success {
+            sqlx::query(
+                r#"
+                UPDATE benefits
+                SET remaining_stock = remaining_stock - 1,
+                    updated_at = NOW()
+                WHERE id = $1 AND remaining_stock > 0
+                "#,
+            )
+            .bind(benefit_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
 
         debug!(grant_no = %grant_no, id = id.0, "权益发放记录已持久化");
         Ok(Some(id.0))

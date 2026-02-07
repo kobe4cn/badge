@@ -390,7 +390,7 @@ pub async fn update_series_status(
         "UPDATE badge_series SET status = $2, updated_at = NOW() WHERE id = $1",
     )
     .bind(id)
-    .bind(&req.status)
+    .bind(req.status)
     .execute(&state.pool)
     .await?;
 

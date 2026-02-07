@@ -37,6 +37,7 @@ import type {
  */
 interface BadgeFormData {
   name: string;
+  code?: string;
   categoryId?: number;
   seriesId: number;
   badgeType: BadgeType;
@@ -187,6 +188,7 @@ const BadgeForm: React.FC<BadgeFormProps> = ({
     if (initialValues) {
       return {
         name: initialValues.name,
+        code: initialValues.code,
         categoryId: initialValues.categoryId,
         seriesId: initialValues.seriesId,
         badgeType: initialValues.badgeType,
@@ -285,6 +287,7 @@ const BadgeForm: React.FC<BadgeFormProps> = ({
           seriesId: values.seriesId,
           badgeType: values.badgeType,
           name: values.name,
+          code: values.code || undefined,
           description: values.description || undefined,
           obtainDescription: values.obtainDescription || undefined,
           sortOrder: values.sortOrder,
@@ -311,6 +314,21 @@ const BadgeForm: React.FC<BadgeFormProps> = ({
         fieldProps={{
           showCount: true,
           maxLength: 100,
+        }}
+      />
+
+      <ProFormText
+        name="code"
+        label="业务编码"
+        placeholder="请输入业务唯一编码（可选）"
+        tooltip="用于外部系统对接的稳定标识符"
+        rules={[
+          { max: 50, message: '业务编码不能超过50个字符' },
+          { pattern: /^[a-zA-Z0-9_-]*$/, message: '业务编码只能包含字母、数字、下划线和短横线' },
+        ]}
+        fieldProps={{
+          showCount: true,
+          maxLength: 50,
         }}
       />
 

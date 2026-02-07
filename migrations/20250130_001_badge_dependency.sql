@@ -3,7 +3,7 @@
 
 -- ==================== 徽章依赖 ====================
 
-CREATE TABLE badge_dependencies (
+CREATE TABLE IF NOT EXISTS badge_dependencies (
     id BIGSERIAL PRIMARY KEY,
     badge_id BIGINT NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
     depends_on_badge_id BIGINT NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
@@ -47,27 +47,28 @@ COMMENT ON COLUMN badge_dependencies.dependency_group_id IS '依赖组ID，同�
 COMMENT ON COLUMN badge_dependencies.enabled IS '是否启用此依赖规则';
 
 -- 查询某徽章的所有依赖条件
-CREATE INDEX idx_badge_deps_badge ON badge_dependencies(badge_id);
+CREATE INDEX IF NOT EXISTS idx_badge_deps_badge ON badge_dependencies(badge_id);
 
 -- 查询依赖某徽章的所有徽章（反向查询）
-CREATE INDEX idx_badge_deps_depends ON badge_dependencies(depends_on_badge_id);
+CREATE INDEX IF NOT EXISTS idx_badge_deps_depends ON badge_dependencies(depends_on_badge_id);
 
 -- 自动触发场景：当某徽章发放时，快速找到需要检查的目标徽章
-CREATE INDEX idx_badge_deps_auto ON badge_dependencies(depends_on_badge_id, auto_trigger)
+CREATE INDEX IF NOT EXISTS idx_badge_deps_auto ON badge_dependencies(depends_on_badge_id, auto_trigger)
     WHERE auto_trigger = TRUE AND enabled = TRUE;
 
 -- 互斥组查询
-CREATE INDEX idx_badge_deps_exclusive_group ON badge_dependencies(exclusive_group_id)
+CREATE INDEX IF NOT EXISTS idx_badge_deps_exclusive_group ON badge_dependencies(exclusive_group_id)
     WHERE exclusive_group_id IS NOT NULL;
 
 -- 按依赖组查询
-CREATE INDEX idx_badge_deps_group ON badge_dependencies(dependency_group_id);
+CREATE INDEX IF NOT EXISTS idx_badge_deps_group ON badge_dependencies(dependency_group_id);
 
 -- 按依赖类型查询
-CREATE INDEX idx_badge_deps_type ON badge_dependencies(dependency_type);
+CREATE INDEX IF NOT EXISTS idx_badge_deps_type ON badge_dependencies(dependency_type);
 
 -- ==================== 触发器 ====================
 
+DROP TRIGGER IF EXISTS update_badge_dependencies_updated_at ON badge_dependencies;
 CREATE TRIGGER update_badge_dependencies_updated_at
     BEFORE UPDATE ON badge_dependencies
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

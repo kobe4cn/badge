@@ -22,6 +22,7 @@ import type {
   User,
   PaginatedResponse,
   ListParams,
+  RetryResult,
 } from '@/types';
 
 /**
@@ -187,10 +188,22 @@ export function getBatchTask(id: number): Promise<BatchTask> {
 /**
  * 创建批量任务
  *
- * @param data - 创建请求数据
+ * 前端表单数据需转换为后端 batch_tasks 表的 { task_type, params } 格式，
+ * worker 从 params JSONB 中读取 badge_id、user_ids 等信息执行任务
  */
 export function createBatchTask(data: CreateBatchTaskRequest): Promise<BatchTask> {
-  return post<BatchTask>('/admin/tasks', data);
+  const payload = {
+    task_type: 'batch_grant',
+    params: {
+      badge_id: data.badgeId,
+      quantity: data.quantity,
+      reason: data.reason,
+      user_ids: data.userIds,
+      user_filter: data.userFilter,
+      name: data.name,
+    },
+  };
+  return post<BatchTask>('/admin/tasks', payload);
 }
 
 /**
@@ -220,13 +233,26 @@ export function getBatchTaskFailures(
 /**
  * 下载批量任务结果
  *
+ * 后端返回 { taskId, resultFileUrl }，前端取得 URL 后触发浏览器下载。
+ *
  * @param id - 任务 ID
  */
-export async function downloadBatchResult(id: number): Promise<Blob> {
-  const response = await apiClient.get(`/admin/tasks/${id}/result`, {
-    responseType: 'blob',
-  });
-  return response.data;
+export async function downloadBatchResult(id: number): Promise<void> {
+  const result = await get<{ taskId: number; resultFileUrl: string | null }>(
+    `/admin/tasks/${id}/result`
+  );
+
+  if (!result.resultFileUrl) {
+    throw new Error('任务结果文件不存在');
+  }
+
+  // 通过创建临时 <a> 标签触发浏览器下载
+  const link = document.createElement('a');
+  link.href = result.resultFileUrl;
+  link.download = `task-${id}-result.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 /**
@@ -248,6 +274,52 @@ export function previewUserFilter(filter: UserFilterCondition): Promise<UserFilt
 }
 
 /**
+ * 下载批量任务失败清单
+ *
+ * 以 CSV 格式导出任务的所有失败记录，包含重试状态信息
+ *
+ * @param id - 任务 ID
+ */
+export async function downloadTaskFailures(id: number): Promise<void> {
+  const response = await apiClient.get(`/admin/tasks/${id}/failures/download`, {
+    responseType: 'blob',
+  });
+
+  // 从 Content-Disposition 中获取文件名，或使用默认名
+  const contentDisposition = response.headers['content-disposition'];
+  let filename = `task-${id}-failures.csv`;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+    if (match) {
+      filename = match[1];
+    }
+  }
+
+  // 通过创建临时 <a> 标签触发浏览器下载
+  const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+/**
+ * 触发批量任务失败记录重试
+ *
+ * 将任务中所有 EXHAUSTED 状态的失败记录重置为 PENDING，
+ * 后台 Worker 会自动捡起并重试
+ *
+ * @param id - 任务 ID
+ */
+export function retryTaskFailures(id: number): Promise<RetryResult> {
+  return post<RetryResult>(`/admin/tasks/${id}/retry`);
+}
+
+/**
  * 发放服务对象
  *
  * 提供面向对象风格的 API 调用方式
@@ -266,6 +338,8 @@ export const grantService = {
   cancelBatchTask,
   getBatchTaskFailures,
   downloadBatchResult,
+  downloadTaskFailures,
+  retryTaskFailures,
   uploadUserCsv,
   previewUserFilter,
 };

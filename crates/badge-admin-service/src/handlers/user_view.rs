@@ -153,6 +153,7 @@ pub async fn get_user_detail(
 /// 用户徽章行
 #[derive(sqlx::FromRow)]
 struct UserBadgeRow {
+    id: i64,
     badge_id: i64,
     badge_name: String,
     badge_type: String,
@@ -192,6 +193,7 @@ pub async fn get_user_badges(
     let rows = sqlx::query_as::<_, UserBadgeRow>(
         r#"
         SELECT
+            ub.id,
             ub.badge_id,
             b.name as badge_name,
             b.badge_type::text as badge_type,
@@ -215,6 +217,7 @@ pub async fn get_user_badges(
     let items: Vec<UserBadgeAdminDto> = rows
         .into_iter()
         .map(|row| UserBadgeAdminDto {
+            id: row.id,
             badge_id: row.badge_id,
             badge_name: row.badge_name,
             badge_type: row.badge_type,
@@ -452,6 +455,7 @@ mod tests {
     #[test]
     fn test_user_badge_admin_dto_serialization() {
         let dto = UserBadgeAdminDto {
+            id: 100,
             badge_id: 1,
             badge_name: "勋章".to_string(),
             badge_type: "normal".to_string(),
@@ -462,6 +466,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains("\"id\":100"));
         assert!(json.contains("\"badgeId\":1"));
         assert!(json.contains("\"quantity\":3"));
         assert!(json.contains("\"expiresAt\":null"));

@@ -94,8 +94,6 @@ fn forbidden_response(message: &str) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_permission_matching() {
         let permissions = vec![

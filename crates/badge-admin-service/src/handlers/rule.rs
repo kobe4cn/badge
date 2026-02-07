@@ -7,9 +7,14 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use badge_proto::rule_engine::{
+    self, ConditionNode, GroupNode, Operator as ProtoOperator,
+    LogicalOperator as ProtoLogicalOperator, Rule as ProtoRule, RuleNode as ProtoRuleNode,
+    TestRuleRequest as ProtoTestRuleRequest,
+};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use tracing::info;
+use tracing::{info, warn};
 use validator::Validate;
 
 use crate::{
@@ -27,10 +32,16 @@ struct RuleFullRow {
     id: i64,
     badge_id: i64,
     badge_name: String,
+    event_type: String,
+    rule_code: String,
+    name: Option<String>,
+    description: Option<String>,
     rule_json: Value,
     start_time: Option<DateTime<Utc>>,
     end_time: Option<DateTime<Utc>>,
     max_count_per_user: Option<i32>,
+    global_quota: Option<i32>,
+    global_granted: i32,
     enabled: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -42,10 +53,16 @@ impl From<RuleFullRow> for RuleDto {
             id: row.id,
             badge_id: row.badge_id,
             badge_name: row.badge_name,
+            event_type: row.event_type,
+            rule_code: row.rule_code,
+            name: row.name,
+            description: row.description,
             rule_json: row.rule_json,
             start_time: row.start_time,
             end_time: row.end_time,
             max_count_per_user: row.max_count_per_user,
+            global_quota: row.global_quota,
+            global_granted: row.global_granted,
             enabled: row.enabled,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -59,10 +76,16 @@ const RULE_FULL_SQL: &str = r#"
         r.id,
         r.badge_id,
         b.name as badge_name,
+        r.event_type,
+        r.rule_code,
+        r.name,
+        r.description,
         r.rule_json,
         r.start_time,
         r.end_time,
         r.max_count_per_user,
+        r.global_quota,
+        COALESCE(r.global_granted, 0) as global_granted,
         r.enabled,
         r.created_at,
         r.updated_at
@@ -124,14 +147,16 @@ pub async fn create_rule(
     // 新建规则默认禁用，需要单独发布
     let row: (i64,) = sqlx::query_as(
         r#"
-        INSERT INTO badge_rules (badge_id, rule_code, event_type, rule_json, start_time, end_time, max_count_per_user, global_quota, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+        INSERT INTO badge_rules (badge_id, rule_code, event_type, name, description, rule_json, start_time, end_time, max_count_per_user, global_quota, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false)
         RETURNING id
         "#,
     )
     .bind(req.badge_id)
     .bind(&req.rule_code)
     .bind(&req.event_type)
+    .bind(&req.name)
+    .bind(&req.description)
     .bind(&req.rule_json)
     .bind(req.start_time)
     .bind(req.end_time)
@@ -225,16 +250,26 @@ pub async fn update_rule(
         r#"
         UPDATE badge_rules
         SET
-            rule_json = COALESCE($2, rule_json),
-            start_time = COALESCE($3, start_time),
-            end_time = COALESCE($4, end_time),
-            max_count_per_user = COALESCE($5, max_count_per_user),
-            enabled = COALESCE($6, enabled),
+            event_type = COALESCE($2, event_type),
+            rule_code = COALESCE($3, rule_code),
+            name = COALESCE($4, name),
+            description = COALESCE($5, description),
+            global_quota = COALESCE($6, global_quota),
+            rule_json = COALESCE($7, rule_json),
+            start_time = COALESCE($8, start_time),
+            end_time = COALESCE($9, end_time),
+            max_count_per_user = COALESCE($10, max_count_per_user),
+            enabled = COALESCE($11, enabled),
             updated_at = NOW()
         WHERE id = $1
         "#,
     )
     .bind(id)
+    .bind(&req.event_type)
+    .bind(&req.rule_code)
+    .bind(&req.name)
+    .bind(&req.description)
+    .bind(req.global_quota)
     .bind(&req.rule_json)
     .bind(req.start_time)
     .bind(req.end_time)
@@ -313,25 +348,258 @@ pub async fn publish_rule(
     Ok(Json(ApiResponse::success(dto)))
 }
 
+// ─── JSON → Proto 转换工具 ───────────────────────────────────────────
+//
+// 数据库中 rule_json 使用 serde_json::Value 存储，格式与 unified-rule-engine
+// 的 Rule 模型一致（参见 crates/unified-rule-engine/src/models.rs）。
+// 以下函数将 JSON 格式转为 gRPC Proto 消息，避免在 handler 层引入
+// rule_engine 内部模型的编译依赖。
+
+/// 将 rule_json（数据库中的 JSON 规则定义）转为 gRPC Proto Rule 消息
+fn json_to_proto_rule(
+    rule_json: &Value,
+    id: &str,
+    name: &str,
+) -> Result<ProtoRule, AdminError> {
+    let root = json_to_proto_rule_node(rule_json)?;
+
+    Ok(ProtoRule {
+        id: id.to_string(),
+        name: name.to_string(),
+        version: "1.0".to_string(),
+        root: Some(root),
+        created_at: None,
+        updated_at: None,
+    })
+}
+
+/// 递归转换规则节点：JSON 中 `type: "condition"` 或 `type: "group"`
+fn json_to_proto_rule_node(value: &Value) -> Result<ProtoRuleNode, AdminError> {
+    let obj = value
+        .as_object()
+        .ok_or_else(|| AdminError::InvalidRuleJson("规则节点必须是 JSON 对象".to_string()))?;
+
+    let node_type = obj
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AdminError::InvalidRuleJson("规则节点缺少 type 字段".to_string()))?;
+
+    match node_type {
+        "condition" => {
+            let field = obj
+                .get("field")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+
+            let operator_str = obj
+                .get("operator")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+
+            let operator = str_to_proto_operator(operator_str)?;
+
+            let proto_value = obj.get("value").map(json_value_to_proto_value);
+
+            Ok(ProtoRuleNode {
+                node: Some(rule_engine::rule_node::Node::Condition(ConditionNode {
+                    field,
+                    operator: operator.into(),
+                    value: proto_value,
+                })),
+            })
+        }
+        "group" => {
+            let operator_str = obj
+                .get("operator")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+
+            let logical_op = str_to_proto_logical_operator(operator_str)?;
+
+            let children = obj
+                .get("children")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| {
+                    AdminError::InvalidRuleJson("group 节点缺少 children 数组".to_string())
+                })?;
+
+            let proto_children: Result<Vec<ProtoRuleNode>, AdminError> =
+                children.iter().map(json_to_proto_rule_node).collect();
+
+            Ok(ProtoRuleNode {
+                node: Some(rule_engine::rule_node::Node::Group(GroupNode {
+                    operator: logical_op.into(),
+                    children: proto_children?,
+                })),
+            })
+        }
+        other => Err(AdminError::InvalidRuleJson(format!(
+            "未知的规则节点类型: {}，期望 condition 或 group",
+            other
+        ))),
+    }
+}
+
+/// 操作符字符串（JSON 中的 snake_case）映射到 Proto 枚举
+fn str_to_proto_operator(s: &str) -> Result<ProtoOperator, AdminError> {
+    match s {
+        "eq" => Ok(ProtoOperator::Eq),
+        "neq" => Ok(ProtoOperator::Neq),
+        "gt" => Ok(ProtoOperator::Gt),
+        "gte" => Ok(ProtoOperator::Gte),
+        "lt" => Ok(ProtoOperator::Lt),
+        "lte" => Ok(ProtoOperator::Lte),
+        "between" => Ok(ProtoOperator::Between),
+        "in" => Ok(ProtoOperator::In),
+        "not_in" => Ok(ProtoOperator::NotIn),
+        "contains" => Ok(ProtoOperator::Contains),
+        "starts_with" => Ok(ProtoOperator::StartsWith),
+        "ends_with" => Ok(ProtoOperator::EndsWith),
+        "regex" => Ok(ProtoOperator::Regex),
+        "is_empty" => Ok(ProtoOperator::IsEmpty),
+        "is_not_empty" => Ok(ProtoOperator::IsNotEmpty),
+        "contains_any" => Ok(ProtoOperator::ContainsAny),
+        "contains_all" => Ok(ProtoOperator::ContainsAll),
+        "before" => Ok(ProtoOperator::Before),
+        "after" => Ok(ProtoOperator::After),
+        other => Err(AdminError::InvalidRuleJson(format!(
+            "未知的操作符: {}",
+            other
+        ))),
+    }
+}
+
+/// 逻辑操作符字符串映射到 Proto 枚举
+fn str_to_proto_logical_operator(s: &str) -> Result<ProtoLogicalOperator, AdminError> {
+    // 兼容大写（Proto 惯例）和大写全称（JSON 存储格式）
+    match s.to_uppercase().as_str() {
+        "AND" => Ok(ProtoLogicalOperator::And),
+        "OR" => Ok(ProtoLogicalOperator::Or),
+        other => Err(AdminError::InvalidRuleJson(format!(
+            "未知的逻辑操作符: {}，期望 AND 或 OR",
+            other
+        ))),
+    }
+}
+
+/// serde_json::Value → prost_types::Value
+fn json_value_to_proto_value(value: &Value) -> prost_types::Value {
+    match value {
+        Value::Null => prost_types::Value {
+            kind: Some(prost_types::value::Kind::NullValue(0)),
+        },
+        Value::Bool(b) => prost_types::Value {
+            kind: Some(prost_types::value::Kind::BoolValue(*b)),
+        },
+        Value::Number(n) => prost_types::Value {
+            kind: Some(prost_types::value::Kind::NumberValue(
+                n.as_f64().unwrap_or(0.0),
+            )),
+        },
+        Value::String(s) => prost_types::Value {
+            kind: Some(prost_types::value::Kind::StringValue(s.clone())),
+        },
+        Value::Array(arr) => {
+            let values = arr.iter().map(json_value_to_proto_value).collect();
+            prost_types::Value {
+                kind: Some(prost_types::value::Kind::ListValue(
+                    prost_types::ListValue { values },
+                )),
+            }
+        }
+        Value::Object(map) => {
+            let fields = map
+                .iter()
+                .map(|(k, v)| (k.clone(), json_value_to_proto_value(v)))
+                .collect();
+            prost_types::Value {
+                kind: Some(prost_types::value::Kind::StructValue(prost_types::Struct {
+                    fields,
+                })),
+            }
+        }
+    }
+}
+
+/// serde_json::Value（必须是 Object）→ prost_types::Struct
+fn json_value_to_proto_struct(value: &Value) -> Result<prost_types::Struct, AdminError> {
+    let map = value
+        .as_object()
+        .ok_or_else(|| AdminError::Validation("上下文必须是 JSON 对象".to_string()))?;
+
+    let fields = map
+        .iter()
+        .map(|(k, v)| (k.clone(), json_value_to_proto_value(v)))
+        .collect();
+
+    Ok(prost_types::Struct { fields })
+}
+
 /// 测试规则
 ///
 /// POST /api/admin/rules/:id/test
 ///
-/// 用 mock 数据验证规则是否按预期匹配。
-/// 后续会对接 rule-engine gRPC 服务进行真实评估。
+/// 从数据库读取已有规则定义，通过 gRPC 调用规则引擎进行真实评估。
+/// 调用方需提供 context 数据作为评估上下文。
 pub async fn test_rule(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(_test_data): Json<serde_json::Value>,
+    Json(test_data): Json<serde_json::Value>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, AdminError> {
-    // 确保规则存在
-    let _rule = fetch_rule_by_id(&state.pool, id).await?;
+    let rule = fetch_rule_by_id(&state.pool, id).await?;
 
-    // TODO: 对接 rule-engine gRPC 服务进行真实规则评估
+    // 将数据库中的 rule_json 转为 Proto Rule，供 gRPC 调用
+    let proto_rule = json_to_proto_rule(&rule.rule_json, &id.to_string(), &format!("rule-{}", id))?;
+
+    // 从请求体提取上下文（可选），不存在则使用空上下文
+    let context = test_data
+        .get("context")
+        .cloned()
+        .or_else(|| {
+            // 兼容直接传递上下文对象的情况（请求体本身就是上下文）
+            if test_data.is_object() && !test_data.as_object().map_or(true, |m| m.is_empty()) {
+                Some(test_data.clone())
+            } else {
+                None
+            }
+        });
+
+    let proto_context = context
+        .as_ref()
+        .map(json_value_to_proto_struct)
+        .transpose()?;
+
+    let grpc_request = ProtoTestRuleRequest {
+        rule: Some(proto_rule),
+        context: proto_context,
+    };
+
+    // 通过 gRPC 调用规则引擎，若客户端不可用则返回明确错误
+    let guard = state.rule_engine_client.read().await;
+    let Some(client) = guard.as_ref() else {
+        return Err(AdminError::Internal(
+            "规则引擎服务不可用，请检查 RULE_ENGINE_GRPC_ADDR 配置".to_string(),
+        ));
+    };
+
+    let mut client = client.clone();
+    drop(guard);
+
+    let response = client
+        .test_rule(tonic::Request::new(grpc_request))
+        .await
+        .map_err(|e| {
+            warn!(error = %e, rule_id = id, "规则引擎 gRPC 调用失败");
+            AdminError::Internal(format!("规则引擎调用失败: {}", e.message()))
+        })?;
+
+    let resp = response.into_inner();
     let result = serde_json::json!({
-        "matched": true,
-        "matchedConditions": ["event.type == PURCHASE", "order.amount >= 500"],
-        "evaluationTimeMs": 2
+        "matched": resp.matched,
+        "matchedConditions": resp.matched_conditions,
+        "evaluationTrace": resp.evaluation_trace,
+        "evaluationTimeMs": resp.evaluation_time_ms
     });
 
     Ok(Json(ApiResponse::success(result)))
@@ -372,23 +640,55 @@ pub async fn disable_rule(
 ///
 /// POST /api/admin/rules/test
 ///
-/// 接收规则 JSON 和可选上下文，返回模拟评估结果。
-/// 用于在保存规则前预览其匹配行为。
-/// 后续会对接 rule-engine gRPC 服务进行真实评估。
+/// 接收规则 JSON 和可选上下文，通过 gRPC 调用规则引擎进行真实评估。
+/// 用于在保存规则前预览其匹配行为，规则不会被持久化到数据库。
 pub async fn test_rule_definition(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(req): Json<TestRuleDefinitionRequest>,
 ) -> Result<Json<ApiResponse<Value>>, AdminError> {
     if req.rule_json.is_null() {
         return Err(AdminError::InvalidRuleJson("规则内容不能为空".to_string()));
     }
 
-    // TODO: 对接 rule-engine gRPC 服务进行真实规则评估
+    // 临时规则使用 UUID 标识，不与数据库中的规则关联
+    let temp_id = uuid::Uuid::new_v4().to_string();
+    let proto_rule = json_to_proto_rule(&req.rule_json, &temp_id, "test-rule")?;
+
+    let proto_context = req
+        .context
+        .as_ref()
+        .map(json_value_to_proto_struct)
+        .transpose()?;
+
+    let grpc_request = ProtoTestRuleRequest {
+        rule: Some(proto_rule),
+        context: proto_context,
+    };
+
+    let guard = state.rule_engine_client.read().await;
+    let Some(client) = guard.as_ref() else {
+        return Err(AdminError::Internal(
+            "规则引擎服务不可用，请检查 RULE_ENGINE_GRPC_ADDR 配置".to_string(),
+        ));
+    };
+
+    let mut client = client.clone();
+    drop(guard);
+
+    let response = client
+        .test_rule(tonic::Request::new(grpc_request))
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "规则引擎 gRPC 调用失败（测试规则定义）");
+            AdminError::Internal(format!("规则引擎调用失败: {}", e.message()))
+        })?;
+
+    let resp = response.into_inner();
     let result = serde_json::json!({
-        "matched": true,
-        "matchedConditions": ["mock condition 1", "mock condition 2"],
-        "evaluationTimeMs": 1,
-        "context": req.context,
+        "matched": resp.matched,
+        "matchedConditions": resp.matched_conditions,
+        "evaluationTrace": resp.evaluation_trace,
+        "evaluationTimeMs": resp.evaluation_time_ms
     });
 
     Ok(Json(ApiResponse::success(result)))
@@ -405,6 +705,7 @@ mod tests {
             badge_id: 1,
             rule_code: "test_rule_001".to_string(),
             name: "测试规则".to_string(),
+            description: Some("这是一个测试规则".to_string()),
             event_type: "purchase".to_string(),
             rule_json: serde_json::json!({"type": "event", "conditions": []}),
             start_time: None,
@@ -418,6 +719,11 @@ mod tests {
     #[test]
     fn test_update_rule_request_validation() {
         let valid = UpdateRuleRequest {
+            event_type: None,
+            rule_code: None,
+            name: Some("更新后的规则名称".to_string()),
+            description: Some("更新后的描述".to_string()),
+            global_quota: None,
             rule_json: Some(serde_json::json!({"type": "event"})),
             start_time: None,
             end_time: None,
@@ -434,10 +740,16 @@ mod tests {
             id: 1,
             badge_id: 10,
             badge_name: "测试徽章".to_string(),
+            event_type: "purchase".to_string(),
+            rule_code: "test_rule_001".to_string(),
+            name: Some("测试规则名称".to_string()),
+            description: Some("测试规则描述".to_string()),
             rule_json: serde_json::json!({"type": "event"}),
             start_time: None,
             end_time: None,
             max_count_per_user: Some(3),
+            global_quota: None,
+            global_granted: 0,
             enabled: false,
             created_at: now,
             updated_at: now,
@@ -447,6 +759,8 @@ mod tests {
         assert_eq!(dto.id, 1);
         assert_eq!(dto.badge_id, 10);
         assert_eq!(dto.badge_name, "测试徽章");
+        assert_eq!(dto.name, Some("测试规则名称".to_string()));
+        assert_eq!(dto.description, Some("测试规则描述".to_string()));
         assert_eq!(dto.max_count_per_user, Some(3));
         assert!(!dto.enabled);
     }

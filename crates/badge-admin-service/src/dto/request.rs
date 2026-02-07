@@ -4,7 +4,7 @@
 
 use badge_management::{BadgeAssets, BadgeStatus, BadgeType, SourceType, ValidityConfig};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 /// 创建徽章分类请求
@@ -61,6 +61,9 @@ pub struct CreateBadgeRequest {
     pub badge_type: BadgeType,
     #[validate(length(min = 1, max = 100, message = "徽章名称长度必须在1-100个字符之间"))]
     pub name: String,
+    /// 业务唯一编码（可选）
+    #[validate(length(max = 50, message = "业务编码长度不能超过50个字符"))]
+    pub code: Option<String>,
     pub description: Option<String>,
     pub obtain_description: Option<String>,
     pub assets: BadgeAssets,
@@ -74,6 +77,9 @@ pub struct CreateBadgeRequest {
 pub struct UpdateBadgeRequest {
     #[validate(length(min = 1, max = 100, message = "徽章名称长度必须在1-100个字符之间"))]
     pub name: Option<String>,
+    /// 业务唯一编码
+    #[validate(length(max = 50, message = "业务编码长度不能超过50个字符"))]
+    pub code: Option<String>,
     pub description: Option<String>,
     pub obtain_description: Option<String>,
     pub assets: Option<BadgeAssets>,
@@ -91,8 +97,10 @@ pub struct CreateRuleRequest {
     #[validate(length(min = 1, max = 100, message = "规则编码长度必须在1-100个字符之间"))]
     pub rule_code: String,
     /// 规则名称（显示用）
-    #[validate(length(min = 1, max = 100, message = "规则名称长度必须在1-100个字符之间"))]
+    #[validate(length(min = 1, max = 200, message = "规则名称长度必须在1-200个字符之间"))]
     pub name: String,
+    /// 规则描述（可选）
+    pub description: Option<String>,
     /// 关联的事件类型，必须存在于 event_types 表中
     #[validate(length(min = 1, max = 50, message = "事件类型长度必须在1-50个字符之间"))]
     pub event_type: String,
@@ -108,6 +116,14 @@ pub struct CreateRuleRequest {
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRuleRequest {
+    pub event_type: Option<String>,
+    pub rule_code: Option<String>,
+    /// 规则名称（显示用）
+    #[validate(length(max = 200, message = "规则名称长度不能超过200个字符"))]
+    pub name: Option<String>,
+    /// 规则描述
+    pub description: Option<String>,
+    pub global_quota: Option<i32>,
     pub rule_json: Option<serde_json::Value>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
@@ -123,6 +139,26 @@ pub struct TestRuleDefinitionRequest {
     pub context: Option<serde_json::Value>,
 }
 
+/// 发放对象类型
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RecipientType {
+    /// 账号注册人（默认）
+    #[default]
+    Owner,
+    /// 实际使用人
+    User,
+}
+
+impl RecipientType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RecipientType::Owner => "OWNER",
+            RecipientType::User => "USER",
+        }
+    }
+}
+
 /// 手动发放请求
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -133,6 +169,11 @@ pub struct ManualGrantRequest {
     pub quantity: i32,
     #[validate(length(min = 1, max = 500, message = "发放原因不能为空且不超过500字符"))]
     pub reason: String,
+    /// 发放对象类型：OWNER-账号注册人（默认），USER-实际使用人
+    #[serde(default)]
+    pub recipient_type: RecipientType,
+    /// 实际使用人 ID（当 recipient_type = USER 时必填）
+    pub actual_user_id: Option<String>,
 }
 
 /// 批量发放请求
@@ -147,14 +188,13 @@ pub struct BatchGrantRequest {
     pub reason: String,
 }
 
-/// 手动取消请求
+/// 手动取消请求（兼容前端 userBadgeId 格式）
+///
+/// 前端发送 { userBadgeId, reason }，后端通过 user_badge_id 反查 user_id 和 badge_id
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct ManualRevokeRequest {
-    pub user_id: String,
-    pub badge_id: i64,
-    #[validate(range(min = 1, max = 100, message = "单次取消数量必须在1-100之间"))]
-    pub quantity: i32,
+    pub user_badge_id: i64,
     #[validate(length(min = 1, max = 500, message = "取消原因不能为空且不超过500字符"))]
     pub reason: String,
 }
@@ -167,6 +207,54 @@ pub struct BatchRevokeRequest {
     /// OSS 文件地址，包含用户列表
     #[validate(url(message = "文件地址必须是有效的URL"))]
     pub file_url: String,
+    #[validate(length(min = 1, max = 500, message = "取消原因不能为空且不超过500字符"))]
+    pub reason: String,
+}
+
+/// 自动取消场景
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoRevokeScenario {
+    /// 账号注销
+    AccountDeletion,
+    /// 身份变更（如会员降级、员工离职）
+    IdentityChange,
+    /// 条件不再满足（如订单退款、活动资格取消）
+    ConditionUnmet,
+    /// 违规处罚
+    Violation,
+    /// 其他系统触发
+    SystemTriggered,
+}
+
+impl std::fmt::Display for AutoRevokeScenario {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AccountDeletion => write!(f, "account_deletion"),
+            Self::IdentityChange => write!(f, "identity_change"),
+            Self::ConditionUnmet => write!(f, "condition_unmet"),
+            Self::Violation => write!(f, "violation"),
+            Self::SystemTriggered => write!(f, "system_triggered"),
+        }
+    }
+}
+
+/// 自动取消请求
+///
+/// 用于账号注销、身份变更、条件不满足等自动触发的撤销场景
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoRevokeRequest {
+    /// 用户 ID
+    #[validate(length(min = 1, max = 100, message = "用户ID不能为空"))]
+    pub user_id: String,
+    /// 徽章 ID（可选，为空则撤销该用户所有徽章）
+    pub badge_id: Option<i64>,
+    /// 自动取消场景
+    pub scenario: AutoRevokeScenario,
+    /// 关联的业务 ID（如订单号、会员变更单号）
+    pub ref_id: Option<String>,
+    /// 取消原因说明
     #[validate(length(min = 1, max = 500, message = "取消原因不能为空且不超过500字符"))]
     pub reason: String,
 }
@@ -324,6 +412,7 @@ mod tests {
             series_id: 1,
             badge_type: BadgeType::Normal,
             name: "".to_string(), // 空名称应该失败
+            code: None,
             description: None,
             obtain_description: None,
             assets: BadgeAssets {
@@ -348,6 +437,8 @@ mod tests {
             badge_id: 1,
             quantity: 5,
             reason: "测试发放".to_string(),
+            recipient_type: RecipientType::default(),
+            actual_user_id: None,
         };
         assert!(valid_request.validate().is_ok());
 
@@ -356,6 +447,8 @@ mod tests {
             badge_id: 1,
             quantity: 0, // 数量为0应该失败
             reason: "测试发放".to_string(),
+            recipient_type: RecipientType::default(),
+            actual_user_id: None,
         };
         assert!(invalid_request.validate().is_err());
     }

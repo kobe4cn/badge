@@ -23,15 +23,23 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDate } from '@/utils/format';
 import {
   listRedemptionRules,
+  createRedemptionRule,
+  updateRedemptionRule,
   deleteRedemptionRule,
   toggleRedemptionRule,
   type RedemptionRule,
   type RedemptionRuleQueryParams,
+  type CreateRedemptionRuleRequest,
+  type UpdateRedemptionRuleRequest,
 } from '@/services/redemption';
+import RedemptionRuleForm from './components/RedemptionRuleForm';
 
 const RedemptionRulesPage: React.FC = () => {
   const actionRef = useRef<ActionType>();
   const queryClient = useQueryClient();
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<RedemptionRule | undefined>();
 
   // 查询参数
   const [queryParams, setQueryParams] = useState<RedemptionRuleQueryParams>({
@@ -57,6 +65,31 @@ const RedemptionRulesPage: React.FC = () => {
     },
   });
 
+  // 创建规则
+  const createMutation = useMutation({
+    mutationFn: (data: CreateRedemptionRuleRequest) => createRedemptionRule(data),
+    onSuccess: () => {
+      message.success('创建成功');
+      queryClient.invalidateQueries({ queryKey: ['redemptionRules'] });
+    },
+    onError: () => {
+      message.error('创建失败');
+    },
+  });
+
+  // 更新规则
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateRedemptionRuleRequest }) =>
+      updateRedemptionRule(id, data),
+    onSuccess: () => {
+      message.success('更新成功');
+      queryClient.invalidateQueries({ queryKey: ['redemptionRules'] });
+    },
+    onError: () => {
+      message.error('更新失败');
+    },
+  });
+
   // 切换状态
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
@@ -69,6 +102,18 @@ const RedemptionRulesPage: React.FC = () => {
       message.error('状态更新失败');
     },
   });
+
+  /**
+   * 表单提交：根据是否有 editingRule 决定创建或更新
+   */
+  const handleFormSubmit = async (values: CreateRedemptionRuleRequest) => {
+    if (editingRule) {
+      await updateMutation.mutateAsync({ id: editingRule.id, data: values });
+    } else {
+      await createMutation.mutateAsync(values);
+    }
+    return true;
+  };
 
   /**
    * 删除处理
@@ -143,12 +188,24 @@ const RedemptionRulesPage: React.FC = () => {
       search: false,
       render: (_, record) => {
         const config = record.frequencyConfig;
+        // 检查是否所有限制都未设置
+        if (
+          !config ||
+          (!config.maxPerUser &&
+            !config.maxPerDay &&
+            !config.maxPerWeek &&
+            !config.maxPerMonth &&
+            !config.maxPerYear)
+        ) {
+          return <Tag color="green">无限制</Tag>;
+        }
         const limits: string[] = [];
         if (config.maxPerUser) limits.push(`用户${config.maxPerUser}次`);
         if (config.maxPerDay) limits.push(`每日${config.maxPerDay}次`);
         if (config.maxPerWeek) limits.push(`每周${config.maxPerWeek}次`);
         if (config.maxPerMonth) limits.push(`每月${config.maxPerMonth}次`);
-        return limits.length > 0 ? limits.join('、') : '无限制';
+        if (config.maxPerYear) limits.push(`每年${config.maxPerYear}次`);
+        return limits.join('、');
       },
     },
     {
@@ -203,7 +260,8 @@ const RedemptionRulesPage: React.FC = () => {
             size="small"
             icon={<EditOutlined />}
             onClick={() => {
-              message.info('编辑功能开发中');
+              setEditingRule(record);
+              setFormOpen(true);
             }}
           >
             编辑
@@ -256,7 +314,8 @@ const RedemptionRulesPage: React.FC = () => {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => {
-              message.info('新建功能开发中');
+              setEditingRule(undefined);
+              setFormOpen(true);
             }}
           >
             新建规则
@@ -275,6 +334,14 @@ const RedemptionRulesPage: React.FC = () => {
           return { data: [], success: true, total: 0 };
         }}
         scroll={{ x: 1400 }}
+      />
+
+      <RedemptionRuleForm
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        initialValues={editingRule}
+        onSubmit={handleFormSubmit}
+        loading={createMutation.isPending || updateMutation.isPending}
       />
     </PageContainer>
   );

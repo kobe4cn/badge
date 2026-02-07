@@ -23,6 +23,18 @@ use crate::{
 
 // ==================== DTO 定义 ====================
 
+/// 有效期类型
+#[derive(Debug, Clone, Default, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ValidityType {
+    /// 固定时间段（使用 start_time/end_time）
+    #[default]
+    Fixed,
+    /// 相对于徽章获取时间
+    Relative,
+}
+
 /// 兑换规则响应 DTO
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +46,10 @@ pub struct RedemptionRuleDto {
     pub benefit_name: String,
     pub required_badges: Vec<RequiredBadgeDto>,
     pub frequency_config: FrequencyConfigDto,
+    /// 有效期类型：FIXED-固定时间段，RELATIVE-相对徽章获取时间
+    pub validity_type: ValidityType,
+    /// 相对有效天数（validity_type=RELATIVE 时使用）
+    pub relative_days: Option<i32>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub enabled: bool,
@@ -58,6 +74,7 @@ pub struct FrequencyConfigDto {
     pub max_per_day: Option<i32>,
     pub max_per_week: Option<i32>,
     pub max_per_month: Option<i32>,
+    pub max_per_year: Option<i32>,
 }
 
 /// 创建兑换规则请求
@@ -71,6 +88,11 @@ pub struct CreateRedemptionRuleRequest {
     #[validate(length(min = 1, message = "至少需要一个徽章"))]
     pub required_badges: Vec<RequiredBadgeInput>,
     pub frequency_config: Option<FrequencyConfigDto>,
+    /// 有效期类型：FIXED-固定时间段，RELATIVE-相对徽章获取时间
+    #[serde(default)]
+    pub validity_type: ValidityType,
+    /// 相对有效天数（validity_type=RELATIVE 时使用）
+    pub relative_days: Option<i32>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     /// 是否自动兑换：满足徽章条件时自动发放权益
@@ -96,6 +118,10 @@ pub struct UpdateRedemptionRuleRequest {
     pub description: Option<String>,
     pub required_badges: Option<Vec<RequiredBadgeInput>>,
     pub frequency_config: Option<FrequencyConfigDto>,
+    /// 有效期类型：FIXED-固定时间段，RELATIVE-相对徽章获取时间
+    pub validity_type: Option<ValidityType>,
+    /// 相对有效天数（validity_type=RELATIVE 时使用）
+    pub relative_days: Option<i32>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub enabled: Option<bool>,
@@ -169,6 +195,8 @@ struct RedemptionRuleRow {
     benefit_name: String,
     required_badges: Value,
     frequency_config: Value,
+    validity_type: Option<String>,
+    relative_days: Option<i32>,
     start_time: Option<DateTime<Utc>>,
     end_time: Option<DateTime<Utc>>,
     enabled: bool,
@@ -239,11 +267,18 @@ pub async fn create_redemption_rule(
         serde_json::to_value(req.frequency_config.unwrap_or_default())
             .map_err(|e| AdminError::Internal(e.to_string()))?;
 
+    // 序列化有效期类型
+    let validity_type_str = match req.validity_type {
+        ValidityType::Fixed => "FIXED",
+        ValidityType::Relative => "RELATIVE",
+    };
+
     let row: (i64,) = sqlx::query_as(
         r#"
         INSERT INTO badge_redemption_rules (name, description, benefit_id, required_badges,
-                                           frequency_config, start_time, end_time, enabled, auto_redeem)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
+                                           frequency_config, validity_type, relative_days,
+                                           start_time, end_time, enabled, auto_redeem)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)
         RETURNING id
         "#,
     )
@@ -252,6 +287,8 @@ pub async fn create_redemption_rule(
     .bind(req.benefit_id)
     .bind(&required_badges_json)
     .bind(&frequency_config_json)
+    .bind(validity_type_str)
+    .bind(req.relative_days)
     .bind(req.start_time)
     .bind(req.end_time)
     .bind(req.auto_redeem)
@@ -293,6 +330,7 @@ pub async fn list_redemption_rules(
             r.id, r.name, r.description, r.benefit_id,
             b.name as benefit_name,
             r.required_badges, r.frequency_config,
+            r.validity_type, r.relative_days,
             r.start_time, r.end_time, r.enabled,
             r.created_at, r.updated_at
         FROM badge_redemption_rules r
@@ -370,6 +408,10 @@ pub async fn update_redemption_rule(
         .frequency_config
         .as_ref()
         .and_then(|f| serde_json::to_value(f).ok());
+    let validity_type_str: Option<&str> = req.validity_type.as_ref().map(|v| match v {
+        ValidityType::Fixed => "FIXED",
+        ValidityType::Relative => "RELATIVE",
+    });
 
     sqlx::query(
         r#"
@@ -379,9 +421,11 @@ pub async fn update_redemption_rule(
             description = COALESCE($3, description),
             required_badges = COALESCE($4, required_badges),
             frequency_config = COALESCE($5, frequency_config),
-            start_time = COALESCE($6, start_time),
-            end_time = COALESCE($7, end_time),
-            enabled = COALESCE($8, enabled),
+            validity_type = COALESCE($6, validity_type),
+            relative_days = COALESCE($7, relative_days),
+            start_time = COALESCE($8, start_time),
+            end_time = COALESCE($9, end_time),
+            enabled = COALESCE($10, enabled),
             updated_at = NOW()
         WHERE id = $1
         "#,
@@ -391,6 +435,8 @@ pub async fn update_redemption_rule(
     .bind(&req.description)
     .bind(&required_badges_json)
     .bind(&frequency_config_json)
+    .bind(validity_type_str)
+    .bind(req.relative_days)
     .bind(req.start_time)
     .bind(req.end_time)
     .bind(req.enabled)
@@ -717,6 +763,7 @@ async fn fetch_rule_by_id(pool: &sqlx::PgPool, id: i64) -> Result<RedemptionRule
             r.id, r.name, r.description, r.benefit_id,
             b.name as benefit_name,
             r.required_badges, r.frequency_config,
+            r.validity_type, r.relative_days,
             r.start_time, r.end_time, r.enabled,
             r.created_at, r.updated_at
         FROM badge_redemption_rules r
@@ -758,6 +805,12 @@ async fn row_to_dto(
     let frequency_config: FrequencyConfigDto =
         serde_json::from_value(row.frequency_config).unwrap_or_default();
 
+    // 解析有效期类型
+    let validity_type = match row.validity_type.as_deref() {
+        Some("RELATIVE") => ValidityType::Relative,
+        _ => ValidityType::Fixed,
+    };
+
     Ok(RedemptionRuleDto {
         id: row.id,
         name: row.name,
@@ -766,6 +819,8 @@ async fn row_to_dto(
         benefit_name: row.benefit_name,
         required_badges,
         frequency_config,
+        validity_type,
+        relative_days: row.relative_days,
         start_time: row.start_time,
         end_time: row.end_time,
         enabled: row.enabled,

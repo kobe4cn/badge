@@ -76,10 +76,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // 需要数据库连接
+    #[ignore = "需要 PostgreSQL 数据库连接"]
     async fn test_database_connection() {
-        let config = DatabaseConfig::default();
+        // 支持通过 DATABASE_URL 环境变量覆盖默认连接串，方便 CI 环境配置
+        let mut config = DatabaseConfig::default();
+        if let Ok(url) = std::env::var("DATABASE_URL") {
+            config.url = url;
+        }
         let db = Database::connect(&config).await.unwrap();
         db.health_check().await.unwrap();
+        db.close().await;
     }
 }

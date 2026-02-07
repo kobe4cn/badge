@@ -12,3 +12,4 @@ export * from './useRule';
 export * from './useGrant';
 export * from './useDashboard';
 export * from './useMember';
+export * from './useEventType';

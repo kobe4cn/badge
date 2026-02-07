@@ -21,10 +21,12 @@ import {
   CloseCircleOutlined,
   ClockCircleOutlined,
   SyncOutlined,
+  FileExcelOutlined,
+  RedoOutlined,
 } from '@ant-design/icons';
 import { PageContainer, ProTable, type ActionType } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { getBatchTasks, downloadBatchResult } from '@/services/grant';
+import { getBatchTasks, downloadBatchResult, downloadTaskFailures, retryTaskFailures } from '@/services/grant';
 import { useCancelBatchTask } from '@/hooks/useGrant';
 import { formatDateTime } from '@/utils/format';
 import CreateBatchTaskModal from './components/CreateBatchTaskModal';
@@ -107,18 +109,39 @@ const BatchGrantPage: React.FC = () => {
    */
   const handleDownloadResult = useCallback(async (task: BatchTask) => {
     try {
-      const blob = await downloadBatchResult(task.id);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `batch-task-${task.id}-result.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await downloadBatchResult(task.id);
       message.success('下载成功');
     } catch {
       message.error('下载失败');
+    }
+  }, []);
+
+  /**
+   * 下载失败清单
+   */
+  const handleDownloadFailures = useCallback(async (taskId: number) => {
+    try {
+      await downloadTaskFailures(taskId);
+      message.success('下载成功');
+    } catch {
+      message.error('下载失败');
+    }
+  }, []);
+
+  /**
+   * 重试失败记录
+   */
+  const handleRetryFailures = useCallback(async (taskId: number) => {
+    try {
+      const result = await retryTaskFailures(taskId);
+      if (result.pendingCount > 0) {
+        message.success(result.message);
+        actionRef.current?.reload();
+      } else {
+        message.info(result.message);
+      }
+    } catch {
+      message.error('触发重试失败');
     }
   }, []);
 
@@ -222,13 +245,14 @@ const BatchGrantPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 200,
       fixed: 'right',
       search: false,
       render: (_, record) => {
         const isRunning = record.status === 'pending' || record.status === 'processing';
         const isCompleted = record.status === 'completed';
         const hasResult = !!record.resultFileUrl;
+        const hasFailures = record.failureCount > 0;
 
         return (
           <Space size={0}>
@@ -270,6 +294,35 @@ const BatchGrantPage: React.FC = () => {
                   onClick={() => handleDownloadResult(record)}
                 />
               </Tooltip>
+            )}
+
+            {hasFailures && (
+              <Tooltip title="下载失败清单">
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<FileExcelOutlined />}
+                  onClick={() => handleDownloadFailures(record.id)}
+                />
+              </Tooltip>
+            )}
+
+            {isCompleted && hasFailures && (
+              <Popconfirm
+                title="确认重试"
+                description="将重置所有失败记录的重试状态，后台会自动重新尝试。"
+                onConfirm={() => handleRetryFailures(record.id)}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Tooltip title="重试失败记录">
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<RedoOutlined />}
+                  />
+                </Tooltip>
+              </Popconfirm>
             )}
           </Space>
         );

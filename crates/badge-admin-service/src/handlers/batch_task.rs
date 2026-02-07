@@ -7,6 +7,8 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::IntoResponse,
 };
 use chrono::{DateTime, Utc};
 use tracing::{info, instrument};
@@ -294,7 +296,8 @@ pub async fn get_task_failures(
 
     let rows = sqlx::query_as::<_, TaskFailureRow>(
         r#"
-        SELECT id, task_id, row_number, user_id, error_code, error_message, created_at
+        SELECT id, task_id, row_number, user_id, error_code, error_message,
+               retry_count, retry_status, last_retry_at, created_at
         FROM batch_task_failures
         WHERE task_id = $1
         ORDER BY row_number ASC
@@ -356,6 +359,9 @@ pub struct TaskFailureDto {
     pub user_id: Option<String>,
     pub error_code: String,
     pub error_message: String,
+    pub retry_count: i32,
+    pub retry_status: String,
+    pub last_retry_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -367,6 +373,9 @@ struct TaskFailureRow {
     user_id: Option<String>,
     error_code: String,
     error_message: String,
+    retry_count: i32,
+    retry_status: String,
+    last_retry_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
 }
 
@@ -379,6 +388,9 @@ impl From<TaskFailureRow> for TaskFailureDto {
             user_id: row.user_id,
             error_code: row.error_code,
             error_message: row.error_message,
+            retry_count: row.retry_count,
+            retry_status: row.retry_status,
+            last_retry_at: row.last_retry_at,
             created_at: row.created_at,
         }
     }
@@ -390,6 +402,168 @@ impl From<TaskFailureRow> for TaskFailureDto {
 pub struct TaskResultDto {
     pub task_id: i64,
     pub result_file_url: Option<String>,
+}
+
+/// 重试结果 DTO
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetryResultDto {
+    pub task_id: i64,
+    pub pending_count: i64,
+    pub message: String,
+}
+
+/// CSV 字段转义
+///
+/// 当字段包含逗号、双引号或换行符时，用双引号包裹并转义内部双引号
+fn escape_csv_field(field: &str) -> String {
+    if field.contains(',') || field.contains('"') || field.contains('\n') {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
+    }
+}
+
+/// 下载批量任务失败清单
+///
+/// GET /api/admin/tasks/:id/failures/download
+///
+/// 以 CSV 格式导出任务的所有失败记录，包含重试状态信息
+#[instrument(skip(state))]
+pub async fn download_task_failures(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AdminError> {
+    // 验证任务存在
+    let exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM batch_tasks WHERE id = $1)")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .unwrap_or((false,));
+
+    if !exists.0 {
+        return Err(AdminError::TaskNotFound(id));
+    }
+
+    // 查询所有失败记录
+    let rows = sqlx::query_as::<_, TaskFailureRow>(
+        r#"
+        SELECT id, task_id, row_number, user_id, error_code, error_message,
+               retry_count, retry_status, last_retry_at, created_at
+        FROM batch_task_failures
+        WHERE task_id = $1
+        ORDER BY row_number ASC
+        "#,
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    // 构建 CSV
+    let mut csv = String::from("row_number,user_id,error_code,error_message,retry_count,retry_status,last_retry_at,created_at\n");
+
+    for row in rows {
+        let line = format!(
+            "{},{},{},{},{},{},{},{}\n",
+            row.row_number,
+            row.user_id.as_deref().unwrap_or(""),
+            escape_csv_field(&row.error_code),
+            escape_csv_field(&row.error_message),
+            row.retry_count,
+            &row.retry_status,
+            row.last_retry_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
+            row.created_at.to_rfc3339()
+        );
+        csv.push_str(&line);
+    }
+
+    let filename = format!("task_{}_failures.csv", id);
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/csv; charset=utf-8"));
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{}\"", filename))
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"failures.csv\"")),
+    );
+
+    info!(task_id = id, "Downloaded task failures CSV");
+    Ok((StatusCode::OK, headers, csv))
+}
+
+/// 触发失败记录重试
+///
+/// POST /api/admin/tasks/:id/retry
+///
+/// 将任务中所有 PENDING 或 EXHAUSTED 状态的失败记录重置为 PENDING，
+/// 后台 BatchTaskWorker 会自动捡起并重试
+#[instrument(skip(state))]
+pub async fn trigger_task_retry(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<ApiResponse<RetryResultDto>>, AdminError> {
+    // 验证任务存在
+    let task: Option<(String,)> = sqlx::query_as("SELECT status FROM batch_tasks WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
+
+    let task = task.ok_or(AdminError::TaskNotFound(id))?;
+
+    // 只有已完成的任务才能重试失败记录
+    if task.0 != "completed" && task.0 != "partial_completed" {
+        return Err(AdminError::Validation(format!(
+            "只有已完成或部分完成的任务可以重试，当前状态: {}",
+            task.0
+        )));
+    }
+
+    // 查询待重试的失败记录数
+    let count: (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)
+        FROM batch_task_failures
+        WHERE task_id = $1 AND retry_status IN ('PENDING', 'EXHAUSTED')
+        "#,
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    if count.0 == 0 {
+        return Ok(Json(ApiResponse::success(RetryResultDto {
+            task_id: id,
+            pending_count: 0,
+            message: "没有需要重试的失败记录".to_string(),
+        })));
+    }
+
+    // 重置所有 EXHAUSTED 状态为 PENDING，并清零重试计数
+    let updated = sqlx::query(
+        r#"
+        UPDATE batch_task_failures
+        SET retry_status = 'PENDING', retry_count = 0, last_retry_at = NULL
+        WHERE task_id = $1 AND retry_status = 'EXHAUSTED'
+        "#,
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await?;
+
+    info!(
+        task_id = id,
+        reset_count = updated.rows_affected(),
+        pending_count = count.0,
+        "Triggered task retry"
+    );
+
+    Ok(Json(ApiResponse::success(RetryResultDto {
+        task_id: id,
+        pending_count: count.0,
+        message: format!(
+            "已重置 {} 条失败记录，后台将自动重试",
+            updated.rows_affected()
+        ),
+    })))
 }
 
 #[cfg(test)]

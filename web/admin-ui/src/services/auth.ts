@@ -16,7 +16,28 @@ export interface LoginRequest {
 }
 
 /**
- * 登录响应数据
+ * 后端登录响应原始格式
+ *
+ * permissions 和 roles 在 user 对象外部，需要合并到 AdminUser 中
+ */
+interface LoginResponseRaw {
+  token: string;
+  user: {
+    id: number | string;
+    username: string;
+    displayName: string;
+    email?: string | null;
+    avatarUrl?: string | null;
+    status?: string;
+    lastLoginAt?: string;
+    createdAt?: string;
+  };
+  permissions: string[];
+  expiresAt?: number;
+}
+
+/**
+ * 登录响应数据（标准化后）
  */
 export interface LoginResponse {
   token: string;
@@ -36,10 +57,38 @@ const AUTH_BASE_URL = '/admin/auth';
  * @returns 登录响应（包含 token 和用户信息）
  */
 export async function login(username: string, password: string): Promise<LoginResponse> {
-  return post<LoginResponse>(`${AUTH_BASE_URL}/login`, {
+  const raw = await post<LoginResponseRaw>(`${AUTH_BASE_URL}/login`, {
     username,
     password,
   });
+
+  // 将后端扁平结构转换为前端所需的嵌套格式
+  const user: AdminUser = {
+    id: String(raw.user.id),
+    username: raw.user.username,
+    displayName: raw.user.displayName,
+    roles: extractRolesFromPermissions(raw.permissions),
+    permissions: raw.permissions || [],
+    avatar: raw.user.avatarUrl || undefined,
+  };
+
+  return { token: raw.token, user };
+}
+
+/**
+ * 从权限列表中推导角色
+ *
+ * 后端 JWT 中包含 roles，但登录 API 返回的是 permissions 列表
+ * 通过 system 模块权限判断是否是管理员
+ */
+function extractRolesFromPermissions(permissions: string[]): string[] {
+  const hasSystemWrite = permissions.some(p => p.startsWith('system:') && p.endsWith(':write'));
+  const hasGrantWrite = permissions.some(p => p.startsWith('grant:') && p.endsWith(':write'));
+  const hasAnyWrite = permissions.some(p => p.endsWith(':write'));
+
+  if (hasSystemWrite) return ['admin'];
+  if (hasGrantWrite || hasAnyWrite) return ['operator'];
+  return ['viewer'];
 }
 
 /**
@@ -52,12 +101,37 @@ export async function logout(): Promise<void> {
 }
 
 /**
+ * 后端 /me 接口的原始响应格式
+ */
+interface MeResponseRaw {
+  user: {
+    id: number | string;
+    username: string;
+    displayName: string;
+    email?: string | null;
+    avatarUrl?: string | null;
+    status?: string;
+  };
+  permissions: string[];
+  roles: Array<{ id: number; code: string; name: string; description?: string }>;
+}
+
+/**
  * 获取当前用户信息
  *
- * 通过 token 获取当前登录用户的详细信息
+ * 通过 token 获取当前登录用户的详细信息，将后端格式转换为前端格式
  */
 export async function getCurrentUser(): Promise<AdminUser> {
-  return get<AdminUser>(`${AUTH_BASE_URL}/me`);
+  const raw = await get<MeResponseRaw>(`${AUTH_BASE_URL}/me`);
+
+  return {
+    id: String(raw.user.id),
+    username: raw.user.username,
+    displayName: raw.user.displayName,
+    roles: raw.roles.map(r => r.code),
+    permissions: raw.permissions || [],
+    avatar: raw.user.avatarUrl || undefined,
+  };
 }
 
 /**

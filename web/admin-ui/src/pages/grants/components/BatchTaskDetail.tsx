@@ -147,33 +147,62 @@ const BatchTaskDetail: React.FC<BatchTaskDetailProps> = ({
   const statusConfig = getStatusConfig(task.status);
   const isRunning = task.status === 'pending' || task.status === 'processing';
 
+  /**
+   * 根据重试状态返回标签配置
+   */
+  const getRetryStatusTag = (status: string) => {
+    const configs: Record<string, { color: string; text: string }> = {
+      PENDING: { color: 'orange', text: '待重试' },
+      RETRYING: { color: 'processing', text: '重试中' },
+      SUCCESS: { color: 'success', text: '重试成功' },
+      EXHAUSTED: { color: 'error', text: '已耗尽' },
+    };
+    return configs[status] || { color: 'default', text: status };
+  };
+
   // 失败明细表格列定义
   const failureColumns: ColumnsType<BatchTaskFailure> = [
     {
+      title: '行号',
+      dataIndex: 'rowNumber',
+      key: 'rowNumber',
+      width: 70,
+    },
+    {
       title: '用户',
       key: 'user',
+      width: 150,
       render: (_, record) => (
         <Space>
           <Avatar size="small" icon={<UserOutlined />} />
-          <div>
-            {record.username && <Text strong>{record.username}</Text>}
-            <Text type="secondary" style={{ marginLeft: record.username ? 8 : 0 }}>
-              {record.userId}
-            </Text>
-          </div>
+          <Text type="secondary">{record.userId || '-'}</Text>
         </Space>
       ),
     },
     {
-      title: '失败原因',
-      dataIndex: 'reason',
-      key: 'reason',
-      render: (reason: string) => (
+      title: '错误信息',
+      dataIndex: 'errorMessage',
+      key: 'errorMessage',
+      render: (msg: string) => (
         <Text type="danger">
           <ExclamationCircleOutlined style={{ marginRight: 4 }} />
-          {reason}
+          {msg}
         </Text>
       ),
+    },
+    {
+      title: '重试状态',
+      key: 'retryStatus',
+      width: 100,
+      render: (_, record) => {
+        const config = getRetryStatusTag(record.retryStatus);
+        return (
+          <Tag color={config.color}>
+            {config.text}
+            {record.retryCount > 0 && ` (${record.retryCount}次)`}
+          </Tag>
+        );
+      },
     },
   ];
 
@@ -290,7 +319,7 @@ const BatchTaskDetail: React.FC<BatchTaskDetailProps> = ({
           <Table
             dataSource={failuresData?.items || []}
             columns={failureColumns}
-            rowKey="userId"
+            rowKey="id"
             loading={failuresLoading}
             pagination={
               (failuresData?.total || 0) > 50

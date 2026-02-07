@@ -12,5 +12,4 @@ pub mod kafka;
 pub mod observability;
 pub mod retry;
 pub mod rules;
-pub mod telemetry;
 pub mod test_utils;

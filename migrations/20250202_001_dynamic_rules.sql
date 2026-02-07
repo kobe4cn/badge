@@ -4,7 +4,7 @@
 -- ==================== 事件类型配置 ====================
 
 -- 事件类型表：定义系统支持的所有事件类型及其所属服务组
-CREATE TABLE event_types (
+CREATE TABLE IF NOT EXISTS event_types (
     id BIGSERIAL PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(100) NOT NULL,
@@ -21,8 +21,8 @@ COMMENT ON COLUMN event_types.name IS '事件类型显示名称';
 COMMENT ON COLUMN event_types.service_group IS '服务分组：transaction-交易类事件由 event-transaction-service 处理，engagement-互动类事件由 event-engagement-service 处理';
 COMMENT ON COLUMN event_types.enabled IS '是否启用此事件类型';
 
-CREATE INDEX idx_event_types_service_group ON event_types(service_group);
-CREATE INDEX idx_event_types_enabled ON event_types(enabled);
+CREATE INDEX IF NOT EXISTS idx_event_types_service_group ON event_types(service_group);
+CREATE INDEX IF NOT EXISTS idx_event_types_enabled ON event_types(enabled);
 
 -- 预置事件类型数据
 INSERT INTO event_types (code, name, service_group, description) VALUES
@@ -37,9 +37,11 @@ INSERT INTO event_types (code, name, service_group, description) VALUES
     ('profile_update', '资料更新', 'engagement', '用户更新个人资料'),
     ('review', '评价', 'engagement', '用户提交评价'),
     -- 系统内部事件
-    ('cascade', '级联触发', 'engagement', '徽章级联触发时产生的内部事件');
+    ('cascade', '级联触发', 'engagement', '徽章级联触发时产生的内部事件')
+ON CONFLICT (code) DO NOTHING;
 
 -- 更新 updated_at 触发器
+DROP TRIGGER IF EXISTS update_event_types_updated_at ON event_types;
 CREATE TRIGGER update_event_types_updated_at
     BEFORE UPDATE ON event_types
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -47,16 +49,28 @@ CREATE TRIGGER update_event_types_updated_at
 -- ==================== 扩展 badge_rules 表 ====================
 
 -- 关联事件类型，用于规则路由
-ALTER TABLE badge_rules ADD COLUMN event_type VARCHAR(50);
+DO $$ BEGIN
+  ALTER TABLE badge_rules ADD COLUMN event_type VARCHAR(50);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 -- 规则唯一编码，便于管理和日志追踪
-ALTER TABLE badge_rules ADD COLUMN rule_code VARCHAR(100);
+DO $$ BEGIN
+  ALTER TABLE badge_rules ADD COLUMN rule_code VARCHAR(100);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 -- 全局配额控制：限制该规则可发放的徽章总数
-ALTER TABLE badge_rules ADD COLUMN global_quota INT;
+DO $$ BEGIN
+  ALTER TABLE badge_rules ADD COLUMN global_quota INT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 -- 全局已发放计数：与 global_quota 配合实现总量控制
-ALTER TABLE badge_rules ADD COLUMN global_granted INT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE badge_rules ADD COLUMN global_granted INT NOT NULL DEFAULT 0;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 COMMENT ON COLUMN badge_rules.event_type IS '关联的事件类型编码，决定该规则由哪个事件服务处理';
 COMMENT ON COLUMN badge_rules.rule_code IS '规则唯一编码，用于日志追踪和管理后台展示';
@@ -64,15 +78,33 @@ COMMENT ON COLUMN badge_rules.global_quota IS '全局配额，限制该规则可
 COMMENT ON COLUMN badge_rules.global_granted IS '已发放数量，用于配额校验';
 
 -- 外键约束：确保 event_type 引用有效的事件类型
-ALTER TABLE badge_rules
-    ADD CONSTRAINT fk_badge_rules_event_type
-    FOREIGN KEY (event_type) REFERENCES event_types(code);
+DO $$ BEGIN
+  ALTER TABLE badge_rules
+      ADD CONSTRAINT fk_badge_rules_event_type
+      FOREIGN KEY (event_type) REFERENCES event_types(code);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- 唯一约束：rule_code 必须唯一
-ALTER TABLE badge_rules
-    ADD CONSTRAINT uq_badge_rules_rule_code
-    UNIQUE (rule_code);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_badge_rules_rule_code') THEN
+    NULL;
+  ELSIF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = 'uq_badge_rules_rule_code'
+      AND n.nspname = 'public'
+  ) THEN
+    NULL;
+  ELSE
+    ALTER TABLE badge_rules
+        ADD CONSTRAINT uq_badge_rules_rule_code
+        UNIQUE (rule_code);
+  END IF;
+END $$;
 
 -- 复合索引：按事件类型和启用状态查询，用于规则加载
-CREATE INDEX idx_badge_rules_event_type_enabled
+CREATE INDEX IF NOT EXISTS idx_badge_rules_event_type_enabled
     ON badge_rules(event_type, enabled);

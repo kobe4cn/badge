@@ -31,6 +31,7 @@ struct BadgeFullRow {
     category_name: String,
     badge_type: BadgeType,
     name: String,
+    code: Option<String>,
     description: Option<String>,
     obtain_description: Option<String>,
     assets: Value,
@@ -52,6 +53,7 @@ impl From<BadgeFullRow> for BadgeAdminDto {
             category_name: row.category_name,
             badge_type: row.badge_type,
             name: row.name,
+            code: row.code,
             description: row.description,
             obtain_description: row.obtain_description,
             assets: serde_json::from_value(row.assets).unwrap_or(BadgeAssets {
@@ -80,6 +82,7 @@ const BADGE_FULL_SQL: &str = r#"
         c.name as category_name,
         b.badge_type,
         b.name,
+        b.code,
         b.description,
         b.obtain_description,
         b.assets,
@@ -135,14 +138,15 @@ pub async fn create_badge(
     // 新建徽章默认草稿状态
     let row: (i64,) = sqlx::query_as(
         r#"
-        INSERT INTO badges (series_id, badge_type, name, description, obtain_description, assets, validity_config, max_supply, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')
+        INSERT INTO badges (series_id, badge_type, name, code, description, obtain_description, assets, validity_config, max_supply, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft')
         RETURNING id
         "#,
     )
     .bind(req.series_id)
     .bind(req.badge_type)
     .bind(&req.name)
+    .bind(&req.code)
     .bind(&req.description)
     .bind(&req.obtain_description)
     .bind(&assets_json)
@@ -303,18 +307,20 @@ pub async fn update_badge(
         UPDATE badges
         SET
             name = COALESCE($2, name),
-            description = COALESCE($3, description),
-            obtain_description = COALESCE($4, obtain_description),
-            assets = COALESCE($5, assets),
-            validity_config = COALESCE($6, validity_config),
-            max_supply = COALESCE($7, max_supply),
-            status = COALESCE($8, status),
+            code = COALESCE($3, code),
+            description = COALESCE($4, description),
+            obtain_description = COALESCE($5, obtain_description),
+            assets = COALESCE($6, assets),
+            validity_config = COALESCE($7, validity_config),
+            max_supply = COALESCE($8, max_supply),
+            status = COALESCE($9, status),
             updated_at = NOW()
         WHERE id = $1
         "#,
     )
     .bind(id)
     .bind(&req.name)
+    .bind(&req.code)
     .bind(&req.description)
     .bind(&req.obtain_description)
     .bind(&assets_json)
@@ -510,6 +516,7 @@ mod tests {
             series_id: 1,
             badge_type: BadgeType::Normal,
             name: "测试徽章".to_string(),
+            code: None,
             description: Some("描述".to_string()),
             obtain_description: None,
             assets: BadgeAssets {
@@ -527,6 +534,7 @@ mod tests {
             series_id: 1,
             badge_type: BadgeType::Normal,
             name: "".to_string(), // 空名称
+            code: None,
             description: None,
             obtain_description: None,
             assets: BadgeAssets {
@@ -551,6 +559,7 @@ mod tests {
             category_name: "分类1".to_string(),
             badge_type: BadgeType::Normal,
             name: "测试徽章".to_string(),
+            code: None,
             description: None,
             obtain_description: None,
             assets: serde_json::json!({"iconUrl": "https://example.com/icon.png"}),

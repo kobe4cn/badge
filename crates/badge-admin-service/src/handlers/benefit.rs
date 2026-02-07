@@ -243,6 +243,36 @@ impl From<UserBenefitRow> for UserBenefitDto {
     }
 }
 
+/// 同步日志查询结果，与 benefit_sync_logs 表一一对应
+#[derive(sqlx::FromRow)]
+struct BenefitSyncLogRow {
+    id: i64,
+    sync_type: String,
+    status: String,
+    total_count: i32,
+    success_count: i32,
+    failed_count: i32,
+    error_message: Option<String>,
+    started_at: DateTime<Utc>,
+    completed_at: Option<DateTime<Utc>>,
+}
+
+impl From<BenefitSyncLogRow> for BenefitSyncLogDto {
+    fn from(row: BenefitSyncLogRow) -> Self {
+        Self {
+            id: row.id,
+            sync_type: row.sync_type,
+            status: row.status,
+            total_count: row.total_count,
+            success_count: row.success_count,
+            failed_count: row.failed_count,
+            error_message: row.error_message,
+            started_at: row.started_at,
+            completed_at: row.completed_at,
+        }
+    }
+}
+
 /// 权益发放记录查询结果
 #[derive(sqlx::FromRow)]
 struct BenefitGrantRow {
@@ -740,14 +770,30 @@ pub async fn list_sync_logs(
     State(state): State<AppState>,
     Query(pagination): Query<PaginationParams>,
 ) -> Result<Json<ApiResponse<PageResponse<BenefitSyncLogDto>>>, AdminError> {
-    // 由于同步日志表可能不存在，返回空结果
-    // 实际生产环境中应创建 benefit_sync_logs 表
-    let _ = state.pool;
-    let _ = pagination;
+    let offset = pagination.offset();
+    let limit = pagination.limit();
 
-    // 返回模拟数据或空列表
-    let items: Vec<BenefitSyncLogDto> = vec![];
-    let response = PageResponse::new(items, 0, pagination.page, pagination.page_size);
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM benefit_sync_logs")
+        .fetch_one(&state.pool)
+        .await?;
+
+    if total.0 == 0 {
+        return Ok(Json(ApiResponse::success(PageResponse::empty(
+            pagination.page,
+            pagination.page_size,
+        ))));
+    }
+
+    let rows = sqlx::query_as::<_, BenefitSyncLogRow>(
+        "SELECT id, sync_type, status, total_count, success_count, failed_count, error_message, started_at, completed_at FROM benefit_sync_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let items: Vec<BenefitSyncLogDto> = rows.into_iter().map(Into::into).collect();
+    let response = PageResponse::new(items, total.0, pagination.page, pagination.page_size);
     Ok(Json(ApiResponse::success(response)))
 }
 
@@ -758,20 +804,24 @@ pub async fn trigger_sync(
     State(state): State<AppState>,
     Json(req): Json<TriggerSyncRequest>,
 ) -> Result<Json<ApiResponse<SyncResultDto>>, AdminError> {
-    let _ = state.pool;
-
     info!(
         sync_type = ?req.sync_type,
         benefit_ids = ?req.benefit_ids,
         "Benefit sync triggered"
     );
 
-    // 返回同步已触发的响应
-    // 实际实现中应创建异步任务执行同步
+    // 持久化同步任务记录，后续异步 worker 可根据此记录执行实际同步
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO benefit_sync_logs (sync_type, status, started_at, created_at) VALUES ($1, 'PENDING', NOW(), NOW()) RETURNING id"
+    )
+    .bind(req.sync_type.as_deref().unwrap_or("full"))
+    .fetch_one(&state.pool)
+    .await?;
+
     let result = SyncResultDto {
-        sync_id: chrono::Utc::now().timestamp(),
+        sync_id: row.0,
         status: "PENDING".to_string(),
-        message: "同步任务已提交，正在后台执行".to_string(),
+        message: "同步任务已提交".to_string(),
     };
 
     Ok(Json(ApiResponse::success(result)))
@@ -809,6 +859,16 @@ pub async fn link_badge_to_benefit(
         return Err(AdminError::BadgeNotFound(req.badge_id));
     }
 
+    // 使用 upsert 避免重复关联时报错，同时支持更新数量
+    sqlx::query(
+        "INSERT INTO badge_benefit_links (badge_id, benefit_id, quantity, created_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (badge_id, benefit_id) DO UPDATE SET quantity = $3"
+    )
+    .bind(req.badge_id)
+    .bind(benefit_id)
+    .bind(req.quantity)
+    .execute(&state.pool)
+    .await?;
+
     info!(
         benefit_id = benefit_id,
         badge_id = req.badge_id,
@@ -816,8 +876,6 @@ pub async fn link_badge_to_benefit(
         "Badge linked to benefit"
     );
 
-    // 实际实现中应在 badge_benefit_links 表中创建关联记录
-    // 此处仅返回成功响应，表示操作已接受
     Ok(Json(ApiResponse::<()>::success_empty()))
 }
 

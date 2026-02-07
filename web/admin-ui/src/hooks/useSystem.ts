@@ -20,6 +20,11 @@ import {
   deleteRole,
   listPermissions,
   getPermissionTree,
+  listApiKeys,
+  createApiKey,
+  deleteApiKey,
+  regenerateApiKey,
+  toggleApiKeyStatus,
   type UserListParams,
   type CreateUserRequest,
   type UpdateUserRequest,
@@ -27,6 +32,8 @@ import {
   type RoleListParams,
   type CreateRoleRequest,
   type UpdateRoleRequest,
+  type ApiKeyListParams,
+  type CreateApiKeyRequest,
 } from '@/services/system';
 
 /**
@@ -48,6 +55,10 @@ export const SYSTEM_QUERY_KEYS = {
   // 权限
   permissions: ['system', 'permissions'] as const,
   permissionTree: ['system', 'permissions', 'tree'] as const,
+  // API Key
+  apiKeys: ['system', 'apiKeys'] as const,
+  apiKeyLists: () => [...SYSTEM_QUERY_KEYS.apiKeys, 'list'] as const,
+  apiKeyList: (params: ApiKeyListParams) => [...SYSTEM_QUERY_KEYS.apiKeyLists(), params] as const,
 };
 
 // =============== 用户管理 Hooks ===============
@@ -264,5 +275,95 @@ export function usePermissionTree() {
   return useQuery({
     queryKey: SYSTEM_QUERY_KEYS.permissionTree,
     queryFn: getPermissionTree,
+  });
+}
+
+// =============== API Key 管理 Hooks ===============
+
+/**
+ * 查询 API Key 列表
+ */
+export function useApiKeyList(params: ApiKeyListParams, enabled = true) {
+  return useQuery({
+    queryKey: SYSTEM_QUERY_KEYS.apiKeyList(params),
+    queryFn: () => listApiKeys(params),
+    enabled,
+  });
+}
+
+/**
+ * 创建 API Key
+ */
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (data: CreateApiKeyRequest) => createApiKey(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SYSTEM_QUERY_KEYS.apiKeyLists() });
+      message.success('API Key 创建成功');
+    },
+    onError: () => {
+      message.error('API Key 创建失败');
+    },
+  });
+}
+
+/**
+ * 删除 API Key
+ */
+export function useDeleteApiKey() {
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (id: number) => deleteApiKey(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SYSTEM_QUERY_KEYS.apiKeyLists() });
+      message.success('API Key 删除成功');
+    },
+    onError: () => {
+      message.error('API Key 删除失败');
+    },
+  });
+}
+
+/**
+ * 重新生成 API Key
+ */
+export function useRegenerateApiKey() {
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: (id: number) => regenerateApiKey(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SYSTEM_QUERY_KEYS.apiKeyLists() });
+      message.success('API Key 已重新生成');
+    },
+    onError: () => {
+      message.error('API Key 重新生成失败');
+    },
+  });
+}
+
+/**
+ * 切换 API Key 启用状态
+ */
+export function useToggleApiKeyStatus() {
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
+      toggleApiKeyStatus(id, enabled),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: SYSTEM_QUERY_KEYS.apiKeyLists() });
+      message.success(variables.enabled ? 'API Key 已启用' : 'API Key 已禁用');
+    },
+    onError: () => {
+      message.error('状态切换失败');
+    },
   });
 }

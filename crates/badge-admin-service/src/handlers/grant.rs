@@ -5,7 +5,7 @@
 
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Multipart, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::IntoResponse,
 };
@@ -211,15 +211,21 @@ pub async fn batch_grant(
 
     let now = Utc::now();
 
-    // 创建批量任务记录
+    // 将业务参数序列化到 params 列，Worker 轮询到任务后从中解析 badge_id 和 reason
+    let params = serde_json::json!({
+        "badge_id": req.badge_id,
+        "reason": &req.reason,
+    });
+
     let row: (i64,) = sqlx::query_as(
         r#"
-        INSERT INTO batch_tasks (task_type, file_url, status, progress, total_count, success_count, failure_count, created_by, created_at, updated_at)
-        VALUES ('batch_grant', $1, 'pending', 0, 0, 0, 0, 'admin', $2, $2)
+        INSERT INTO batch_tasks (task_type, file_url, params, status, progress, total_count, success_count, failure_count, created_by, created_at, updated_at)
+        VALUES ('batch_grant', $1, $2, 'pending', 0, 0, 0, 0, 'admin', $3, $3)
         RETURNING id
         "#,
     )
     .bind(&req.file_url)
+    .bind(&params)
     .bind(now)
     .fetch_one(&state.pool)
     .await?;
@@ -229,8 +235,6 @@ pub async fn batch_grant(
         badge_id = req.badge_id,
         "Batch grant task created"
     );
-
-    // TODO: 发送消息到任务队列触发异步处理
     let task_dto = BatchTaskDto {
         id: row.0,
         task_type: "batch_grant".to_string(),
@@ -504,16 +508,37 @@ pub struct CsvUploadResult {
 ///
 /// POST /api/admin/grants/upload-csv
 ///
-/// 接收 CSV 文本内容（JSON body），解析并返回预览结果。
-/// 简化方案：前端读取文件后以 JSON 发送 CSV 内容，避免 multipart 依赖。
+/// 接收 multipart/form-data 上传的 CSV 文件，解析并返回预览结果。
+/// 前端通过 FormData 上传 file 字段，后端提取文件内容进行解析。
 pub async fn upload_user_csv(
     State(_state): State<AppState>,
-    Json(body): Json<serde_json::Value>,
+    mut multipart: Multipart,
 ) -> Result<Json<ApiResponse<CsvUploadResult>>, AdminError> {
-    let csv_content = body
-        .get("content")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AdminError::Validation("缺少 content 字段".to_string()))?;
+    let mut csv_content = String::new();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AdminError::Validation(format!("解析上传文件失败: {}", e)))?
+    {
+        // 接受 name="file" 或 name="content" 的字段
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" || name == "content" {
+            csv_content = field
+                .text()
+                .await
+                .map_err(|e| AdminError::Validation(format!("读取文件内容失败: {}", e)))?;
+            break;
+        }
+    }
+
+    if csv_content.is_empty() {
+        return Err(AdminError::Validation(
+            "未上传文件或文件内容为空".to_string(),
+        ));
+    }
+
+    let csv_content = &csv_content;
 
     let mut lines = csv_content.lines();
 
@@ -563,35 +588,124 @@ pub async fn upload_user_csv(
 }
 
 /// 用户筛选预览请求
+///
+/// 前端在批量发放前调用此接口预估影响范围，
+/// 避免盲目发放导致不可预期的大规模变更
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct UserFilterRequest {
-    badge_id: Option<i64>,
-    min_quantity: Option<i32>,
-    status: Option<String>,
+    pub badge_id: Option<i64>,
+    pub min_quantity: Option<i32>,
+    pub status: Option<String>,
+    /// 预览列表的页码，默认第 1 页
+    #[serde(default = "default_preview_page")]
+    pub page: i64,
+    /// 预览列表每页条数，默认 20
+    #[serde(default = "default_preview_page_size")]
+    pub page_size: i64,
+}
+
+fn default_preview_page() -> i64 {
+    1
+}
+
+fn default_preview_page_size() -> i64 {
+    20
+}
+
+/// 用户筛选预览结果中的单条用户信息
+#[derive(Debug, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+struct FilteredUserRow {
+    user_id: String,
+    badge_id: i64,
+    quantity: i32,
+    status: String,
+    first_acquired_at: DateTime<Utc>,
 }
 
 /// 预览用户筛选结果
 ///
 /// POST /api/admin/grants/preview-filter
 ///
-/// 根据筛选条件返回匹配用户数量和预览列表。
-/// 当前为占位实现，后续可接入用户查询系统。
+/// 批量发放前的"干跑"接口：根据筛选条件查询 user_badges 表，
+/// 返回匹配的用户列表和总数，帮助运营人员确认影响范围后再执行实际发放。
 pub async fn preview_user_filter(
-    State(_state): State<AppState>,
-    Json(_req): Json<UserFilterRequest>,
+    State(state): State<AppState>,
+    Json(req): Json<UserFilterRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, AdminError> {
+    let page = req.page.max(1);
+    // 预览场景不需要返回大量数据，硬性限制每页最多 100 条
+    let page_size = req.page_size.clamp(1, 100);
+    let offset = (page - 1) * page_size;
+
+    // 先查总数，用于前端展示影响范围和分页控件
+    let (total,): (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)
+        FROM user_badges ub
+        WHERE ($1::bigint IS NULL OR ub.badge_id = $1)
+          AND ($2::int IS NULL OR ub.quantity >= $2)
+          AND ($3::text IS NULL OR ub.status = $3)
+        "#,
+    )
+    .bind(req.badge_id)
+    .bind(req.min_quantity)
+    .bind(&req.status)
+    .fetch_one(&state.pool)
+    .await?;
+
+    // 总数为零时提前返回，省去一次无意义的分页查询
+    if total == 0 {
+        let result = serde_json::json!({
+            "total": 0,
+            "page": page,
+            "pageSize": page_size,
+            "totalPages": 0,
+            "users": []
+        });
+        return Ok(Json(ApiResponse::success(result)));
+    }
+
+    let rows = sqlx::query_as::<_, FilteredUserRow>(
+        r#"
+        SELECT ub.user_id, ub.badge_id, ub.quantity, ub.status, ub.first_acquired_at
+        FROM user_badges ub
+        WHERE ($1::bigint IS NULL OR ub.badge_id = $1)
+          AND ($2::int IS NULL OR ub.quantity >= $2)
+          AND ($3::text IS NULL OR ub.status = $3)
+        ORDER BY ub.first_acquired_at DESC
+        LIMIT $4 OFFSET $5
+        "#,
+    )
+    .bind(req.badge_id)
+    .bind(req.min_quantity)
+    .bind(&req.status)
+    .bind(page_size)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let total_pages = if page_size > 0 {
+        (total + page_size - 1) / page_size
+    } else {
+        0
+    };
+
     let result = serde_json::json!({
-        "total": 0,
-        "users": []
+        "total": total,
+        "page": page,
+        "pageSize": page_size,
+        "totalPages": total_pages,
+        "users": rows
     });
+
     Ok(Json(ApiResponse::success(result)))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::dto::ManualGrantRequest;
+    use crate::dto::{ManualGrantRequest, RecipientType};
     use validator::Validate;
 
     #[test]
@@ -601,6 +715,8 @@ mod tests {
             badge_id: 1,
             quantity: 1,
             reason: "活动奖励".to_string(),
+            recipient_type: RecipientType::default(),
+            actual_user_id: None,
         };
         assert!(valid.validate().is_ok());
 
@@ -610,6 +726,8 @@ mod tests {
             badge_id: 1,
             quantity: 101,
             reason: "活动奖励".to_string(),
+            recipient_type: RecipientType::default(),
+            actual_user_id: None,
         };
         assert!(invalid.validate().is_err());
 
@@ -619,6 +737,8 @@ mod tests {
             badge_id: 1,
             quantity: 1,
             reason: "".to_string(),
+            recipient_type: RecipientType::default(),
+            actual_user_id: None,
         };
         assert!(invalid_reason.validate().is_err());
     }

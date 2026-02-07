@@ -6,7 +6,7 @@
  * 2. 条件筛选模式：设置筛选条件选择目标用户
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Modal,
   Form,
@@ -25,6 +25,7 @@ import {
   Avatar,
   Button,
   message,
+  Tooltip,
 } from 'antd';
 import {
   InboxOutlined,
@@ -33,6 +34,10 @@ import {
   UploadOutlined,
   CheckCircleOutlined,
   WarningOutlined,
+  ClockCircleOutlined,
+  ScheduleOutlined,
+  ReloadOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import type { UploadFile, UploadProps } from 'antd/es/upload';
 import BadgeSelect, { type BadgeSelectValue } from './BadgeSelect';
@@ -42,7 +47,7 @@ import {
   usePreviewUserFilter,
 } from '@/hooks/useGrant';
 import { MEMBERSHIP_LEVELS } from '@/types/user';
-import type { CsvParseResult, UserFilterCondition, UserFilterPreview } from '@/types';
+import type { CsvParseResult, UserFilterCondition, UserFilterPreview, ScheduleType } from '@/types';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -62,6 +67,25 @@ interface FormValues {
   badge: BadgeSelectValue;
   quantity: number;
   reason?: string;
+  scheduleType?: ScheduleType;
+  scheduledAt?: moment.Moment;
+  cronExpression?: string;
+}
+
+// 常用 Cron 表达式预设
+const CRON_PRESETS = [
+  { label: '每小时整点', value: '0 0 * * * *' },
+  { label: '每天 9:00', value: '0 0 9 * * *' },
+  { label: '每天 18:00', value: '0 0 18 * * *' },
+  { label: '每周一 9:00', value: '0 0 9 * * 1' },
+  { label: '每月 1 号 9:00', value: '0 0 9 1 * *' },
+];
+
+// 导入 dayjs（antd 5.x 使用 dayjs）
+import dayjs from 'dayjs';
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace moment {
+  export type Moment = dayjs.Dayjs;
 }
 
 /**
@@ -78,10 +102,23 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
   const [csvResult, setCsvResult] = useState<CsvParseResult | null>(null);
   const [filterCondition, setFilterCondition] = useState<UserFilterCondition>({});
   const [filterPreview, setFilterPreview] = useState<UserFilterPreview | null>(null);
+  const [scheduleType, setScheduleType] = useState<ScheduleType>('immediate');
+  const [cronExpression, setCronExpression] = useState<string>('');
 
   const { mutateAsync: createTask, isPending: isCreating } = useCreateBatchTask();
   const { mutateAsync: uploadCsv, isPending: isUploading } = useUploadUserCsv();
   const { mutateAsync: previewFilter, isPending: isPreviewing } = usePreviewUserFilter();
+
+  // 解析 cron 表达式并预览下次执行时间
+  const cronPreview = useMemo(() => {
+    if (!cronExpression || scheduleType !== 'recurring') return null;
+    // 简单的 cron 验证：检查是否有 6 个部分（秒 分 时 日 月 周）
+    const parts = cronExpression.trim().split(/\s+/);
+    if (parts.length !== 6) {
+      return { valid: false, message: '格式错误：需要 6 个部分（秒 分 时 日 月 周）' };
+    }
+    return { valid: true, message: '格式正确' };
+  }, [cronExpression, scheduleType]);
 
   /**
    * 重置弹窗状态
@@ -93,6 +130,8 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
     setCsvResult(null);
     setFilterCondition({});
     setFilterPreview(null);
+    setScheduleType('immediate');
+    setCronExpression('');
   }, [form]);
 
   /**
@@ -170,6 +209,18 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
         }
       }
 
+      // 验证定时任务参数
+      if (scheduleType === 'once' && !values.scheduledAt) {
+        message.error('请选择执行时间');
+        return;
+      }
+      if (scheduleType === 'recurring') {
+        if (!cronExpression || !cronPreview?.valid) {
+          message.error('请输入有效的 Cron 表达式');
+          return;
+        }
+      }
+
       await createTask({
         name: values.name,
         badgeId: values.badge.value,
@@ -177,6 +228,9 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
         reason: values.reason,
         userIds: mode === 'csv' ? csvResult?.userIds : undefined,
         userFilter: mode === 'filter' ? filterCondition : undefined,
+        scheduleType,
+        scheduledAt: scheduleType === 'once' ? values.scheduledAt?.toISOString() : undefined,
+        cronExpression: scheduleType === 'recurring' ? cronExpression : undefined,
       });
 
       handleClose();
@@ -431,6 +485,89 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
             maxLength={200}
             showCount
           />
+        </Form.Item>
+
+        <Divider />
+
+        <Form.Item
+          label={
+            <Space>
+              执行方式
+              <Tooltip title="选择任务的执行时机">
+                <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+              </Tooltip>
+            </Space>
+          }
+        >
+          <Radio.Group
+            value={scheduleType}
+            onChange={(e) => setScheduleType(e.target.value)}
+            style={{ marginBottom: 16 }}
+          >
+            <Radio.Button value="immediate">
+              <Space>
+                <ClockCircleOutlined />
+                立即执行
+              </Space>
+            </Radio.Button>
+            <Radio.Button value="once">
+              <Space>
+                <ScheduleOutlined />
+                定时执行
+              </Space>
+            </Radio.Button>
+            <Radio.Button value="recurring">
+              <Space>
+                <ReloadOutlined />
+                周期执行
+              </Space>
+            </Radio.Button>
+          </Radio.Group>
+
+          {scheduleType === 'once' && (
+            <Form.Item
+              name="scheduledAt"
+              rules={[{ required: true, message: '请选择执行时间' }]}
+              style={{ marginBottom: 0 }}
+            >
+              <DatePicker
+                showTime
+                format="YYYY-MM-DD HH:mm:ss"
+                placeholder="选择执行时间"
+                style={{ width: '100%' }}
+                disabledDate={(current) => current && current < dayjs().startOf('day')}
+              />
+            </Form.Item>
+          )}
+
+          {scheduleType === 'recurring' && (
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Select
+                placeholder="选择预设或手动输入"
+                allowClear
+                options={CRON_PRESETS}
+                onChange={(value) => setCronExpression(value || '')}
+                style={{ width: '100%' }}
+              />
+              <Input
+                value={cronExpression}
+                onChange={(e) => setCronExpression(e.target.value)}
+                placeholder="秒 分 时 日 月 周（如：0 0 9 * * *）"
+                addonBefore="Cron"
+              />
+              {cronExpression && cronPreview && (
+                <Alert
+                  type={cronPreview.valid ? 'success' : 'error'}
+                  message={cronPreview.message}
+                  showIcon
+                  style={{ marginTop: 8 }}
+                />
+              )}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Cron 格式：秒(0-59) 分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-6)
+              </Typography.Text>
+            </Space>
+          )}
         </Form.Item>
 
         <Divider />

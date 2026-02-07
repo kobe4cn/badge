@@ -120,6 +120,8 @@ export interface Badge {
   badgeType: BadgeType;
   /** 徽章名称 */
   name: string;
+  /** 业务唯一编码（用于外部系统对接） */
+  code?: string;
   /** 徽章描述 */
   description?: string;
   /** 获取条件描述（展示给用户） */
@@ -242,6 +244,8 @@ export interface CreateBadgeRequest {
   seriesId: number;
   badgeType: BadgeType;
   name: string;
+  /** 业务唯一编码（用于外部系统对接） */
+  code?: string;
   description?: string;
   obtainDescription?: string;
   sortOrder?: number;
@@ -255,6 +259,8 @@ export interface CreateBadgeRequest {
  */
 export interface UpdateBadgeRequest {
   name?: string;
+  /** 业务唯一编码 */
+  code?: string;
   description?: string;
   obtainDescription?: string;
   sortOrder?: number;

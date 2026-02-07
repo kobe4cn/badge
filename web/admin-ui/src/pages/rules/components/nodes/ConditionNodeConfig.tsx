@@ -6,8 +6,8 @@
  */
 
 import React, { useEffect, useMemo } from 'react';
-import { Modal, Form, Select, Input, InputNumber, Space } from 'antd';
-import type { ConditionNodeData, ConditionOperator } from '../../../../types/rule-canvas';
+import { Modal, Form, Select, Input, InputNumber, Space, DatePicker, Switch } from 'antd';
+import type { ConditionNodeData, ConditionOperator, FieldType } from '../../../../types/rule-canvas';
 import { OPERATOR_CONFIG, PRESET_FIELDS } from '../../../../types/rule-canvas';
 
 export interface ConditionNodeConfigProps {
@@ -52,14 +52,22 @@ const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({
     }));
   }, []);
 
-  // 监听表单值变化，获取当前选中的操作符
+  // 监听表单值变化，获取当前选中的操作符和字段
   const watchedOperator = Form.useWatch('operator', form);
+  const watchedField = Form.useWatch('field', form);
 
   // 根据操作符确定值输入类型
   const valueType = useMemo(() => {
     if (!watchedOperator) return 'single';
     return OPERATOR_CONFIG[watchedOperator as ConditionOperator]?.valueType || 'single';
   }, [watchedOperator]);
+
+  // 根据字段确定字段类型
+  const fieldType: FieldType = useMemo(() => {
+    if (!watchedField) return 'string';
+    const fieldConfig = PRESET_FIELDS.find((f) => f.field === watchedField);
+    return fieldConfig?.type || 'string';
+  }, [watchedField]);
 
   // 弹窗打开时初始化表单
   useEffect(() => {
@@ -84,9 +92,91 @@ const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({
   };
 
   /**
+   * 根据字段类型渲染单值输入控件
+   */
+  const renderSingleValueInput = () => {
+    switch (fieldType) {
+      case 'number':
+        return (
+          <Form.Item
+            name="value"
+            rules={[{ required: true, message: '请输入数值' }]}
+          >
+            <InputNumber placeholder="请输入数值" style={{ width: '100%' }} />
+          </Form.Item>
+        );
+      case 'date':
+        return (
+          <Form.Item
+            name="value"
+            rules={[{ required: true, message: '请选择日期' }]}
+          >
+            <DatePicker showTime placeholder="请选择日期时间" style={{ width: '100%' }} />
+          </Form.Item>
+        );
+      case 'boolean':
+        return (
+          <Form.Item
+            name="value"
+            valuePropName="checked"
+            rules={[{ required: true, message: '请选择值' }]}
+          >
+            <Switch checkedChildren="是" unCheckedChildren="否" />
+          </Form.Item>
+        );
+      default:
+        // string / array 默认使用文本输入
+        return (
+          <Form.Item
+            name="value"
+            rules={[{ required: true, message: '请输入比较值' }]}
+          >
+            <Input placeholder="请输入比较值" />
+          </Form.Item>
+        );
+    }
+  };
+
+  /**
+   * 渲染范围值输入控件
+   */
+  const renderRangeValueInput = () => {
+    if (fieldType === 'date') {
+      return (
+        <Form.Item
+          name="value"
+          rules={[{ required: true, message: '请选择日期范围' }]}
+        >
+          <DatePicker.RangePicker showTime style={{ width: '100%' }} />
+        </Form.Item>
+      );
+    }
+    // 数值范围
+    return (
+      <Space>
+        <Form.Item
+          name={['value', 0]}
+          noStyle
+          rules={[{ required: true, message: '请输入起始值' }]}
+        >
+          <InputNumber placeholder="起始值" style={{ width: 100 }} />
+        </Form.Item>
+        <span style={{ color: '#8c8c8c' }}>至</span>
+        <Form.Item
+          name={['value', 1]}
+          noStyle
+          rules={[{ required: true, message: '请输入结束值' }]}
+        >
+          <InputNumber placeholder="结束值" style={{ width: 100 }} />
+        </Form.Item>
+      </Space>
+    );
+  };
+
+  /**
    * 渲染值输入组件
    *
-   * 根据操作符类型返回对应的输入控件
+   * 根据操作符类型和字段类型返回对应的输入控件
    */
   const renderValueInput = () => {
     switch (valueType) {
@@ -95,26 +185,8 @@ const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({
         return null;
 
       case 'range':
-        // between 需要两个值
-        return (
-          <Space>
-            <Form.Item
-              name={['value', 0]}
-              noStyle
-              rules={[{ required: true, message: '请输入起始值' }]}
-            >
-              <InputNumber placeholder="起始值" style={{ width: 100 }} />
-            </Form.Item>
-            <span style={{ color: '#8c8c8c' }}>至</span>
-            <Form.Item
-              name={['value', 1]}
-              noStyle
-              rules={[{ required: true, message: '请输入结束值' }]}
-            >
-              <InputNumber placeholder="结束值" style={{ width: 100 }} />
-            </Form.Item>
-          </Space>
-        );
+        // between 需要两个值，根据字段类型选择输入组件
+        return renderRangeValueInput();
 
       case 'list':
         // in / not_in 需要多个值
@@ -133,15 +205,8 @@ const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({
         );
 
       default:
-        // 单值输入
-        return (
-          <Form.Item
-            name="value"
-            rules={[{ required: true, message: '请输入比较值' }]}
-          >
-            <Input placeholder="请输入比较值" />
-          </Form.Item>
-        );
+        // 单值输入，根据字段类型渲染不同控件
+        return renderSingleValueInput();
     }
   };
 

@@ -14,8 +14,8 @@ use validator::Validate;
 
 use crate::{
     dto::{
-        ApiResponse, BatchRevokeRequest, BatchTaskDto, GrantLogDto, GrantLogFilter,
-        ManualRevokeRequest, PageResponse, PaginationParams,
+        ApiResponse, AutoRevokeRequest, AutoRevokeScenario, BatchRevokeRequest, BatchTaskDto,
+        GrantLogDto, GrantLogFilter, ManualRevokeRequest, PageResponse, PaginationParams,
     },
     error::AdminError,
     state::AppState,
@@ -57,8 +57,9 @@ impl From<RevokeLogRow> for GrantLogDto {
 ///
 /// POST /api/admin/revokes/manual
 ///
+/// 前端通过 user_badge_id 指定要撤销的记录，后端反查 user_id 和 badge_id 执行撤销。
 /// 在事务中完成：
-/// 1. 检查用户持有该徽章且数量充足
+/// 1. 通过 user_badge_id 查出 user_id、badge_id 和当前数量
 /// 2. 扣减 user_badges 数量（归零时标记为 Revoked）
 /// 3. 写入 badge_ledger（CANCEL + MANUAL）
 /// 4. 写入 user_badge_logs（REVOKE）
@@ -68,31 +69,36 @@ pub async fn manual_revoke(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, AdminError> {
     req.validate()?;
 
-    // 检查徽章存在
+    // 通过 user_badge_id 反查用户和徽章信息
+    let ub_row: Option<(String, i64, i32)> = sqlx::query_as(
+        "SELECT user_id, badge_id, quantity FROM user_badges WHERE id = $1",
+    )
+    .bind(req.user_badge_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (user_id, badge_id, current_qty) = ub_row.ok_or_else(|| {
+        AdminError::NotFound(format!("用户徽章记录不存在: {}", req.user_badge_id))
+    })?;
+
+    // 查询徽章名称（用于响应和日志）
     let badge: Option<(i64, String)> = sqlx::query_as("SELECT id, name FROM badges WHERE id = $1")
-        .bind(req.badge_id)
+        .bind(badge_id)
         .fetch_optional(&state.pool)
         .await?;
 
-    let badge = badge.ok_or(AdminError::BadgeNotFound(req.badge_id))?;
+    let badge = badge.ok_or(AdminError::BadgeNotFound(badge_id))?;
 
-    // 检查用户持有且数量充足
-    let user_badge: Option<(i32,)> =
-        sqlx::query_as("SELECT quantity FROM user_badges WHERE user_id = $1 AND badge_id = $2")
-            .bind(&req.user_id)
-            .bind(req.badge_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    // 每次撤销一个
+    let quantity = 1;
 
-    let current_qty = user_badge.map(|r| r.0).unwrap_or(0);
-
-    if current_qty < req.quantity {
+    if current_qty < quantity {
         return Err(AdminError::InsufficientUserBadge);
     }
 
     let source_ref_id = Uuid::new_v4().to_string();
     let now = Utc::now();
-    let remaining = current_qty - req.quantity;
+    let remaining = current_qty - quantity;
 
     let mut tx = state.pool.begin().await?;
 
@@ -101,12 +107,11 @@ pub async fn manual_revoke(
         sqlx::query(
             r#"
             UPDATE user_badges
-            SET quantity = 0, status = 'revoked', updated_at = $3
-            WHERE user_id = $1 AND badge_id = $2
+            SET quantity = 0, status = 'REVOKED', updated_at = $2
+            WHERE id = $1
             "#,
         )
-        .bind(&req.user_id)
-        .bind(req.badge_id)
+        .bind(req.user_badge_id)
         .bind(now)
         .execute(&mut *tx)
         .await?;
@@ -114,13 +119,12 @@ pub async fn manual_revoke(
         sqlx::query(
             r#"
             UPDATE user_badges
-            SET quantity = quantity - $3, updated_at = $4
-            WHERE user_id = $1 AND badge_id = $2
+            SET quantity = quantity - $2, updated_at = $3
+            WHERE id = $1
             "#,
         )
-        .bind(&req.user_id)
-        .bind(req.badge_id)
-        .bind(req.quantity)
+        .bind(req.user_badge_id)
+        .bind(quantity)
         .bind(now)
         .execute(&mut *tx)
         .await?;
@@ -133,11 +137,11 @@ pub async fn manual_revoke(
         VALUES ($1, $2, 'cancel', 'MANUAL', $3, $4, $5, $6, $7)
         "#,
     )
-    .bind(&req.user_id)
-    .bind(req.badge_id)
+    .bind(&user_id)
+    .bind(badge_id)
     .bind(&source_ref_id)
-    .bind(-req.quantity) // 负数表示扣减
-    .bind(remaining)     // 扣减后的余额
+    .bind(-quantity) // 负数表示扣减
+    .bind(remaining) // 扣减后的余额
     .bind(&req.reason)
     .bind(now)
     .execute(&mut *tx)
@@ -150,9 +154,9 @@ pub async fn manual_revoke(
         VALUES ($1, $2, 'revoke', $3, 'MANUAL', $4, $5, $6)
         "#,
     )
-    .bind(&req.user_id)
-    .bind(req.badge_id)
-    .bind(req.quantity)
+    .bind(&user_id)
+    .bind(badge_id)
+    .bind(quantity)
     .bind(&source_ref_id)
     .bind(&req.reason)
     .bind(now)
@@ -163,8 +167,8 @@ pub async fn manual_revoke(
     sqlx::query(
         "UPDATE badges SET issued_count = issued_count - $2, updated_at = $3 WHERE id = $1",
     )
-    .bind(req.badge_id)
-    .bind(req.quantity as i64)
+    .bind(badge_id)
+    .bind(quantity as i64)
     .bind(now)
     .execute(&mut *tx)
     .await?;
@@ -172,18 +176,19 @@ pub async fn manual_revoke(
     tx.commit().await?;
 
     info!(
-        user_id = %req.user_id,
-        badge_id = req.badge_id,
-        quantity = req.quantity,
+        user_badge_id = req.user_badge_id,
+        user_id = %user_id,
+        badge_id = badge_id,
+        quantity = quantity,
         remaining = remaining,
         "Manual revoke completed"
     );
 
     let result = serde_json::json!({
-        "userId": req.user_id,
-        "badgeId": req.badge_id,
+        "userId": user_id,
+        "badgeId": badge_id,
         "badgeName": badge.1,
-        "quantity": req.quantity,
+        "quantity": quantity,
         "remaining": remaining,
         "sourceRefId": source_ref_id,
     });
@@ -214,14 +219,21 @@ pub async fn batch_revoke(
 
     let now = Utc::now();
 
+    // 将业务参数序列化到 params 列，Worker 轮询到任务后从中解析 badge_id 和 reason
+    let params = serde_json::json!({
+        "badge_id": req.badge_id,
+        "reason": &req.reason,
+    });
+
     let row: (i64,) = sqlx::query_as(
         r#"
-        INSERT INTO batch_tasks (task_type, file_url, status, progress, total_count, success_count, failure_count, created_by, created_at, updated_at)
-        VALUES ('batch_revoke', $1, 'pending', 0, 0, 0, 0, 'admin', $2, $2)
+        INSERT INTO batch_tasks (task_type, file_url, params, status, progress, total_count, success_count, failure_count, created_by, created_at, updated_at)
+        VALUES ('batch_revoke', $1, $2, 'pending', 0, 0, 0, 0, 'admin', $3, $3)
         RETURNING id
         "#,
     )
     .bind(&req.file_url)
+    .bind(&params)
     .bind(now)
     .fetch_one(&state.pool)
     .await?;
@@ -231,8 +243,6 @@ pub async fn batch_revoke(
         badge_id = req.badge_id,
         "Batch revoke task created"
     );
-
-    // TODO: 投递至任务队列异步处理
     let task_dto = BatchTaskDto {
         id: row.0,
         task_type: "batch_revoke".to_string(),
@@ -338,6 +348,194 @@ pub async fn list_revokes(
     Ok(Json(ApiResponse::success(response)))
 }
 
+/// 自动取消结果
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoRevokeResult {
+    /// 用户 ID
+    pub user_id: String,
+    /// 撤销的徽章数量
+    pub revoked_count: i32,
+    /// 撤销的徽章详情
+    pub revoked_badges: Vec<RevokedBadgeInfo>,
+    /// 取消场景
+    pub scenario: String,
+}
+
+/// 被撤销的徽章信息
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokedBadgeInfo {
+    pub badge_id: i64,
+    pub badge_name: String,
+    pub quantity: i32,
+}
+
+/// 自动取消徽章
+///
+/// POST /api/admin/revokes/auto
+///
+/// 用于账号注销、身份变更、条件不满足等自动触发的撤销场景。
+/// 支持撤销指定用户的单个徽章或所有徽章。
+pub async fn auto_revoke(
+    State(state): State<AppState>,
+    Json(req): Json<AutoRevokeRequest>,
+) -> Result<Json<ApiResponse<AutoRevokeResult>>, AdminError> {
+    use validator::Validate;
+    req.validate()?;
+
+    let now = Utc::now();
+    let scenario_str = req.scenario.to_string();
+    // 使用缩短的 source_type 以适应 VARCHAR(20) 字段限制
+    let source_type = match req.scenario {
+        AutoRevokeScenario::AccountDeletion => "AUTO_ACCT_DEL",
+        AutoRevokeScenario::IdentityChange => "AUTO_ID_CHG",
+        AutoRevokeScenario::ConditionUnmet => "AUTO_COND_UNMET",
+        AutoRevokeScenario::Violation => "AUTO_VIOLATION",
+        AutoRevokeScenario::SystemTriggered => "AUTO_SYSTEM",
+    }
+    .to_string();
+
+    // 查询需要撤销的徽章
+    let badges_to_revoke: Vec<(i64, i64, String, i32)> = if let Some(badge_id) = req.badge_id {
+        // 撤销指定徽章
+        sqlx::query_as(
+            r#"
+            SELECT ub.id, ub.badge_id, b.name, ub.quantity
+            FROM user_badges ub
+            JOIN badges b ON b.id = ub.badge_id
+            WHERE ub.user_id = $1 AND ub.badge_id = $2 AND UPPER(ub.status::text) = 'ACTIVE' AND ub.quantity > 0
+            "#,
+        )
+        .bind(&req.user_id)
+        .bind(badge_id)
+        .fetch_all(&state.pool)
+        .await?
+    } else {
+        // 撤销所有徽章
+        sqlx::query_as(
+            r#"
+            SELECT ub.id, ub.badge_id, b.name, ub.quantity
+            FROM user_badges ub
+            JOIN badges b ON b.id = ub.badge_id
+            WHERE ub.user_id = $1 AND UPPER(ub.status::text) = 'ACTIVE' AND ub.quantity > 0
+            "#,
+        )
+        .bind(&req.user_id)
+        .fetch_all(&state.pool)
+        .await?
+    };
+
+    if badges_to_revoke.is_empty() {
+        return Ok(Json(ApiResponse::success(AutoRevokeResult {
+            user_id: req.user_id,
+            revoked_count: 0,
+            revoked_badges: vec![],
+            scenario: scenario_str,
+        })));
+    }
+
+    let mut tx = state.pool.begin().await?;
+    let mut revoked_badges = Vec::new();
+    let mut total_revoked = 0;
+
+    for (user_badge_id, badge_id, badge_name, quantity) in badges_to_revoke {
+        let source_ref_id = req
+            .ref_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        // 1. 将 user_badges 状态改为 revoked
+        sqlx::query(
+            r#"
+            UPDATE user_badges
+            SET quantity = 0, status = 'REVOKED', updated_at = $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(user_badge_id)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        // 2. 写入 badge_ledger
+        sqlx::query(
+            r#"
+            INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, ref_id, quantity, balance_after, remark, created_at)
+            VALUES ($1, $2, 'cancel', $3, $4, $5, 0, $6, $7)
+            "#,
+        )
+        .bind(&req.user_id)
+        .bind(badge_id)
+        .bind(&source_type)
+        .bind(&source_ref_id)
+        .bind(-quantity)
+        .bind(&req.reason)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        // 3. 写入 user_badge_logs
+        sqlx::query(
+            r#"
+            INSERT INTO user_badge_logs (user_id, badge_id, action, quantity, source_type, source_ref_id, remark, created_at)
+            VALUES ($1, $2, 'revoke', $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(&req.user_id)
+        .bind(badge_id)
+        .bind(quantity)
+        .bind(&source_type)
+        .bind(&source_ref_id)
+        .bind(&req.reason)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        // 4. 扣减徽章已发放计数
+        sqlx::query(
+            "UPDATE badges SET issued_count = issued_count - $2, updated_at = $3 WHERE id = $1",
+        )
+        .bind(badge_id)
+        .bind(quantity as i64)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        revoked_badges.push(RevokedBadgeInfo {
+            badge_id,
+            badge_name,
+            quantity,
+        });
+        total_revoked += quantity;
+
+        info!(
+            user_id = %req.user_id,
+            badge_id = badge_id,
+            quantity = quantity,
+            scenario = %scenario_str,
+            "Auto revoke completed for badge"
+        );
+    }
+
+    tx.commit().await?;
+
+    info!(
+        user_id = %req.user_id,
+        scenario = %scenario_str,
+        total_revoked = total_revoked,
+        badge_count = revoked_badges.len(),
+        "Auto revoke completed"
+    );
+
+    Ok(Json(ApiResponse::success(AutoRevokeResult {
+        user_id: req.user_id,
+        revoked_count: total_revoked,
+        revoked_badges,
+        scenario: scenario_str,
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::dto::ManualRevokeRequest;
@@ -346,19 +544,15 @@ mod tests {
     #[test]
     fn test_manual_revoke_request_validation() {
         let valid = ManualRevokeRequest {
-            user_id: "user001".to_string(),
-            badge_id: 1,
-            quantity: 1,
+            user_badge_id: 1,
             reason: "违规处理".to_string(),
         };
         assert!(valid.validate().is_ok());
 
-        // 数量为0应失败
+        // 原因为空应失败
         let invalid = ManualRevokeRequest {
-            user_id: "user001".to_string(),
-            badge_id: 1,
-            quantity: 0,
-            reason: "违规处理".to_string(),
+            user_badge_id: 1,
+            reason: "".to_string(),
         };
         assert!(invalid.validate().is_err());
     }

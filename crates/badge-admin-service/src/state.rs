@@ -6,6 +6,7 @@ use badge_management::cascade::CascadeEvaluator;
 use badge_management::repository::DependencyRepository;
 use badge_management::service::RedemptionService;
 use badge_proto::badge::badge_management_service_client::BadgeManagementServiceClient;
+use badge_proto::rule_engine::rule_engine_service_client::RuleEngineServiceClient;
 use badge_shared::cache::Cache;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -34,6 +35,8 @@ pub struct AppState {
     pub redemption_service: Option<Arc<RedemptionService>>,
     /// badge-management-service 的 gRPC 客户端（用于跨服务刷新缓存）
     pub badge_management_client: Arc<RwLock<Option<BadgeManagementServiceClient<Channel>>>>,
+    /// 规则引擎 gRPC 客户端（用于规则测试和评估）
+    pub rule_engine_client: Arc<RwLock<Option<RuleEngineServiceClient<Channel>>>>,
 }
 
 impl AppState {
@@ -50,6 +53,7 @@ impl AppState {
             cascade_evaluator: None,
             redemption_service: None,
             badge_management_client: Arc::new(RwLock::new(None)),
+            rule_engine_client: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -65,6 +69,7 @@ impl AppState {
             cascade_evaluator: None,
             redemption_service: None,
             badge_management_client: Arc::new(RwLock::new(None)),
+            rule_engine_client: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -88,6 +93,7 @@ impl AppState {
             cascade_evaluator: Some(cascade_evaluator),
             redemption_service: None,
             badge_management_client: Arc::new(RwLock::new(None)),
+            rule_engine_client: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -109,6 +115,12 @@ impl AppState {
     /// 设置 badge-management-service 的 gRPC 客户端
     pub async fn set_badge_management_client(&self, client: BadgeManagementServiceClient<Channel>) {
         let mut guard = self.badge_management_client.write().await;
+        *guard = Some(client);
+    }
+
+    /// 设置规则引擎 gRPC 客户端
+    pub async fn set_rule_engine_client(&self, client: RuleEngineServiceClient<Channel>) {
+        let mut guard = self.rule_engine_client.write().await;
         *guard = Some(client);
     }
 

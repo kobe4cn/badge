@@ -152,10 +152,8 @@ const CanvasInner: React.FC = () => {
 
   // 规则信息状态
   const [ruleInfo, setRuleInfo] = useState<RuleInfo>({
-    name: '示例规则',
-    description: '当用户等级>=5且订单数>=10时，发放忠实用户徽章',
-    status: 'DRAFT',
-    version: 1,
+    name: '新建规则',
+    description: '',
   });
 
   // 测试面板状态
@@ -210,7 +208,7 @@ const CanvasInner: React.FC = () => {
   const ruleValidation = useMemo(() => {
     const currentNodes = nodes;
     const currentEdges = edges;
-    const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id || 'new', ruleInfo.name);
+    const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id ? String(ruleInfo.id) : 'new', ruleInfo.name);
     return validateRule(rule);
   }, [nodes, edges, ruleInfo.id, ruleInfo.name]);
 
@@ -450,8 +448,24 @@ const CanvasInner: React.FC = () => {
       return;
     }
 
+    // 新建规则时验证必填字段
+    if (!ruleInfo.id) {
+      if (!ruleInfo.badgeId) {
+        message.warning('请选择关联徽章');
+        return;
+      }
+      if (!ruleInfo.eventType) {
+        message.warning('请选择事件类型');
+        return;
+      }
+      if (!ruleInfo.ruleCode) {
+        message.warning('请输入规则编码');
+        return;
+      }
+    }
+
     // 转换为规则 JSON
-    const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id || 'new', ruleInfo.name);
+    const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id ? String(ruleInfo.id) : 'new', ruleInfo.name);
     const ruleJson = JSON.parse(serializeRule(rule));
 
     // 根据是否已有 ID 决定创建还是更新
@@ -463,6 +477,10 @@ const CanvasInner: React.FC = () => {
             name: ruleInfo.name,
             description: ruleInfo.description,
             ruleJson,
+            startTime: ruleInfo.startTime,
+            endTime: ruleInfo.endTime,
+            maxCountPerUser: ruleInfo.maxCountPerUser,
+            globalQuota: ruleInfo.globalQuota,
           },
         },
         {
@@ -473,11 +491,19 @@ const CanvasInner: React.FC = () => {
         }
       );
     } else {
+      // 创建规则时提供完整的必填字段
       createRuleMutation.mutate(
         {
+          badgeId: ruleInfo.badgeId!,
+          ruleCode: ruleInfo.ruleCode!,
+          eventType: ruleInfo.eventType!,
           name: ruleInfo.name,
           description: ruleInfo.description,
           ruleJson,
+          startTime: ruleInfo.startTime,
+          endTime: ruleInfo.endTime,
+          maxCountPerUser: ruleInfo.maxCountPerUser,
+          globalQuota: ruleInfo.globalQuota,
         },
         {
           onSuccess: (newRule) => {
@@ -499,7 +525,7 @@ const CanvasInner: React.FC = () => {
     }
     publishRuleMutation.mutate(ruleInfo.id, {
       onSuccess: () => {
-        setRuleInfo((prev) => ({ ...prev, status: 'PUBLISHED' }));
+        setRuleInfo((prev) => ({ ...prev, enabled: true }));
       },
     });
   }, [ruleInfo.id, publishRuleMutation, antMessage]);
@@ -516,7 +542,7 @@ const CanvasInner: React.FC = () => {
     (context: TestContext) => {
       const currentNodes = getNodes();
       const currentEdges = getEdges();
-      const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id || 'test', ruleInfo.name);
+      const rule = canvasToRule(currentNodes, currentEdges, ruleInfo.id ? String(ruleInfo.id) : 'test', ruleInfo.name);
       const ruleJson = JSON.parse(serializeRule(rule));
 
       testRuleMutation.mutate(

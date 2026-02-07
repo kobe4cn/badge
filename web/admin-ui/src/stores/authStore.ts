@@ -49,6 +49,8 @@ interface AuthActions {
   setAuth: (user: AdminUser, token: string) => void;
   /** 清除登录状态 */
   clearAuth: () => void;
+  /** 仅更新 token，用于自动刷新场景 */
+  updateToken: (newToken: string) => void;
   /** 设置加载状态 */
   setLoading: (loading: boolean) => void;
   /** 设置错误信息 */
@@ -84,6 +86,11 @@ export const useAuthStore = create<AuthStore>()(
           isAuthenticated: true,
           error: null,
         });
+      },
+
+      updateToken: (newToken: string) => {
+        localStorage.setItem('auth_token', newToken);
+        set({ token: newToken });
       },
 
       clearAuth: () => {

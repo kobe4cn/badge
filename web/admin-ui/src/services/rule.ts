@@ -8,31 +8,36 @@ import { get, getList, post, put, del } from './api';
 import type { PaginatedResponse, ListParams } from '@/types';
 
 /**
- * 规则状态
- */
-export type RuleStatus = 'DRAFT' | 'PUBLISHED' | 'DISABLED' | 'ARCHIVED';
-
-/**
  * 规则实体
  */
 export interface Rule {
-  id: string;
-  /** 规则名称 */
-  name: string;
+  id: number;
+  /** 关联的徽章 ID */
+  badgeId: number;
+  /** 关联的徽章名称（后端返回） */
+  badgeName: string;
+  /** 事件类型（如 purchase, login, sign_up） */
+  eventType: string;
+  /** 规则编码（唯一标识） */
+  ruleCode: string;
+  /** 规则名称（显示用） */
+  name?: string;
   /** 规则描述 */
   description?: string;
   /** 规则定义 JSON（包含条件和动作配置） */
   ruleJson: Record<string, unknown>;
-  /** 规则状态 */
-  status: RuleStatus;
-  /** 优先级（数值越小优先级越高） */
-  priority: number;
   /** 生效开始时间 */
   startTime?: string;
   /** 生效结束时间 */
   endTime?: string;
-  /** 版本号 */
-  version: number;
+  /** 每用户最大获取次数 */
+  maxCountPerUser?: number;
+  /** 全局配额限制 */
+  globalQuota?: number;
+  /** 已发放数量 */
+  globalGranted: number;
+  /** 是否启用 */
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,34 +46,64 @@ export interface Rule {
  * 规则列表查询参数
  */
 export interface RuleListParams extends ListParams {
-  /** 名称模糊搜索 */
-  name?: string;
-  /** 状态筛选 */
-  status?: RuleStatus;
+  /** 徽章 ID 筛选 */
+  badgeId?: number;
+  /** 事件类型筛选 */
+  eventType?: string;
+  /** 启用状态筛选 */
+  enabled?: boolean;
 }
 
 /**
  * 创建规则请求
  */
 export interface CreateRuleRequest {
+  /** 关联的徽章 ID（必填） */
+  badgeId: number;
+  /** 规则编码（必填，唯一标识） */
+  ruleCode: string;
+  /** 事件类型（必填，如 purchase, login, sign_up） */
+  eventType: string;
+  /** 规则名称（必填，显示用） */
   name: string;
+  /** 规则描述 */
   description?: string;
+  /** 规则定义 JSON（包含条件和动作配置） */
   ruleJson: Record<string, unknown>;
-  priority?: number;
+  /** 生效开始时间 */
   startTime?: string;
+  /** 生效结束时间 */
   endTime?: string;
+  /** 每用户最大获取次数 */
+  maxCountPerUser?: number;
+  /** 全局配额限制 */
+  globalQuota?: number;
 }
 
 /**
  * 更新规则请求
  */
 export interface UpdateRuleRequest {
+  /** 事件类型 */
+  eventType?: string;
+  /** 规则编码 */
+  ruleCode?: string;
+  /** 规则名称（显示用） */
   name?: string;
+  /** 规则描述 */
   description?: string;
+  /** 规则定义 JSON */
   ruleJson?: Record<string, unknown>;
-  priority?: number;
+  /** 生效开始时间 */
   startTime?: string;
+  /** 生效结束时间 */
   endTime?: string;
+  /** 每用户最大获取次数 */
+  maxCountPerUser?: number;
+  /** 全局配额限制 */
+  globalQuota?: number;
+  /** 是否启用 */
+  enabled?: boolean;
 }
 
 /**
@@ -144,7 +179,7 @@ export function getRules(params: RuleListParams): Promise<PaginatedResponse<Rule
 /**
  * 获取规则详情
  */
-export function getRule(id: string): Promise<Rule> {
+export function getRule(id: number): Promise<Rule> {
   return get<Rule>(`/admin/rules/${id}`);
 }
 
@@ -158,7 +193,7 @@ export function createRule(data: CreateRuleRequest): Promise<Rule> {
 /**
  * 更新规则
  */
-export function updateRule(id: string, data: UpdateRuleRequest): Promise<Rule> {
+export function updateRule(id: number, data: UpdateRuleRequest): Promise<Rule> {
   return put<Rule>(`/admin/rules/${id}`, data);
 }
 
@@ -167,7 +202,7 @@ export function updateRule(id: string, data: UpdateRuleRequest): Promise<Rule> {
  *
  * 仅允许删除草稿状态的规则
  */
-export function deleteRule(id: string): Promise<void> {
+export function deleteRule(id: number): Promise<void> {
   return del<void>(`/admin/rules/${id}`);
 }
 
@@ -176,7 +211,7 @@ export function deleteRule(id: string): Promise<void> {
  *
  * 使用提供的上下文数据评估规则，返回详细的评估结果
  */
-export function testRule(ruleId: string, context: TestContext): Promise<RuleTestResult> {
+export function testRule(ruleId: number, context: TestContext): Promise<RuleTestResult> {
   return post<RuleTestResult>(`/admin/rules/${ruleId}/test`, context);
 }
 
@@ -197,7 +232,7 @@ export function testRuleDefinition(
  *
  * 将规则状态从 DRAFT 变更为 PUBLISHED
  */
-export function publishRule(id: string): Promise<void> {
+export function publishRule(id: number): Promise<void> {
   return post<void>(`/admin/rules/${id}/publish`);
 }
 
@@ -206,7 +241,7 @@ export function publishRule(id: string): Promise<void> {
  *
  * 将规则状态变更为 DISABLED
  */
-export function disableRule(id: string): Promise<void> {
+export function disableRule(id: number): Promise<void> {
   return post<void>(`/admin/rules/${id}/disable`);
 }
 

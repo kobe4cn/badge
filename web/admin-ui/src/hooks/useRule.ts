@@ -30,7 +30,7 @@ export const RULE_QUERY_KEYS = {
   lists: () => [...RULE_QUERY_KEYS.all, 'list'] as const,
   list: (params: RuleListParams) => [...RULE_QUERY_KEYS.lists(), params] as const,
   details: () => [...RULE_QUERY_KEYS.all, 'detail'] as const,
-  detail: (id: string) => [...RULE_QUERY_KEYS.details(), id] as const,
+  detail: (id: number) => [...RULE_QUERY_KEYS.details(), id] as const,
 };
 
 /**
@@ -47,11 +47,11 @@ export function useRuleList(params: RuleListParams, enabled = true) {
 /**
  * 查询规则详情
  */
-export function useRuleDetail(id: string, enabled = true) {
+export function useRuleDetail(id: number, enabled = true) {
   return useQuery({
     queryKey: RULE_QUERY_KEYS.detail(id),
     queryFn: () => getRule(id),
-    enabled: enabled && !!id,
+    enabled: enabled && id > 0,
   });
 }
 
@@ -82,7 +82,7 @@ export function useUpdateRule() {
   const { message } = App.useApp();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateRuleRequest }) =>
+    mutationFn: ({ id, data }: { id: number; data: UpdateRuleRequest }) =>
       updateRule(id, data),
     onSuccess: (_, variables) => {
       message.success('规则更新成功');
@@ -105,7 +105,7 @@ export function useDeleteRule() {
   const { message } = App.useApp();
 
   return useMutation({
-    mutationFn: (id: string) => deleteRule(id),
+    mutationFn: (id: number) => deleteRule(id),
     onSuccess: (_data, id) => {
       message.success('规则删除成功');
       queryClient.removeQueries({ queryKey: RULE_QUERY_KEYS.detail(id) });
@@ -126,7 +126,7 @@ export function useTestRule() {
   const { message } = App.useApp();
 
   return useMutation({
-    mutationFn: ({ ruleId, context }: { ruleId: string; context: TestContext }) =>
+    mutationFn: ({ ruleId, context }: { ruleId: number; context: TestContext }) =>
       testRule(ruleId, context),
     onError: (error: { message?: string }) => {
       message.error(error.message || '测试失败');
@@ -164,7 +164,7 @@ export function usePublishRule() {
   const { message } = App.useApp();
 
   return useMutation({
-    mutationFn: (id: string) => publishRule(id),
+    mutationFn: (id: number) => publishRule(id),
     onSuccess: (_data, id) => {
       message.success('规则已发布');
       queryClient.invalidateQueries({ queryKey: RULE_QUERY_KEYS.detail(id) });
@@ -184,7 +184,7 @@ export function useDisableRule() {
   const { message } = App.useApp();
 
   return useMutation({
-    mutationFn: (id: string) => disableRule(id),
+    mutationFn: (id: number) => disableRule(id),
     onSuccess: (_data, id) => {
       message.success('规则已禁用');
       queryClient.invalidateQueries({ queryKey: RULE_QUERY_KEYS.detail(id) });

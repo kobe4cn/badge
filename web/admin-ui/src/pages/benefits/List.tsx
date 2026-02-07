@@ -24,11 +24,16 @@ import { formatDate } from '@/utils/format';
 import {
   listBenefits,
   deleteBenefit,
+  createBenefit,
+  updateBenefit,
   type Benefit,
   type BenefitType,
   type BenefitStatus,
   type BenefitQueryParams,
+  type CreateBenefitRequest,
+  type UpdateBenefitRequest,
 } from '@/services/benefit';
+import BenefitForm from './components/BenefitForm';
 
 /**
  * 权益类型显示配置
@@ -61,6 +66,9 @@ const BenefitsListPage: React.FC = () => {
     pageSize: 20,
   });
 
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingBenefit, setEditingBenefit] = useState<Benefit | undefined>();
+
   // 获取权益列表
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['benefits', queryParams],
@@ -78,6 +86,37 @@ const BenefitsListPage: React.FC = () => {
       message.error('删除失败');
     },
   });
+
+  const createMutation = useMutation({
+    mutationFn: (data: CreateBenefitRequest) => createBenefit(data),
+    onSuccess: () => {
+      message.success('创建成功');
+      queryClient.invalidateQueries({ queryKey: ['benefits'] });
+    },
+    onError: () => {
+      message.error('创建失败');
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateBenefitRequest }) => updateBenefit(id, data),
+    onSuccess: () => {
+      message.success('更新成功');
+      queryClient.invalidateQueries({ queryKey: ['benefits'] });
+    },
+    onError: () => {
+      message.error('更新失败');
+    },
+  });
+
+  const handleFormSubmit = async (values: CreateBenefitRequest) => {
+    if (editingBenefit) {
+      await updateMutation.mutateAsync({ id: editingBenefit.id, data: values });
+    } else {
+      await createMutation.mutateAsync(values);
+    }
+    return true;
+  };
 
   /**
    * 删除处理
@@ -189,7 +228,8 @@ const BenefitsListPage: React.FC = () => {
             size="small"
             icon={<EditOutlined />}
             onClick={() => {
-              message.info('编辑功能开发中');
+              setEditingBenefit(record);
+              setFormOpen(true);
             }}
           >
             编辑
@@ -242,7 +282,8 @@ const BenefitsListPage: React.FC = () => {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => {
-              message.info('新建功能开发中');
+              setEditingBenefit(undefined);
+              setFormOpen(true);
             }}
           >
             新建权益
@@ -262,6 +303,13 @@ const BenefitsListPage: React.FC = () => {
           return { data: [], success: true, total: 0 };
         }}
         scroll={{ x: 1100 }}
+      />
+      <BenefitForm
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        initialValues={editingBenefit}
+        onSubmit={handleFormSubmit}
+        loading={createMutation.isPending || updateMutation.isPending}
       />
     </PageContainer>
   );

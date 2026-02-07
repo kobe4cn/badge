@@ -84,6 +84,21 @@ function formatErrorMessage(error: ApiError): string {
   return ERROR_MESSAGES[error.code] || error.message || '请求失败，请稍后重试';
 }
 
+// Token 刷新队列：多个并发请求同时遇到 401 时，只触发一次刷新
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+}> = [];
+
+function processQueue(error: unknown, token: string | null) {
+  failedQueue.forEach(({ resolve, reject }) => {
+    if (error) reject(error);
+    else resolve(token!);
+  });
+  failedQueue = [];
+}
+
 /**
  * 请求拦截器
  *
@@ -117,7 +132,7 @@ apiClient.interceptors.response.use(
     }
     return response;
   },
-  (error: AxiosError<ApiResponse<unknown>>) => {
+  async (error: AxiosError<ApiResponse<unknown>>) => {
     // 构建标准化错误对象
     const apiError: ApiError = {
       code: 'UNKNOWN_ERROR',
@@ -151,17 +166,58 @@ apiClient.interceptors.response.use(
     // 根据 HTTP 状态码进行统一处理
     switch (status) {
       case 401:
-        // 登录接口返回 401 表示凭据错误，不清除认证状态
-        // 其他接口返回 401 表示 token 过期
+        // 登录接口和刷新接口本身返回 401，不重试
         if (error.config?.url?.includes('/auth/login')) {
-          // 登录失败，保留服务端返回的错误消息
           apiError.code = serverError?.code || 'INVALID_CREDENTIALS';
           apiError.message = serverError?.message || '用户名或密码错误';
-        } else {
+        } else if (error.config?.url?.includes('/auth/refresh')) {
+          // 刷新接口失败，token 确实过期了
           apiError.code = 'UNAUTHORIZED';
-          apiError.message = serverError?.message || '登录已过期，请重新登录';
-          message.error(apiError.message);
           clearAuthAndRedirect();
+        } else {
+          // 业务接口 401：尝试自动刷新 token
+          if (isRefreshing) {
+            // 已有刷新请求进行中，排队等待结果
+            return new Promise((resolve, reject) => {
+              failedQueue.push({
+                resolve: (newToken: string) => {
+                  if (error.config) {
+                    error.config.headers.Authorization = `Bearer ${newToken}`;
+                    resolve(apiClient(error.config));
+                  }
+                },
+                reject: (err: unknown) => reject(err),
+              });
+            });
+          }
+
+          isRefreshing = true;
+          try {
+            // 直接调用 apiClient 而非导入 refreshToken，避免循环依赖
+            const refreshResponse = await apiClient.post<ApiResponse<{ token: string }>>(
+              '/admin/auth/refresh'
+            );
+            const newToken = refreshResponse.data.data?.token;
+            if (!newToken) throw new Error('刷新 token 响应格式异常');
+
+            localStorage.setItem('auth_token', newToken);
+            // 动态导入避免循环依赖
+            const { useAuthStore } = await import('@/stores/authStore');
+            useAuthStore.getState().updateToken(newToken);
+            // 通知排队的请求使用新 token
+            processQueue(null, newToken);
+            // 重试原请求
+            if (error.config) {
+              error.config.headers.Authorization = `Bearer ${newToken}`;
+              return apiClient(error.config);
+            }
+          } catch (refreshError) {
+            processQueue(refreshError, null);
+            clearAuthAndRedirect();
+            return Promise.reject(refreshError);
+          } finally {
+            isRefreshing = false;
+          }
         }
         break;
 

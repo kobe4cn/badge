@@ -25,8 +25,16 @@ pub async fn auth_middleware(
 ) -> Response {
     let path = request.uri().path();
 
-    // 公开路由列表（不需要认证）
-    let public_paths = ["/api/admin/auth/login", "/api/admin/health", "/health"];
+    // 公开路由列表（不需要 JWT 认证）
+    // "/api/v1/" 是面向外部系统的 API 路由，使用独立的 API Key 认证机制，
+    // 在 routes::external_api_routes 的路由层通过 api_key_auth 中间件保护，
+    // 因此此处跳过 JWT 验证以避免双重认证冲突。
+    let public_paths = [
+        "/api/admin/auth/login",
+        "/api/admin/health",
+        "/api/v1/",
+        "/health",
+    ];
 
     // 检查是否是公开路由
     if public_paths.iter().any(|p| path.starts_with(p)) {
@@ -46,9 +54,14 @@ pub async fn auth_middleware(
         }
     };
 
-    // 验证 Token
+    // 验证 Token 签名和有效期
     match state.jwt_manager.verify_token(token) {
         Ok(claims) => {
+            // 已登出的 Token 虽然签名仍有效，但必须拒绝使用
+            if crate::handlers::auth::is_token_blacklisted(&state.cache, token).await {
+                return unauthorized_response("Token 已被注销");
+            }
+
             // 将 Claims 注入请求扩展，供后续处理器使用
             request.extensions_mut().insert(claims);
             next.run(request).await
@@ -76,6 +89,7 @@ fn unauthorized_response(message: &str) -> Response {
 /// 从请求扩展中提取 Claims
 ///
 /// 用于在处理器中获取当前用户信息
+#[allow(dead_code)]
 pub fn extract_claims(request: &Request<Body>) -> Option<&Claims> {
     request.extensions().get::<Claims>()
 }

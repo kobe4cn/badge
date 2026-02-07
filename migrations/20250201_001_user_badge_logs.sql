@@ -1,7 +1,7 @@
 -- 用户徽章操作日志表
 -- 记录徽章的发放、取消、兑换等操作，用于审计追踪
 
-CREATE TABLE user_badge_logs (
+CREATE TABLE IF NOT EXISTS user_badge_logs (
     id BIGSERIAL PRIMARY KEY,
     user_badge_id BIGINT REFERENCES user_badges(id),
     user_id VARCHAR(100) NOT NULL,
@@ -21,8 +21,8 @@ COMMENT ON COLUMN user_badge_logs.action IS '操作动作：grant-发放，revok
 COMMENT ON COLUMN user_badge_logs.source_type IS '来源类型：event, scheduled, manual, redemption, system, cascade';
 COMMENT ON COLUMN user_badge_logs.source_ref_id IS '关联的业务ID（如事件ID、订单ID）';
 
-CREATE INDEX idx_user_badge_logs_user ON user_badge_logs(user_id);
-CREATE INDEX idx_user_badge_logs_badge ON user_badge_logs(badge_id);
-CREATE INDEX idx_user_badge_logs_user_badge ON user_badge_logs(user_badge_id);
-CREATE INDEX idx_user_badge_logs_action ON user_badge_logs(action);
-CREATE INDEX idx_user_badge_logs_time ON user_badge_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_user_badge_logs_user ON user_badge_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_badge_logs_badge ON user_badge_logs(badge_id);
+CREATE INDEX IF NOT EXISTS idx_user_badge_logs_user_badge ON user_badge_logs(user_badge_id);
+CREATE INDEX IF NOT EXISTS idx_user_badge_logs_action ON user_badge_logs(action);
+CREATE INDEX IF NOT EXISTS idx_user_badge_logs_time ON user_badge_logs(created_at);

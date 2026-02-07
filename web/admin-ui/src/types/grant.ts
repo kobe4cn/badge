@@ -147,6 +147,14 @@ export interface BatchTask {
   createdBy: string;
   /** 完成时间 */
   completedAt?: string;
+  /** 调度类型 */
+  scheduleType?: ScheduleType;
+  /** 计划执行时间 */
+  scheduledAt?: string;
+  /** Cron 表达式 */
+  cronExpression?: string;
+  /** 下次执行时间（周期任务） */
+  nextRunAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -155,13 +163,48 @@ export interface BatchTask {
  * 批量任务失败明细
  */
 export interface BatchTaskFailure {
+  /** 记录 ID */
+  id: number;
+  /** 任务 ID */
+  taskId: number;
+  /** 行号 */
+  rowNumber: number;
   /** 用户 ID */
-  userId: string;
-  /** 用户名 */
-  username?: string;
-  /** 失败原因 */
-  reason: string;
+  userId?: string;
+  /** 错误码 */
+  errorCode: string;
+  /** 错误信息 */
+  errorMessage: string;
+  /** 重试次数 */
+  retryCount: number;
+  /** 重试状态: PENDING, RETRYING, SUCCESS, EXHAUSTED */
+  retryStatus: string;
+  /** 上次重试时间 */
+  lastRetryAt?: string;
+  /** 创建时间 */
+  createdAt: string;
 }
+
+/**
+ * 重试结果
+ */
+export interface RetryResult {
+  /** 任务 ID */
+  taskId: number;
+  /** 待重试数量 */
+  pendingCount: number;
+  /** 提示信息 */
+  message: string;
+}
+
+/**
+ * 任务调度类型
+ *
+ * immediate: 立即执行（默认）
+ * once: 定时单次执行
+ * recurring: 周期执行
+ */
+export type ScheduleType = 'immediate' | 'once' | 'recurring';
 
 /**
  * 创建批量任务请求
@@ -179,6 +222,12 @@ export interface CreateBatchTaskRequest {
   userIds?: string[];
   /** 用户筛选条件（条件筛选模式） */
   userFilter?: UserFilterCondition;
+  /** 调度类型：立即执行/定时/周期 */
+  scheduleType?: ScheduleType;
+  /** 计划执行时间（scheduleType = 'once' 时使用） */
+  scheduledAt?: string;
+  /** Cron 表达式（scheduleType = 'recurring' 时使用） */
+  cronExpression?: string;
 }
 
 /**
@@ -260,6 +309,14 @@ export type OperationModule = 'category' | 'series' | 'badge' | 'rule' | 'grant'
 // ============ 表单数据类型 ============
 
 /**
+ * 发放对象类型
+ *
+ * OWNER: 账号注册人（默认）
+ * USER: 实际使用人
+ */
+export type RecipientType = 'OWNER' | 'USER';
+
+/**
  * 手动发放请求
  */
 export interface ManualGrantRequest {
@@ -271,6 +328,10 @@ export interface ManualGrantRequest {
   quantity?: number;
   /** 发放原因 */
   reason?: string;
+  /** 发放对象类型：OWNER-账号注册人（默认），USER-实际使用人 */
+  recipientType?: RecipientType;
+  /** 实际使用人 ID（当 recipientType = USER 时必填） */
+  actualUserId?: string;
 }
 
 /**

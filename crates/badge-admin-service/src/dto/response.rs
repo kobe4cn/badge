@@ -112,6 +112,7 @@ pub struct CategoryDto {
     pub sort_order: i32,
     pub status: CategoryStatus,
     pub badge_count: i64,
+    pub series_count: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -146,6 +147,8 @@ pub struct BadgeAdminDto {
     pub category_name: String,
     pub badge_type: BadgeType,
     pub name: String,
+    /// 业务唯一编码
+    pub code: Option<String>,
     pub description: Option<String>,
     pub obtain_description: Option<String>,
     pub assets: BadgeAssets,
@@ -180,10 +183,16 @@ pub struct RuleDto {
     pub id: i64,
     pub badge_id: i64,
     pub badge_name: String,
+    pub event_type: String,
+    pub rule_code: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
     pub rule_json: serde_json::Value,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub max_count_per_user: Option<i32>,
+    pub global_quota: Option<i32>,
+    pub global_granted: i32,
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -276,6 +285,8 @@ pub struct BadgeRankingDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserBadgeAdminDto {
+    /// user_badges 表主键，用于手动撤销等操作
+    pub id: i64,
     pub badge_id: i64,
     pub badge_name: String,
     pub badge_type: String,

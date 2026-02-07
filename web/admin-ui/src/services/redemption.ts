@@ -15,6 +15,7 @@ export interface FrequencyConfig {
   maxPerDay?: number;
   maxPerWeek?: number;
   maxPerMonth?: number;
+  maxPerYear?: number;
 }
 
 /**
@@ -27,6 +28,11 @@ export interface RequiredBadge {
 }
 
 /**
+ * 有效期类型
+ */
+export type ValidityType = 'FIXED' | 'RELATIVE';
+
+/**
  * 兑换规则
  */
 export interface RedemptionRule {
@@ -37,6 +43,10 @@ export interface RedemptionRule {
   benefitName: string;
   requiredBadges: RequiredBadge[];
   frequencyConfig: FrequencyConfig;
+  /** 有效期类型：FIXED-固定时间段，RELATIVE-相对徽章获取时间 */
+  validityType: ValidityType;
+  /** 相对有效天数（validityType=RELATIVE 时使用） */
+  relativeDays?: number;
   startTime?: string;
   endTime?: string;
   enabled: boolean;
@@ -54,6 +64,10 @@ export interface CreateRedemptionRuleRequest {
   benefitId: number;
   requiredBadges: Array<{ badgeId: number; quantity: number }>;
   frequencyConfig?: FrequencyConfig;
+  /** 有效期类型：FIXED-固定时间段，RELATIVE-相对徽章获取时间 */
+  validityType?: ValidityType;
+  /** 相对有效天数（validityType=RELATIVE 时使用） */
+  relativeDays?: number;
   startTime?: string;
   endTime?: string;
   autoRedeem?: boolean;
@@ -67,6 +81,10 @@ export interface UpdateRedemptionRuleRequest {
   description?: string;
   requiredBadges?: Array<{ badgeId: number; quantity: number }>;
   frequencyConfig?: FrequencyConfig;
+  /** 有效期类型：FIXED-固定时间段，RELATIVE-相对徽章获取时间 */
+  validityType?: ValidityType;
+  /** 相对有效天数（validityType=RELATIVE 时使用） */
+  relativeDays?: number;
   startTime?: string;
   endTime?: string;
   enabled?: boolean;
@@ -191,6 +209,35 @@ export function getRedemptionOrder(orderNo: string): Promise<RedemptionOrder> {
 }
 
 /**
+ * 执行兑换请求
+ */
+export interface ExecuteRedemptionRequest {
+  userId: string;
+  ruleId: number;
+  idempotencyKey?: string;
+}
+
+/**
+ * 兑换响应
+ */
+export interface ExecuteRedemptionResponse {
+  success: boolean;
+  orderId: number;
+  orderNo: string;
+  benefitName: string;
+  message: string;
+}
+
+/**
+ * 执行手动兑换
+ */
+export function executeRedemption(
+  data: ExecuteRedemptionRequest
+): Promise<ExecuteRedemptionResponse> {
+  return post<ExecuteRedemptionResponse>('/admin/redemption/redeem', data);
+}
+
+/**
  * 兑换服务对象
  */
 export const redemptionService = {
@@ -202,4 +249,5 @@ export const redemptionService = {
   toggleRule: toggleRedemptionRule,
   listOrders: listRedemptionOrders,
   getOrder: getRedemptionOrder,
+  execute: executeRedemption,
 };

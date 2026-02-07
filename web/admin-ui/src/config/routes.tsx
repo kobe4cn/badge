@@ -15,6 +15,9 @@ import {
   FileTextOutlined,
   ShoppingOutlined,
   SettingOutlined,
+  NotificationOutlined,
+  RollbackOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 
 import type { RouteConfig } from './routeConfig';
@@ -34,10 +37,18 @@ const GrantLogsPage = React.lazy(() => import('@/pages/grants/Logs'));
 const MemberSearchPage = React.lazy(() => import('@/pages/members/Search'));
 const BenefitsListPage = React.lazy(() => import('@/pages/benefits/List'));
 const BenefitGrantsPage = React.lazy(() => import('@/pages/benefits/Grants'));
+const AutoBenefitsPage = React.lazy(() => import('@/pages/benefits/Auto'));
 const RedemptionRulesPage = React.lazy(() => import('@/pages/redemptions/Rules'));
 const RedemptionRecordsPage = React.lazy(() => import('@/pages/redemptions/Records'));
+const ManualRedemptionPage = React.lazy(() => import('@/pages/redemptions/Manual'));
 const SystemUsersPage = React.lazy(() => import('@/pages/system/Users'));
 const SystemRolesPage = React.lazy(() => import('@/pages/system/Roles'));
+const SystemApiKeysPage = React.lazy(() => import('@/pages/system/ApiKeys'));
+const NotificationConfigsPage = React.lazy(() => import('@/pages/notifications/Configs'));
+const NotificationTasksPage = React.lazy(() => import('@/pages/notifications/Tasks'));
+const BatchRevokePage = React.lazy(() => import('@/pages/revokes/Batch'));
+const RevokeLogsPage = React.lazy(() => import('@/pages/revokes/Logs'));
+const AssetLibraryPage = React.lazy(() => import('@/pages/assets/Library'));
 
 /**
  * 404 页面组件
@@ -139,6 +150,11 @@ export const routes: RouteConfig[] = [
         name: '发放记录',
         component: BenefitGrantsPage,
       },
+      {
+        path: '/benefits/auto',
+        name: '自动权益',
+        component: AutoBenefitsPage,
+      },
     ],
   },
   {
@@ -152,9 +168,31 @@ export const routes: RouteConfig[] = [
         component: RedemptionRulesPage,
       },
       {
+        path: '/redemptions/manual',
+        name: '手动兑换',
+        component: ManualRedemptionPage,
+      },
+      {
         path: '/redemptions/records',
         name: '兑换记录',
         component: RedemptionRecordsPage,
+      },
+    ],
+  },
+  {
+    path: '/notifications',
+    name: '通知管理',
+    icon: <NotificationOutlined />,
+    children: [
+      {
+        path: '/notifications/configs',
+        name: '通知配置',
+        component: NotificationConfigsPage,
+      },
+      {
+        path: '/notifications/tasks',
+        name: '发送记录',
+        component: NotificationTasksPage,
       },
     ],
   },
@@ -181,6 +219,23 @@ export const routes: RouteConfig[] = [
     ],
   },
   {
+    path: '/revokes',
+    name: '撤销管理',
+    icon: <RollbackOutlined />,
+    children: [
+      {
+        path: '/revokes/batch',
+        name: '批量撤销',
+        component: BatchRevokePage,
+      },
+      {
+        path: '/revokes/logs',
+        name: '撤销记录',
+        component: RevokeLogsPage,
+      },
+    ],
+  },
+  {
     path: '/members',
     name: '会员视图',
     icon: <UserOutlined />,
@@ -191,6 +246,12 @@ export const routes: RouteConfig[] = [
         component: MemberSearchPage,
       },
     ],
+  },
+  {
+    path: '/assets',
+    name: '素材库',
+    icon: <FolderOutlined />,
+    component: AssetLibraryPage,
   },
   {
     path: '/system',
@@ -206,6 +267,11 @@ export const routes: RouteConfig[] = [
         path: '/system/roles',
         name: '角色管理',
         component: SystemRolesPage,
+      },
+      {
+        path: '/system/api-keys',
+        name: 'API Key 管理',
+        component: SystemApiKeysPage,
       },
     ],
   },

@@ -4,7 +4,7 @@
  * 提供用户、角色、权限管理相关的 API 调用
  */
 
-import { get, post, put, del, getList } from './api';
+import { get, post, put, del, patch, getList } from './api';
 import type { PaginatedResponse } from '@/types';
 
 // =============== 类型定义 ===============
@@ -81,6 +81,54 @@ export interface PermissionTreeNode {
   module: string;
   moduleName: string;
   permissions: PermissionInfo[];
+}
+
+/**
+ * API Key 列表项
+ */
+export interface ApiKeyDto {
+  id: number;
+  name: string;
+  keyPrefix: string;
+  permissions: string[];
+  rateLimit?: number;
+  expiresAt?: string;
+  enabled: boolean;
+  lastUsedAt?: string;
+  createdAt: string;
+}
+
+/**
+ * 创建 API Key 响应（含完整密钥，仅返回一次）
+ */
+export interface CreateApiKeyResponse {
+  id: number;
+  name: string;
+  apiKey: string;
+  permissions: string[];
+  rateLimit?: number;
+  expiresAt?: string;
+  createdAt: string;
+}
+
+/**
+ * 创建 API Key 请求
+ */
+export interface CreateApiKeyRequest {
+  name: string;
+  permissions: string[];
+  rateLimit?: number;
+  expiresAt?: string;
+}
+
+/**
+ * API Key 列表查询参数
+ */
+export interface ApiKeyListParams {
+  page?: number;
+  pageSize?: number;
+  name?: string;
+  [key: string]: unknown;
 }
 
 // =============== 请求参数类型 ===============
@@ -235,3 +283,41 @@ export async function listPermissions(): Promise<PermissionInfo[]> {
 export async function getPermissionTree(): Promise<PermissionTreeNode[]> {
   return get<PermissionTreeNode[]>(`${SYSTEM_BASE_URL}/permissions/tree`);
 }
+
+// =============== API Key 管理 API ===============
+
+/**
+ * 获取 API Key 列表
+ */
+export async function listApiKeys(params?: ApiKeyListParams): Promise<PaginatedResponse<ApiKeyDto>> {
+  return getList<ApiKeyDto>(`${SYSTEM_BASE_URL}/api-keys`, params);
+}
+
+/**
+ * 创建 API Key
+ */
+export async function createApiKey(data: CreateApiKeyRequest): Promise<CreateApiKeyResponse> {
+  return post<CreateApiKeyResponse>(`${SYSTEM_BASE_URL}/api-keys`, data);
+}
+
+/**
+ * 删除 API Key
+ */
+export async function deleteApiKey(id: number): Promise<void> {
+  return del(`${SYSTEM_BASE_URL}/api-keys/${id}`);
+}
+
+/**
+ * 重新生成 API Key
+ */
+export async function regenerateApiKey(id: number): Promise<CreateApiKeyResponse> {
+  return post<CreateApiKeyResponse>(`${SYSTEM_BASE_URL}/api-keys/${id}/regenerate`);
+}
+
+/**
+ * 切换 API Key 启用状态
+ */
+export async function toggleApiKeyStatus(id: number, enabled: boolean): Promise<void> {
+  return patch(`${SYSTEM_BASE_URL}/api-keys/${id}/status`, { enabled });
+}
+
