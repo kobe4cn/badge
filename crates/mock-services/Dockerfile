@@ -5,7 +5,7 @@
 FROM rust:1.87-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
-    pkg-config libssl-dev protobuf-compiler cmake \
+    pkg-config libssl-dev protobuf-compiler cmake build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
