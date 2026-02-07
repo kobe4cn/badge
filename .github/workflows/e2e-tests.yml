@@ -18,6 +18,10 @@ on:
           - frontend
           - performance
 
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -75,7 +79,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
@@ -101,23 +105,80 @@ jobs:
 
       - name: Start services
         run: |
-          # 启动后台服务
-          cargo run --bin badge-admin-service &
-          cargo run --bin badge-management-service &
-          cargo run --bin rule-engine-service &
-          cargo run --bin event-engagement-service &
-          cargo run --bin event-transaction-service &
-          cargo run --bin notification-worker &
+          # 启动后台服务，将日志重定向到文件以便启动失败时排查
+          cargo run --bin badge-admin-service > /tmp/badge-admin.log 2>&1 &
+          cargo run --bin badge-management-service > /tmp/badge-management.log 2>&1 &
+          cargo run --bin rule-engine-service > /tmp/rule-engine.log 2>&1 &
+          cargo run --bin event-engagement-service > /tmp/event-engagement.log 2>&1 &
+          cargo run --bin event-transaction-service > /tmp/event-transaction.log 2>&1 &
+          cargo run --bin notification-worker > /tmp/notification-worker.log 2>&1 &
 
-          # 等待服务就绪
-          sleep 30
+      - name: Wait for services to be ready
+        run: |
+          # 通过健康检查轮询确认服务就绪，避免固定 sleep 导致的不可靠等待
+          wait_for_service() {
+            local name=$1
+            local url=$2
+            local log_file=$3
+            echo "等待 ${name} 就绪 (${url})..."
+            for i in $(seq 1 60); do
+              if curl -sf "${url}" > /dev/null 2>&1; then
+                echo "${name} 已就绪 (耗时 $((i*2))s)"
+                return 0
+              fi
+              if [ $i -eq 60 ]; then
+                echo "::error::${name} 在 120s 内未能启动"
+                echo "=== ${name} 日志 ==="
+                cat "${log_file}" 2>/dev/null || echo "（日志文件不存在）"
+                return 1
+              fi
+              sleep 2
+            done
+          }
+
+          # 并行等待所有 HTTP 服务
+          wait_for_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
+          pid1=$!
+          wait_for_service "badge-management-service" "http://localhost:50052/health" "/tmp/badge-management.log" &
+          pid2=$!
+          wait_for_service "rule-engine-service" "http://localhost:50051/health" "/tmp/rule-engine.log" &
+          pid3=$!
+          wait_for_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
+          pid4=$!
+
+          # 等待所有健康检查完成，任一失败则退出
+          failed=0
+          for pid in $pid1 $pid2 $pid3 $pid4; do
+            wait $pid || failed=1
+          done
+
+          if [ $failed -eq 1 ]; then
+            echo "::error::部分服务未能正常启动"
+            exit 1
+          fi
+
+          echo "所有服务已就绪"
+
+      - name: Install cargo2junit
+        run: cargo install cargo2junit
 
       - name: Run E2E tests
-        run: cargo test --test e2e -- --ignored --test-threads=1
+        run: |
+          cargo test --test e2e -- --ignored --test-threads=1 -Z unstable-options --format json \
+            2>&1 | cargo2junit > target/test-results/backend-e2e.xml || true
         env:
           ADMIN_SERVICE_URL: http://localhost:8080
           RULE_ENGINE_ADDR: http://localhost:50051
           BADGE_MANAGEMENT_ADDR: http://localhost:50052
+
+      - name: Backend test report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Backend E2E Results
+          path: target/test-results/backend-e2e.xml
+          reporter: java-junit
+          fail-on-error: true
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -163,7 +224,7 @@ jobs:
           cache-dependency-path: web/admin-ui/package-lock.json
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -172,7 +233,19 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-frontend-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-frontend-
+            ${{ runner.os }}-cargo-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('web/admin-ui/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
@@ -185,24 +258,79 @@ jobs:
 
       - name: Start backend
         run: |
-          cargo run --bin badge-admin-service &
-          sleep 10
+          cargo run --bin badge-admin-service > /tmp/badge-admin.log 2>&1 &
+
+      - name: Wait for backend to be ready
+        run: |
+          echo "等待 badge-admin-service 就绪..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "badge-admin-service 已就绪 (耗时 $((i*2))s)"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "::error::badge-admin-service 在 120s 内未能启动"
+              echo "=== badge-admin-service 日志 ==="
+              cat /tmp/badge-admin.log 2>/dev/null || echo "（日志文件不存在）"
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Install frontend dependencies
         run: cd web/admin-ui && npm ci
 
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: cd web/admin-ui && npx playwright install --with-deps
+
+      - name: Install Playwright system deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: cd web/admin-ui && npx playwright install-deps
 
       - name: Start frontend dev server
         run: |
-          cd web/admin-ui && npm run dev &
-          sleep 10
+          cd web/admin-ui && npm run dev > /tmp/frontend-dev.log 2>&1 &
+
+      - name: Wait for frontend dev server to be ready
+        run: |
+          echo "等待前端开发服务器就绪..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:5173 > /dev/null 2>&1; then
+              echo "前端开发服务器已就绪 (耗时 $((i*2))s)"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "::error::前端开发服务器在 120s 内未能启动"
+              echo "=== 前端开发服务器日志 ==="
+              cat /tmp/frontend-dev.log 2>/dev/null || echo "（日志文件不存在）"
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Run Playwright tests
-        run: cd web/admin-ui && npx playwright test
+        run: cd web/admin-ui && npx playwright test --reporter=html,junit
         env:
           API_BASE_URL: http://localhost:8080
+          PLAYWRIGHT_JUNIT_OUTPUT_NAME: e2e/test-results/playwright-e2e.xml
+
+      - name: Frontend test report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Frontend E2E Results
+          path: web/admin-ui/e2e/test-results/playwright-e2e.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Upload Playwright HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-html-report
+          path: web/admin-ui/e2e/playwright-report/
+          retention-days: 14
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -262,7 +390,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -271,7 +399,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-
+            ${{ runner.os }}-cargo-
 
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
@@ -279,14 +410,58 @@ jobs:
       - name: Run database migrations
         run: sqlx database create && sqlx migrate run
 
-      - name: Build and start services
+      - name: Build services
+        run: cargo build --workspace --release
+
+      - name: Start services
         run: |
-          cargo build --workspace --release
-          cargo run --release --bin badge-admin-service &
-          cargo run --release --bin badge-management-service &
-          cargo run --release --bin rule-engine-service &
-          cargo run --release --bin event-engagement-service &
-          sleep 30
+          cargo run --release --bin badge-admin-service > /tmp/badge-admin.log 2>&1 &
+          cargo run --release --bin badge-management-service > /tmp/badge-management.log 2>&1 &
+          cargo run --release --bin rule-engine-service > /tmp/rule-engine.log 2>&1 &
+          cargo run --release --bin event-engagement-service > /tmp/event-engagement.log 2>&1 &
+
+      - name: Wait for services to be ready
+        run: |
+          wait_for_service() {
+            local name=$1
+            local url=$2
+            local log_file=$3
+            echo "等待 ${name} 就绪 (${url})..."
+            for i in $(seq 1 60); do
+              if curl -sf "${url}" > /dev/null 2>&1; then
+                echo "${name} 已就绪 (耗时 $((i*2))s)"
+                return 0
+              fi
+              if [ $i -eq 60 ]; then
+                echo "::error::${name} 在 120s 内未能启动"
+                echo "=== ${name} 日志 ==="
+                cat "${log_file}" 2>/dev/null || echo "（日志文件不存在）"
+                return 1
+              fi
+              sleep 2
+            done
+          }
+
+          wait_for_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
+          pid1=$!
+          wait_for_service "badge-management-service" "http://localhost:50052/health" "/tmp/badge-management.log" &
+          pid2=$!
+          wait_for_service "rule-engine-service" "http://localhost:50051/health" "/tmp/rule-engine.log" &
+          pid3=$!
+          wait_for_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
+          pid4=$!
+
+          failed=0
+          for pid in $pid1 $pid2 $pid3 $pid4; do
+            wait $pid || failed=1
+          done
+
+          if [ $failed -eq 1 ]; then
+            echo "::error::部分服务未能正常启动"
+            exit 1
+          fi
+
+          echo "所有服务已就绪"
 
       - name: Run performance tests
         run: cargo test --test performance -- --ignored --test-threads=1
@@ -299,3 +474,41 @@ jobs:
         with:
           name: performance-results
           path: target/performance-results/
+
+  # 聚合所有测试结果
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [backend-e2e, frontend-e2e]
+
+    steps:
+      - name: Download backend results
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-e2e-results
+          path: test-results/backend/
+        continue-on-error: true
+
+      - name: Download frontend results
+        uses: actions/download-artifact@v4
+        with:
+          name: playwright-report
+          path: test-results/frontend/
+        continue-on-error: true
+
+      - name: Upload aggregated results
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-test-results
+          path: test-results/
+          retention-days: 30
+
+      - name: Check test outcomes
+        run: |
+          echo "Backend E2E: ${{ needs.backend-e2e.result }}"
+          echo "Frontend E2E: ${{ needs.frontend-e2e.result }}"
+          if [ "${{ needs.backend-e2e.result }}" = "failure" ] || [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
+            echo "::error::One or more E2E test suites failed"
+            exit 1
+          fi
