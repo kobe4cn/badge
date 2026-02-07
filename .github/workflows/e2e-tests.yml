@@ -78,6 +78,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev cmake pkg-config
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -215,6 +220,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev cmake pkg-config
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -388,6 +398,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev cmake pkg-config
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
