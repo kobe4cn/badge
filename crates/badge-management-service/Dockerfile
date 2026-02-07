@@ -2,7 +2,7 @@
 # 提供 gRPC 接口，处理徽章的授予、撤销、兑换等核心业务逻辑
 
 # ---- 构建阶段 ----
-FROM rust:1.84-slim-bookworm AS builder
+FROM rust:1.87-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev protobuf-compiler cmake \

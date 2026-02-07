@@ -2,7 +2,7 @@
 # 提供 gRPC 接口，负责徽章授予规则的评估与匹配，支持动态规则模板
 
 # ---- 构建阶段 ----
-FROM rust:1.84-slim-bookworm AS builder
+FROM rust:1.87-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev protobuf-compiler cmake \
