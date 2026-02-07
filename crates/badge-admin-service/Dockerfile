@@ -14,6 +14,7 @@ WORKDIR /build
 # 复制整个 workspace，因为 crate 之间存在路径依赖
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
+COPY benches/ benches/
 
 RUN cargo build --release --bin badge-admin
 

@@ -12,6 +12,7 @@ WORKDIR /build
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
+COPY benches/ benches/
 
 RUN cargo build --release --bin badge-management
 
