@@ -366,7 +366,7 @@ jobs:
           mv test-setup.ts test-setup.ts.bak 2>/dev/null || true
           mv vitest.config.ts vitest.config.ts.bak 2>/dev/null || true
 
-          npx playwright test --reporter=html,junit --project=chromium
+          npx playwright test --config=e2e/playwright.config.ts --reporter=html,junit --project=chromium
 
           # 恢复
           find src -type d -name "__tests____disabled" -exec sh -c 'mv "$1" "${1%__disabled}"' _ {} \; 2>/dev/null || true
