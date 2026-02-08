@@ -2,7 +2,7 @@
 # 提供徽章系统的 REST API，包括徽章、系列、分类的 CRUD 以及用户认证和权限管理
 
 # ---- 构建阶段 ----
-FROM rust:1.87-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 # rdkafka 的 cmake-build feature 需要 cmake，proto 编译需要 protobuf-compiler
 RUN apt-get update && apt-get install -y \

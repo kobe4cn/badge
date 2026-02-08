@@ -2,7 +2,7 @@
 # 消费 Kafka 中的交易事件（如消费、充值），触发规则引擎评估是否授予徽章
 
 # ---- 构建阶段 ----
-FROM rust:1.87-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev libcurl4-openssl-dev protobuf-compiler cmake build-essential \

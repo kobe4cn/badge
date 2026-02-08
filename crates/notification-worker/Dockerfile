@@ -2,7 +2,7 @@
 # 消费 Kafka 中的通知事件，负责向用户推送徽章授予、到期等通知消息
 
 # ---- 构建阶段 ----
-FROM rust:1.87-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev libcurl4-openssl-dev protobuf-compiler cmake build-essential \

@@ -2,7 +2,7 @@
 # 在开发和测试环境中模拟外部依赖（如用户服务、支付服务），避免依赖真实第三方接口
 
 # ---- 构建阶段 ----
-FROM rust:1.87-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev libcurl4-openssl-dev protobuf-compiler cmake build-essential \
