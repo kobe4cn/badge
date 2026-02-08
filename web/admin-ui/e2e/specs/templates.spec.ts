@@ -32,11 +32,13 @@ test.describe('规则模板管理', () => {
     // 搜索后模板列表区域应保持可见（即使没有匹配结果也应显示空状态）
     await expect(templatePage.templateList).toBeVisible();
 
-    // 如果有匹配结果，验证结果中确实包含搜索关键词
+    // 搜索匹配 name、description 和 code 三个字段，
+    // 验证结果卡片中至少有一个字段包含关键词
     const count = await templatePage.getTemplateCount();
     if (count > 0) {
-      const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
-      expect(firstTemplateName?.includes('消费')).toBeTruthy();
+      const firstCard = page.locator('.template-card').first();
+      const cardText = await firstCard.textContent();
+      expect(cardText?.includes('消费')).toBeTruthy();
     }
   });
 

@@ -38,8 +38,9 @@ export class BenefitsPage extends BasePage {
     await this.waitForPageLoad();
   }
 
+  /** /benefits/sync 路由不存在，实际同步/刷新功能在权益列表页的工具栏 */
   async gotoSync(): Promise<void> {
-    await this.page.goto('/benefits/sync');
+    await this.page.goto('/benefits');
     await this.waitForPageLoad();
   }
 

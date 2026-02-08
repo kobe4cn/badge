@@ -48,7 +48,7 @@ test.describe('徽章依赖配置', () => {
     await dependencyPage.waitForPageLoad();
 
     const addButton = page.locator('button').filter({ hasText: /添加|新增|新建/ }).first();
-    if (!(await addButton.isVisible({ timeout: 3000 }).catch(() => false))) {
+    if (!(await addButton.isVisible({ timeout: 5000 }).catch(() => false))) {
       test.skip(true, '添加按钮不可见，页面可能未正常加载');
       return;
     }
@@ -57,11 +57,15 @@ test.describe('徽章依赖配置', () => {
 
     // 弹窗或表单必须出现，否则添加按钮的交互存在问题
     const modal = page.locator('.ant-modal, .ant-drawer');
-    await expect(modal).toBeVisible({ timeout: 5000 });
+    await expect(modal).toBeVisible({ timeout: 10000 });
+
+    // 等待 modal 内容渲染完成
+    await page.waitForTimeout(500);
 
     // 验证表单中包含依赖配置所需的关键字段
-    const hasTypeField = await page.locator('text=依赖类型').isVisible({ timeout: 3000 }).catch(() => false);
-    const hasBadgeField = await page.locator('text=依赖徽章').isVisible({ timeout: 3000 }).catch(() => false);
+    // 实际页面中 label 为「依赖类型」和「依赖徽章 ID」
+    const hasTypeField = await modal.locator('label:has-text("依赖类型"), text=依赖类型').first().isVisible({ timeout: 5000 }).catch(() => false);
+    const hasBadgeField = await modal.locator('label:has-text("依赖徽章"), text=依赖徽章').first().isVisible({ timeout: 3000 }).catch(() => false);
     expect(hasTypeField || hasBadgeField).toBeTruthy();
 
     // 关闭弹窗

@@ -54,18 +54,20 @@ test.describe('全链路测试: 徽章管理流程', () => {
     await page.goto('/rules/create');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 规则编辑器应渲染画布或表单
+    // ReactFlow 在 CI 慢环境下需要更长加载时间
     const canvas = page.locator('.react-flow');
     const form = page.locator('form, .ant-form');
     const mainContent = page.locator('main, .ant-layout-content').first();
 
-    const hasCanvas = await canvas.isVisible({ timeout: 5000 }).catch(() => false);
+    // 先确认页面主体容器已渲染
+    await expect(mainContent).toBeVisible({ timeout: 10000 });
+
+    // ReactFlow 可能需要较长时间初始化（CI 单核 worker 尤其慢）
+    const hasCanvas = await canvas.isVisible({ timeout: 15000 }).catch(() => false);
     const hasForm = await form.isVisible({ timeout: 3000 }).catch(() => false);
 
     // 至少需要画布或表单之一可见
     expect(hasCanvas || hasForm).toBeTruthy();
-    // 页面主体容器也必须渲染
-    await expect(mainContent).toBeVisible();
   });
 
   test('用户徽章页面', async ({ page }) => {

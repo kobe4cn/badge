@@ -61,22 +61,22 @@ test.describe('权益配置与同步', () => {
     await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
-  test('权益同步页面', async ({ page }) => {
-    await page.goto('/benefits/sync');
+  test('权益列表页面刷新', async ({ page }) => {
+    // /benefits/sync 路由不存在，实际刷新功能在 /benefits/list 页面工具栏中
+    await page.goto('/benefits/list');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 同步页面应包含同步按钮或状态展示区域
-    const contentArea = page.locator('button, .ant-card, .ant-table, .ant-layout-content, main').first();
+    const contentArea = page.locator('table, .ant-table, .ant-pro-page-container, .ant-layout-content, main').first();
     await expect(contentArea).toBeVisible({ timeout: 10000 });
   });
 
-  test('同步按钮可见', async ({ page }) => {
-    await page.goto('/benefits/sync');
+  test('刷新按钮可见', async ({ page }) => {
+    await page.goto('/benefits/list');
     await page.waitForLoadState('networkidle').catch(() => {});
 
-    // 同步页面的核心功能入口是同步按钮
-    const syncButton = page.locator('button').filter({ hasText: /同步|刷新/ }).first();
-    await expect(syncButton).toBeVisible({ timeout: 5000 });
+    // 权益列表页面工具栏中包含刷新按钮
+    const refreshButton = page.locator('button').filter({ hasText: /刷新/ }).first();
+    await expect(refreshButton).toBeVisible({ timeout: 5000 });
   });
 
   test('权益发放记录页面', async ({ page }) => {
