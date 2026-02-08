@@ -57,10 +57,12 @@ assert_success() {
   local json="$1"
   python3 - <<'PY' "$json"
 import json, sys
+raw = sys.argv[1]
 try:
-    data = json.loads(sys.argv[1])
+    data = json.loads(raw)
 except Exception as e:
     print(f"响应不是合法 JSON: {e}", file=sys.stderr)
+    print(f"原始响应: {raw!r}", file=sys.stderr)
     sys.exit(1)
 if not data.get("success", False):
     print("API 返回失败:", data, file=sys.stderr)
@@ -72,10 +74,12 @@ soft_check_success() {
   local json="$1"
   python3 - <<'PY' "$json"
 import json, sys
+raw = sys.argv[1]
 try:
-    data = json.loads(sys.argv[1])
+    data = json.loads(raw)
 except Exception as e:
     print(f"[warn] 响应不是合法 JSON: {e}")
+    print(f"[warn] 原始响应: {raw!r}")
     sys.exit(0)
 if not data.get("success", False):
     print("[warn] API 返回失败(允许 mock/跳过):", data)
@@ -176,7 +180,7 @@ assert_success "$series_resp"
 series_id=$(json_get "$series_resp" "data.id")
 
 badge_payload=$(cat <<JSON
-{\"seriesId\":$series_id,\"badgeType\":\"NORMAL\",\"name\":\"E2E徽章-$ts\",\"description\":\"e2e\",\"obtainDescription\":\"e2e\",\"assets\":{\"iconUrl\":\"https://cdn.example.com/badge/e2e.png\"},\"validityConfig\":{\"validityType\":\"PERMANENT\"}}
+{"seriesId":$series_id,"badgeType":"NORMAL","name":"E2E徽章-$ts","description":"e2e","obtainDescription":"e2e","assets":{"iconUrl":"https://cdn.example.com/badge/e2e.png"},"validityConfig":{"validityType":"PERMANENT"}}
 JSON
 )
 badge_resp=$(api POST "/api/admin/badges" "$badge_payload")
@@ -186,7 +190,7 @@ assert_success "$(api POST "/api/admin/badges/$badge_id/publish" "{}")"
 
 log "创建规则并测试..."
 rule_payload=$(cat <<JSON
-{\"badgeId\":$badge_id,\"ruleCode\":\"e2e_rule_$ts\",\"name\":\"E2E规则-$ts\",\"eventType\":\"checkin\",\"ruleJson\":{\"type\":\"condition\",\"field\":\"location\",\"operator\":\"eq\",\"value\":\"app\"}}
+{"badgeId":$badge_id,"ruleCode":"e2e_rule_$ts","name":"E2E规则-$ts","eventType":"checkin","ruleJson":{"type":"condition","field":"location","operator":"eq","value":"app"}}
 JSON
 )
 rule_resp=$(api POST "/api/admin/rules" "$rule_payload")
@@ -255,11 +259,11 @@ assert_success "$manual_revoke_resp"
 
 log "批量任务(发放/撤销)..."
 batch_users=$(cat <<JSON
-[\"e2e_batch_${ts}_1\",\"e2e_batch_${ts}_2\"]
+["e2e_batch_${ts}_1","e2e_batch_${ts}_2"]
 JSON
 )
 create_task_payload=$(cat <<JSON
-{\"taskType\":\"batch_grant\",\"params\":{\"badge_id\":2,\"reason\":\"e2e批量发放\",\"user_ids\":$batch_users}}
+{"taskType":"batch_grant","params":{"badge_id":2,"reason":"e2e批量发放","user_ids":$batch_users}}
 JSON
 )
 create_task_resp=$(api POST "/api/admin/tasks" "$create_task_payload")
@@ -283,7 +287,7 @@ while (( SECONDS < end )); do
 done
 
 create_revoke_payload=$(cat <<JSON
-{\"taskType\":\"batch_revoke\",\"params\":{\"badge_id\":2,\"reason\":\"e2e批量撤销\",\"user_ids\":$batch_users}}
+{"taskType":"batch_revoke","params":{"badge_id":2,"reason":"e2e批量撤销","user_ids":$batch_users}}
 JSON
 )
 create_revoke_resp=$(api POST "/api/admin/tasks" "$create_revoke_payload")
