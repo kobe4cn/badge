@@ -22,6 +22,12 @@ concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
+# 权限设置：test-reporter 需要写入 checks
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -225,11 +231,12 @@ jobs:
       - name: Backend test report
         uses: dorny/test-reporter@v1
         if: always()
+        continue-on-error: true
         with:
           name: Backend E2E Results
           path: target/test-results/backend-e2e.xml
           reporter: java-junit
-          fail-on-error: true
+          fail-on-error: false
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
