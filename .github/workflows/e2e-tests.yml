@@ -383,7 +383,7 @@ jobs:
           mv test-setup.ts test-setup.ts.bak 2>/dev/null || true
           mv vitest.config.ts vitest.config.ts.bak 2>/dev/null || true
 
-          npx playwright test --config=e2e/playwright.config.ts --reporter=html,junit --project=chromium
+          npx playwright test --config=e2e/playwright.config.ts --project=chromium
 
           # 恢复
           find src -type d -name "__tests____disabled" -exec sh -c 'mv "$1" "${1%__disabled}"' _ {} \; 2>/dev/null || true
@@ -394,14 +394,13 @@ jobs:
           BASE_URL: http://localhost:3001
           # BACKEND_URL: 用于集成测试直接访问后端 API（绕过 Vite）
           BACKEND_URL: http://localhost:8080
-          PLAYWRIGHT_JUNIT_OUTPUT_NAME: e2e/test-results/playwright-e2e.xml
-
       - name: Frontend test report
         uses: dorny/test-reporter@v1
         if: always()
         with:
           name: Frontend E2E Results
-          path: web/admin-ui/e2e/test-results/playwright-e2e.xml
+          # playwright.config.ts 的 junit outputFile 相对于 config 文件目录 (e2e/)
+          path: web/admin-ui/e2e/test-results/junit.xml
           reporter: java-junit
           fail-on-error: true
 
