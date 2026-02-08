@@ -353,7 +353,8 @@ jobs:
 
       - name: Start frontend dev server
         run: |
-          cd web/admin-ui && npm run dev > /tmp/frontend-dev.log 2>&1 &
+          # 使用 dev:real 禁用 Mock 模式，确保所有 API 请求（包括认证）都转发到真实后端
+          cd web/admin-ui && npm run dev:real > /tmp/frontend-dev.log 2>&1 &
 
       - name: Wait for frontend dev server to be ready
         run: |
@@ -389,7 +390,10 @@ jobs:
           mv test-setup.ts.bak test-setup.ts 2>/dev/null || true
           mv vitest.config.ts.bak vitest.config.ts 2>/dev/null || true
         env:
-          API_BASE_URL: http://localhost:8080
+          # BASE_URL: Playwright 使用 Vite 开发服务器地址，Vite 代理 /api 请求到后端
+          BASE_URL: http://localhost:3001
+          # BACKEND_URL: 用于集成测试直接访问后端 API（绕过 Vite）
+          BACKEND_URL: http://localhost:8080
           PLAYWRIGHT_JUNIT_OUTPUT_NAME: e2e/test-results/playwright-e2e.xml
 
       - name: Frontend test report

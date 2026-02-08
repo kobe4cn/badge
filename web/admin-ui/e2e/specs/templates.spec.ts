@@ -12,7 +12,7 @@ test.describe('规则模板管理', () => {
   test.beforeEach(async ({ page, request }) => {
     loginPage = new LoginPage(page);
     templatePage = new TemplatePage(page);
-    apiHelper = new ApiHelper(request, process.env.API_BASE_URL || 'http://localhost:8080');
+    apiHelper = new ApiHelper(request, process.env.BASE_URL || 'http://localhost:3001');
 
     await loginPage.goto();
     await loginPage.loginAsAdmin();
