@@ -179,12 +179,13 @@ jobs:
           # HTTP 服务
           wait_for_http_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
           pid1=$!
-          wait_for_http_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
-          pid2=$!
           # gRPC 服务（使用端口检测）
           wait_for_grpc_service "badge-management-service" "50052" "/tmp/badge-management.log" &
-          pid3=$!
+          pid2=$!
           wait_for_grpc_service "rule-engine-service" "50051" "/tmp/rule-engine.log" &
+          pid3=$!
+          # Kafka 消费者服务使用 metrics 端口检测（event-engagement 没有 HTTP /health，使用 metrics 端口 9993）
+          wait_for_grpc_service "event-engagement-service" "9993" "/tmp/event-engagement.log" &
           pid4=$!
 
           # 等待所有健康检查完成，任一失败则退出
@@ -523,12 +524,13 @@ jobs:
           # HTTP 服务
           wait_for_http_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
           pid1=$!
-          wait_for_http_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
-          pid2=$!
           # gRPC 服务
           wait_for_grpc_service "badge-management-service" "50052" "/tmp/badge-management.log" &
-          pid3=$!
+          pid2=$!
           wait_for_grpc_service "rule-engine-service" "50051" "/tmp/rule-engine.log" &
+          pid3=$!
+          # Kafka 消费者服务使用 metrics 端口检测
+          wait_for_grpc_service "event-engagement-service" "9993" "/tmp/event-engagement.log" &
           pid4=$!
 
           failed=0
