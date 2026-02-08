@@ -360,13 +360,18 @@ jobs:
       - name: Run Playwright tests
         run: |
           cd web/admin-ui
-          # 重命名 vitest 入口文件，阻止其在模块解析时自动加载 @vitest/expect
-          # 这是一个临时解决方案，避免 Playwright expect 与 vitest expect 冲突
-          mv node_modules/vitest/dist/index.js node_modules/vitest/dist/index.js.bak || true
-          echo 'module.exports = {};' > node_modules/vitest/dist/index.js
-          npx playwright test --reporter=html,junit
+          # 临时重命名 vitest 单元测试目录，避免 Playwright 模块解析时触发 @vitest/expect 冲突
+          # 这些文件导入了 vitest，会触发 @vitest/expect 初始化与 Playwright expect 冲突
+          find src -type d -name "__tests__" -exec mv {} {}__disabled \; 2>/dev/null || true
+          mv test-setup.ts test-setup.ts.bak 2>/dev/null || true
+          mv vitest.config.ts vitest.config.ts.bak 2>/dev/null || true
+
+          npx playwright test --reporter=html,junit --project=chromium
+
           # 恢复
-          mv node_modules/vitest/dist/index.js.bak node_modules/vitest/dist/index.js || true
+          find src -type d -name "__tests____disabled" -exec sh -c 'mv "$1" "${1%__disabled}"' _ {} \; 2>/dev/null || true
+          mv test-setup.ts.bak test-setup.ts 2>/dev/null || true
+          mv vitest.config.ts.bak vitest.config.ts 2>/dev/null || true
         env:
           API_BASE_URL: http://localhost:8080
           PLAYWRIGHT_JUNIT_OUTPUT_NAME: e2e/test-results/playwright-e2e.xml
