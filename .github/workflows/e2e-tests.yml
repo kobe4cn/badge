@@ -360,9 +360,9 @@ jobs:
       - name: Run Playwright tests
         run: |
           cd web/admin-ui
-          # 删除 vitest 相关的 node_modules，避免与 Playwright 的 expect 冲突
-          # @vitest/expect 在模块加载时会尝试重新定义 Playwright 已定义的全局 Symbol
-          rm -rf node_modules/@vitest node_modules/vitest node_modules/@testing-library/jest-dom
+          # 只删除 @vitest/expect，它是导致与 Playwright expect 冲突的根源
+          # 保留 vitest 本身，避免 src 目录中的测试文件因找不到 vitest 而报错
+          rm -rf node_modules/@vitest/expect
           npx playwright test --reporter=html,junit
         env:
           API_BASE_URL: http://localhost:8080
