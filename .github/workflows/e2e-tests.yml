@@ -358,7 +358,15 @@ jobs:
           done
 
       - name: Run Playwright tests
-        run: cd web/admin-ui && npx playwright test --reporter=html,junit
+        run: |
+          cd web/admin-ui
+          # 重命名 vitest 入口文件，阻止其在模块解析时自动加载 @vitest/expect
+          # 这是一个临时解决方案，避免 Playwright expect 与 vitest expect 冲突
+          mv node_modules/vitest/dist/index.js node_modules/vitest/dist/index.js.bak || true
+          echo 'module.exports = {};' > node_modules/vitest/dist/index.js
+          npx playwright test --reporter=html,junit
+          # 恢复
+          mv node_modules/vitest/dist/index.js.bak node_modules/vitest/dist/index.js || true
         env:
           API_BASE_URL: http://localhost:8080
           PLAYWRIGHT_JUNIT_OUTPUT_NAME: e2e/test-results/playwright-e2e.xml
