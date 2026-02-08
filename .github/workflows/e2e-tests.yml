@@ -311,8 +311,9 @@ jobs:
       - name: Wait for frontend dev server to be ready
         run: |
           echo "等待前端开发服务器就绪..."
+          # Vite 配置端口为 3001（见 vite.config.ts server.port）
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:5173 > /dev/null 2>&1; then
+            if curl -sf http://localhost:3001 > /dev/null 2>&1; then
               echo "前端开发服务器已就绪 (耗时 $((i*2))s)"
               break
             fi
