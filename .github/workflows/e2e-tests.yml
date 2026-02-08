@@ -111,11 +111,11 @@ jobs:
       - name: Start services
         run: |
           # 启动后台服务，将日志重定向到文件以便启动失败时排查
-          cargo run --bin badge-admin-service > /tmp/badge-admin.log 2>&1 &
-          cargo run --bin badge-management-service > /tmp/badge-management.log 2>&1 &
-          cargo run --bin rule-engine-service > /tmp/rule-engine.log 2>&1 &
-          cargo run --bin event-engagement-service > /tmp/event-engagement.log 2>&1 &
-          cargo run --bin event-transaction-service > /tmp/event-transaction.log 2>&1 &
+          cargo run --bin badge-admin > /tmp/badge-admin.log 2>&1 &
+          cargo run --bin badge-management > /tmp/badge-management.log 2>&1 &
+          cargo run --bin rule-engine > /tmp/rule-engine.log 2>&1 &
+          cargo run --bin event-engagement > /tmp/event-engagement.log 2>&1 &
+          cargo run --bin event-transaction > /tmp/event-transaction.log 2>&1 &
           cargo run --bin notification-worker > /tmp/notification-worker.log 2>&1 &
 
       - name: Wait for services to be ready
@@ -264,11 +264,11 @@ jobs:
         run: sqlx database create && sqlx migrate run
 
       - name: Build backend
-        run: cargo build --bin badge-admin-service
+        run: cargo build --bin badge-admin
 
       - name: Start backend
         run: |
-          cargo run --bin badge-admin-service > /tmp/badge-admin.log 2>&1 &
+          cargo run --bin badge-admin > /tmp/badge-admin.log 2>&1 &
 
       - name: Wait for backend to be ready
         run: |
@@ -430,10 +430,10 @@ jobs:
 
       - name: Start services
         run: |
-          cargo run --release --bin badge-admin-service > /tmp/badge-admin.log 2>&1 &
-          cargo run --release --bin badge-management-service > /tmp/badge-management.log 2>&1 &
-          cargo run --release --bin rule-engine-service > /tmp/rule-engine.log 2>&1 &
-          cargo run --release --bin event-engagement-service > /tmp/event-engagement.log 2>&1 &
+          cargo run --release --bin badge-admin > /tmp/badge-admin.log 2>&1 &
+          cargo run --release --bin badge-management > /tmp/badge-management.log 2>&1 &
+          cargo run --release --bin rule-engine > /tmp/rule-engine.log 2>&1 &
+          cargo run --release --bin event-engagement > /tmp/event-engagement.log 2>&1 &
 
       - name: Wait for services to be ready
         run: |
