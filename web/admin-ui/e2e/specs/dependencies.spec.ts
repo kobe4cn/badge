@@ -59,13 +59,15 @@ test.describe('徽章依赖配置', () => {
     const modal = page.locator('.ant-modal, .ant-drawer');
     await expect(modal).toBeVisible({ timeout: 10000 });
 
-    // 等待 modal 内容渲染完成
-    await page.waitForTimeout(500);
+    // 等待表单渲染：Modal 内至少出现一个 Form.Item
+    const formItem = modal.locator('.ant-form-item').first();
+    await expect(formItem).toBeVisible({ timeout: 10000 });
 
-    // 验证表单中包含依赖配置所需的关键字段
-    // 实际页面中 label 为「依赖类型」和「依赖徽章 ID」
-    const hasTypeField = await modal.locator('label:has-text("依赖类型"), text=依赖类型').first().isVisible({ timeout: 5000 }).catch(() => false);
-    const hasBadgeField = await modal.locator('label:has-text("依赖徽章"), text=依赖徽章').first().isVisible({ timeout: 3000 }).catch(() => false);
+    // 验证表单中包含依赖配置所需的关键字段（label 为 "依赖类型" 和 "依赖徽章 ID"）
+    const typeLabel = modal.getByText('依赖类型');
+    const badgeLabel = modal.getByText('依赖徽章');
+    const hasTypeField = await typeLabel.isVisible().catch(() => false);
+    const hasBadgeField = await badgeLabel.isVisible().catch(() => false);
     expect(hasTypeField || hasBadgeField).toBeTruthy();
 
     // 关闭弹窗
