@@ -112,26 +112,33 @@ jobs:
         run: sqlx database create && sqlx migrate run
 
       - name: Build all services
-        run: cargo build --workspace
+        run: |
+          # 先完整编译所有服务，避免并发 cargo run 时的锁争用
+          cargo build -p badge-admin-service --bin badge-admin
+          cargo build -p badge-management-service --bin badge-management
+          cargo build -p unified-rule-engine --bin rule-engine
+          cargo build -p event-engagement-service --bin event-engagement
+          cargo build -p event-transaction-service --bin event-transaction
+          cargo build -p notification-worker --bin notification-worker
 
       - name: Start services
         run: |
-          # 启动后台服务，将日志重定向到文件以便启动失败时排查
-          cargo run -p badge-admin-service --bin badge-admin > /tmp/badge-admin.log 2>&1 &
-          cargo run -p badge-management-service --bin badge-management > /tmp/badge-management.log 2>&1 &
-          cargo run -p unified-rule-engine --bin rule-engine > /tmp/rule-engine.log 2>&1 &
-          cargo run -p event-engagement-service --bin event-engagement > /tmp/event-engagement.log 2>&1 &
-          cargo run -p event-transaction-service --bin event-transaction > /tmp/event-transaction.log 2>&1 &
-          cargo run -p notification-worker --bin notification-worker > /tmp/notification-worker.log 2>&1 &
+          # 启动后台服务，使用已编译的二进制文件
+          ./target/debug/badge-admin > /tmp/badge-admin.log 2>&1 &
+          ./target/debug/badge-management > /tmp/badge-management.log 2>&1 &
+          ./target/debug/rule-engine > /tmp/rule-engine.log 2>&1 &
+          ./target/debug/event-engagement > /tmp/event-engagement.log 2>&1 &
+          ./target/debug/event-transaction > /tmp/event-transaction.log 2>&1 &
+          ./target/debug/notification-worker > /tmp/notification-worker.log 2>&1 &
 
       - name: Wait for services to be ready
         run: |
-          # 通过健康检查轮询确认服务就绪，避免固定 sleep 导致的不可靠等待
-          wait_for_service() {
+          # HTTP 服务健康检查
+          wait_for_http_service() {
             local name=$1
             local url=$2
             local log_file=$3
-            echo "等待 ${name} 就绪 (${url})..."
+            echo "等待 ${name} 就绪 (HTTP: ${url})..."
             for i in $(seq 1 60); do
               if curl -sf "${url}" > /dev/null 2>&1; then
                 echo "${name} 已就绪 (耗时 $((i*2))s)"
@@ -147,14 +154,37 @@ jobs:
             done
           }
 
-          # 并行等待所有 HTTP 服务
-          wait_for_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
+          # gRPC 服务端口检查（gRPC 使用 HTTP/2，curl 无法直接检查，改用 nc 检测端口）
+          wait_for_grpc_service() {
+            local name=$1
+            local port=$2
+            local log_file=$3
+            echo "等待 ${name} 就绪 (gRPC: port ${port})..."
+            for i in $(seq 1 60); do
+              if nc -z localhost "${port}" 2>/dev/null; then
+                echo "${name} 已就绪 (耗时 $((i*2))s)"
+                return 0
+              fi
+              if [ $i -eq 60 ]; then
+                echo "::error::${name} 在 120s 内未能启动"
+                echo "=== ${name} 日志 ==="
+                cat "${log_file}" 2>/dev/null || echo "（日志文件不存在）"
+                return 1
+              fi
+              sleep 2
+            done
+          }
+
+          # 并行等待所有服务
+          # HTTP 服务
+          wait_for_http_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
           pid1=$!
-          wait_for_service "badge-management-service" "http://localhost:50052/health" "/tmp/badge-management.log" &
+          wait_for_http_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
           pid2=$!
-          wait_for_service "rule-engine-service" "http://localhost:50051/health" "/tmp/rule-engine.log" &
+          # gRPC 服务（使用端口检测）
+          wait_for_grpc_service "badge-management-service" "50052" "/tmp/badge-management.log" &
           pid3=$!
-          wait_for_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
+          wait_for_grpc_service "rule-engine-service" "50051" "/tmp/rule-engine.log" &
           pid4=$!
 
           # 等待所有健康检查完成，任一失败则退出
@@ -274,7 +304,7 @@ jobs:
 
       - name: Start backend
         run: |
-          cargo run -p badge-admin-service --bin badge-admin > /tmp/badge-admin.log 2>&1 &
+          ./target/debug/badge-admin > /tmp/badge-admin.log 2>&1 &
 
       - name: Wait for backend to be ready
         run: |
@@ -433,22 +463,27 @@ jobs:
         run: sqlx database create && sqlx migrate run
 
       - name: Build services
-        run: cargo build --workspace --release
+        run: |
+          cargo build --release -p badge-admin-service --bin badge-admin
+          cargo build --release -p badge-management-service --bin badge-management
+          cargo build --release -p unified-rule-engine --bin rule-engine
+          cargo build --release -p event-engagement-service --bin event-engagement
 
       - name: Start services
         run: |
-          cargo run --release -p badge-admin-service --bin badge-admin > /tmp/badge-admin.log 2>&1 &
-          cargo run --release -p badge-management-service --bin badge-management > /tmp/badge-management.log 2>&1 &
-          cargo run --release -p unified-rule-engine --bin rule-engine > /tmp/rule-engine.log 2>&1 &
-          cargo run --release -p event-engagement-service --bin event-engagement > /tmp/event-engagement.log 2>&1 &
+          ./target/release/badge-admin > /tmp/badge-admin.log 2>&1 &
+          ./target/release/badge-management > /tmp/badge-management.log 2>&1 &
+          ./target/release/rule-engine > /tmp/rule-engine.log 2>&1 &
+          ./target/release/event-engagement > /tmp/event-engagement.log 2>&1 &
 
       - name: Wait for services to be ready
         run: |
-          wait_for_service() {
+          # HTTP 服务健康检查
+          wait_for_http_service() {
             local name=$1
             local url=$2
             local log_file=$3
-            echo "等待 ${name} 就绪 (${url})..."
+            echo "等待 ${name} 就绪 (HTTP: ${url})..."
             for i in $(seq 1 60); do
               if curl -sf "${url}" > /dev/null 2>&1; then
                 echo "${name} 已就绪 (耗时 $((i*2))s)"
@@ -464,13 +499,36 @@ jobs:
             done
           }
 
-          wait_for_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
+          # gRPC 服务端口检查
+          wait_for_grpc_service() {
+            local name=$1
+            local port=$2
+            local log_file=$3
+            echo "等待 ${name} 就绪 (gRPC: port ${port})..."
+            for i in $(seq 1 60); do
+              if nc -z localhost "${port}" 2>/dev/null; then
+                echo "${name} 已就绪 (耗时 $((i*2))s)"
+                return 0
+              fi
+              if [ $i -eq 60 ]; then
+                echo "::error::${name} 在 120s 内未能启动"
+                echo "=== ${name} 日志 ==="
+                cat "${log_file}" 2>/dev/null || echo "（日志文件不存在）"
+                return 1
+              fi
+              sleep 2
+            done
+          }
+
+          # HTTP 服务
+          wait_for_http_service "badge-admin-service" "http://localhost:8080/health" "/tmp/badge-admin.log" &
           pid1=$!
-          wait_for_service "badge-management-service" "http://localhost:50052/health" "/tmp/badge-management.log" &
+          wait_for_http_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
           pid2=$!
-          wait_for_service "rule-engine-service" "http://localhost:50051/health" "/tmp/rule-engine.log" &
+          # gRPC 服务
+          wait_for_grpc_service "badge-management-service" "50052" "/tmp/badge-management.log" &
           pid3=$!
-          wait_for_service "event-engagement-service" "http://localhost:8081/health" "/tmp/event-engagement.log" &
+          wait_for_grpc_service "rule-engine-service" "50051" "/tmp/rule-engine.log" &
           pid4=$!
 
           failed=0
