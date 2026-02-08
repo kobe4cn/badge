@@ -360,13 +360,10 @@ jobs:
       - name: Run Playwright tests
         run: |
           cd web/admin-ui
-          # 临时移除 vitest 相关文件，避免与 Playwright 的 expect 冲突
-          mv vitest.config.ts vitest.config.ts.bak || true
-          mv test-setup.ts test-setup.ts.bak || true
+          # 删除 vitest 相关的 node_modules，避免与 Playwright 的 expect 冲突
+          # @vitest/expect 在模块加载时会尝试重新定义 Playwright 已定义的全局 Symbol
+          rm -rf node_modules/@vitest node_modules/vitest node_modules/@testing-library/jest-dom
           npx playwright test --reporter=html,junit
-          # 恢复文件
-          mv vitest.config.ts.bak vitest.config.ts || true
-          mv test-setup.ts.bak test-setup.ts || true
         env:
           API_BASE_URL: http://localhost:8080
           PLAYWRIGHT_JUNIT_OUTPUT_NAME: e2e/test-results/playwright-e2e.xml
