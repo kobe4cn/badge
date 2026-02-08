@@ -5,7 +5,7 @@
 // 确保只在 vitest 环境中运行
 // VITEST 环境变量由 vitest 自动设置
 if (process.env.VITEST) {
-  // 扩展 expect 以支持 jest-dom matchers
-  // 这使得我们可以使用 toBeInTheDocument, toHaveClass 等断言
-  require('@testing-library/jest-dom/vitest');
+  // 使用动态 import 加载 jest-dom matchers
+  // 这避免了在 Playwright 运行时触发 vitest 模块加载
+  import('@testing-library/jest-dom/vitest');
 }
