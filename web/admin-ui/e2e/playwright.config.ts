@@ -40,6 +40,9 @@ const allProjects = [
 export default defineConfig({
   testDir: './specs',
 
+  // 忽略 vitest 单元测试文件，避免模块解析冲突
+  testIgnore: ['**/__tests__/**', '**/*.test.ts', '!**/*.spec.ts'],
+
   // 并行运行
   fullyParallel: true,
 

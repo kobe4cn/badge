@@ -358,12 +358,7 @@ jobs:
           done
 
       - name: Run Playwright tests
-        run: |
-          cd web/admin-ui
-          # 只删除 @vitest/expect，它是导致与 Playwright expect 冲突的根源
-          # 保留 vitest 本身，避免 src 目录中的测试文件因找不到 vitest 而报错
-          rm -rf node_modules/@vitest/expect
-          npx playwright test --reporter=html,junit
+        run: cd web/admin-ui && npx playwright test --reporter=html,junit
         env:
           API_BASE_URL: http://localhost:8080
           PLAYWRIGHT_JUNIT_OUTPUT_NAME: e2e/test-results/playwright-e2e.xml
