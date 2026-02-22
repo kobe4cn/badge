@@ -12,12 +12,12 @@ global:
 rule_files:
   - alerts.yml
 
-# Alertmanager 配置（可选，用于告警通知）
-# alerting:
-#   alertmanagers:
-#     - static_configs:
-#         - targets:
-#           - alertmanager:9093
+# Alertmanager 配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
 
 # 抓取配置
 scrape_configs:
@@ -30,7 +30,7 @@ scrape_configs:
   # 管理后台服务，提供徽章、规则、权益的 CRUD 接口
   - job_name: 'badge-admin'
     static_configs:
-      - targets: ['host.docker.internal:9091']
+      - targets: ['host.docker.internal:9991']
     metrics_path: /metrics
     scrape_interval: 10s
 
@@ -38,7 +38,7 @@ scrape_configs:
   # 核心业务服务，处理徽章发放、级联评估、兑换等
   - job_name: 'badge-management'
     static_configs:
-      - targets: ['host.docker.internal:9092']
+      - targets: ['host.docker.internal:9992']
     metrics_path: /metrics
     scrape_interval: 10s
 
@@ -46,7 +46,7 @@ scrape_configs:
   # 规则引擎服务，处理复杂的业务规则匹配
   - job_name: 'rule-engine'
     static_configs:
-      - targets: ['host.docker.internal:9093']
+      - targets: ['host.docker.internal:9990']
     metrics_path: /metrics
     scrape_interval: 10s
 
@@ -54,7 +54,7 @@ scrape_configs:
   # 活动参与服务
   - job_name: 'event-engagement'
     static_configs:
-      - targets: ['host.docker.internal:9094']
+      - targets: ['host.docker.internal:9993']
     metrics_path: /metrics
     scrape_interval: 10s
 
@@ -62,6 +62,14 @@ scrape_configs:
   # 活动交易服务
   - job_name: 'event-transaction'
     static_configs:
-      - targets: ['host.docker.internal:9095']
+      - targets: ['host.docker.internal:9994']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Notification Worker
+  # 通知处理 Worker，处理异步通知发送和过期提醒
+  - job_name: 'notification-worker'
+    static_configs:
+      - targets: ['host.docker.internal:9995']
     metrics_path: /metrics
     scrape_interval: 10s

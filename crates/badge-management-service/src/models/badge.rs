@@ -113,6 +113,9 @@ pub struct Badge {
     pub id: i64,
     /// 所属系列 ID
     pub series_id: i64,
+    /// 业务唯一编码，用于外部系统对接
+    #[sqlx(default)]
+    pub code: Option<String>,
     /// 徽章类型
     pub badge_type: BadgeType,
     /// 徽章名称
@@ -179,6 +182,24 @@ pub struct BadgeRule {
     pub badge_id: i64,
     /// 规则定义（JSON，传给规则引擎）
     pub rule_json: Value,
+    /// 关联的事件类型编码，决定由哪个事件服务处理
+    #[sqlx(default)]
+    pub event_type: Option<String>,
+    /// 规则唯一编码，用于日志追踪和管理后台展示
+    #[sqlx(default)]
+    pub rule_code: Option<String>,
+    /// 全局配额，限制该规则可发放的徽章总数（NULL 表示不限制）
+    #[sqlx(default)]
+    pub global_quota: Option<i32>,
+    /// 已发放数量，用于配额校验
+    #[serde(default)]
+    pub global_granted: i32,
+    /// 规则显示名称
+    #[sqlx(default)]
+    pub name: Option<String>,
+    /// 规则描述
+    #[sqlx(default)]
+    pub description: Option<String>,
     /// 规则生效开始时间
     #[sqlx(default)]
     pub start_time: Option<DateTime<Utc>>,
@@ -279,6 +300,7 @@ mod tests {
         Badge {
             id: 1,
             series_id: 1,
+            code: None,
             badge_type: BadgeType::Normal,
             name: "Test Badge".to_string(),
             description: None,
@@ -299,6 +321,12 @@ mod tests {
             id: 1,
             badge_id: 1,
             rule_json: json!({}),
+            event_type: None,
+            rule_code: None,
+            global_quota: None,
+            global_granted: 0,
+            name: None,
+            description: None,
             start_time: None,
             end_time: None,
             max_count_per_user: None,

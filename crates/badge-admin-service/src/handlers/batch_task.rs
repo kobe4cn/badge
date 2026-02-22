@@ -21,6 +21,8 @@ use crate::{
     state::AppState,
 };
 
+use std::str::FromStr;
+
 /// 创建批量任务请求
 #[derive(Debug, serde::Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +33,12 @@ pub struct CreateBatchTaskRequest {
     pub file_url: Option<String>,
     /// 额外参数，不同任务类型含义不同
     pub params: Option<serde_json::Value>,
+    /// 调度类型：immediate（立即）/ once（一次性定时）/ recurring（周期性）
+    pub schedule_type: Option<String>,
+    /// 一次性定时执行时间
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 周期性任务的 cron 表达式
+    pub cron_expression: Option<String>,
 }
 
 /// 批量任务行（数据库查询结果）
@@ -95,17 +103,70 @@ pub async fn create_task(
 
     let now = Utc::now();
 
+    // 如果 params 中包含 csv_ref_key，从 Redis 解析出 user_ids 替换之，
+    // 确保 Worker 读取 params 时能直接获取 user_ids 而无需访问 Redis
+    let params = match req.params {
+        Some(ref p) => {
+            // 如果 params 中包含 csv_ref_key 字符串值，从 Redis 还原 user_ids
+            if let Some(ref_key) = p.get("csv_ref_key").and_then(|v| v.as_str()) {
+                let user_ids: Vec<String> = state
+                    .cache
+                    .get(ref_key)
+                    .await
+                    .map_err(|e| {
+                        AdminError::Internal(format!("Redis 读取 CSV 引用失败: {}", e))
+                    })?
+                    .ok_or_else(|| {
+                        AdminError::Validation("CSV 引用已过期，请重新上传".to_string())
+                    })?;
+                let mut obj = p.as_object().cloned().unwrap_or_default();
+                obj.remove("csv_ref_key");
+                obj.insert("user_ids".to_string(), serde_json::Value::from(user_ids));
+                Some(serde_json::Value::Object(obj))
+            } else {
+                req.params.clone()
+            }
+        }
+        _ => req.params.clone(),
+    };
+
+    // 根据调度类型确定初始状态：
+    // - immediate/无 → pending（BatchTaskWorker 立即消费）
+    // - once → scheduled（ScheduledTaskWorker 等到 scheduled_at 后转为 pending）
+    // - recurring → active（ScheduledTaskWorker 按 cron 周期触发子任务）
+    let initial_status = match req.schedule_type.as_deref() {
+        Some("once") => "scheduled",
+        Some("recurring") => "active",
+        _ => "pending",
+    };
+
+    // recurring 任务需要根据 cron 表达式计算首次执行时间
+    let next_run_at: Option<DateTime<Utc>> = if initial_status == "active" {
+        req.cron_expression.as_ref().and_then(|expr| {
+            cron::Schedule::from_str(expr)
+                .ok()
+                .and_then(|s| s.after(&now).next())
+        })
+    } else {
+        None
+    };
+
     let row = sqlx::query_as::<_, BatchTaskRow>(
         r#"
-        INSERT INTO batch_tasks (task_type, file_url, status, progress, total_count, success_count, failure_count, params, created_by, created_at, updated_at)
-        VALUES ($1, $2, 'pending', 0, 0, 0, 0, $3, 'admin', $4, $4)
+        INSERT INTO batch_tasks (task_type, file_url, status, progress, total_count, success_count, failure_count, params, schedule_type, scheduled_at, cron_expression, next_run_at, created_by, created_at, updated_at)
+        VALUES ($1, $2, $8, 0, 0, 0, 0, $3, $5, $6, $7, $9, 'admin', $4, $4)
         RETURNING id, task_type, status, total_count, success_count, failure_count, progress, file_url, result_file_url, error_message, created_by, created_at, updated_at
         "#,
     )
     .bind(task_type.as_str())
     .bind(&req.file_url)
-    .bind(&req.params)
+    .bind(&params)
     .bind(now)
+    .bind(&req.schedule_type)
+    .bind(req.scheduled_at)
+    .bind(&req.cron_expression)
+    .bind(initial_status)
+    .bind(next_run_at)
     .fetch_one(&state.pool)
     .await?;
 
@@ -227,9 +288,9 @@ pub async fn cancel_task(
 
     let task = task.ok_or(AdminError::TaskNotFound(id))?;
 
-    if task.0 != "pending" && task.0 != "running" {
+    if !matches!(task.0.as_str(), "pending" | "running" | "scheduled" | "active") {
         return Err(AdminError::Validation(format!(
-            "只有待执行或执行中的任务可以取消，当前状态: {}",
+            "只有待执行、执行中、定时或周期任务可以取消，当前状态: {}",
             task.0
         )));
     }

@@ -4,9 +4,11 @@
 //! 规则与规则引擎配合，定义用户获取徽章的自动触发条件。
 
 use axum::{
+    Extension,
     Json,
     extract::{Path, Query, State},
 };
+use crate::middleware::AuditContext;
 use badge_proto::rule_engine::{
     self, ConditionNode, GroupNode, Operator as ProtoOperator,
     LogicalOperator as ProtoLogicalOperator, Rule as ProtoRule, RuleNode as ProtoRuleNode,
@@ -226,6 +228,7 @@ pub async fn get_rule(
 pub async fn update_rule(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateRuleRequest>,
 ) -> Result<Json<ApiResponse<RuleDto>>, AdminError> {
     req.validate()?;
@@ -245,6 +248,9 @@ pub async fn update_rule(
     {
         return Err(AdminError::InvalidRuleJson("规则内容不能为空".to_string()));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_rules", id).await;
 
     sqlx::query(
         r#"
@@ -292,6 +298,7 @@ pub async fn update_rule(
 pub async fn delete_rule(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     let rule: Option<(bool,)> = sqlx::query_as("SELECT enabled FROM badge_rules WHERE id = $1")
         .bind(id)
@@ -306,6 +313,9 @@ pub async fn delete_rule(
             "启用中的规则不能删除，请先禁用".to_string(),
         ));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_rules", id).await;
 
     sqlx::query("DELETE FROM badge_rules WHERE id = $1")
         .bind(id)
@@ -457,8 +467,8 @@ fn str_to_proto_operator(s: &str) -> Result<ProtoOperator, AdminError> {
         "starts_with" => Ok(ProtoOperator::StartsWith),
         "ends_with" => Ok(ProtoOperator::EndsWith),
         "regex" => Ok(ProtoOperator::Regex),
-        "is_empty" => Ok(ProtoOperator::IsEmpty),
-        "is_not_empty" => Ok(ProtoOperator::IsNotEmpty),
+        "is_empty" | "is_null" => Ok(ProtoOperator::IsEmpty),
+        "is_not_empty" | "is_not_null" => Ok(ProtoOperator::IsNotEmpty),
         "contains_any" => Ok(ProtoOperator::ContainsAny),
         "contains_all" => Ok(ProtoOperator::ContainsAll),
         "before" => Ok(ProtoOperator::Before),
@@ -575,24 +585,26 @@ pub async fn test_rule(
         context: proto_context,
     };
 
-    // 通过 gRPC 调用规则引擎，若客户端不可用则返回明确错误
+    // 通过 gRPC 调用规则引擎（受熔断器保护），若客户端不可用则返回明确错误
     let guard = state.rule_engine_client.read().await;
-    let Some(client) = guard.as_ref() else {
+    let Some(client) = guard.as_ref().cloned() else {
         return Err(AdminError::Internal(
             "规则引擎服务不可用，请检查 RULE_ENGINE_GRPC_ADDR 配置".to_string(),
         ));
     };
-
-    let mut client = client.clone();
     drop(guard);
 
-    let response = client
-        .test_rule(tonic::Request::new(grpc_request))
-        .await
-        .map_err(|e| {
-            warn!(error = %e, rule_id = id, "规则引擎 gRPC 调用失败");
-            AdminError::Internal(format!("规则引擎调用失败: {}", e.message()))
-        })?;
+    let cb = &state.rule_engine_circuit_breaker;
+    let response = cb.call(|| {
+        let mut c = client.clone();
+        let req = grpc_request.clone();
+        async move { c.test_rule(tonic::Request::new(req)).await }
+    })
+    .await
+    .map_err(|e| {
+        warn!(error = %e, rule_id = id, "规则引擎 gRPC 调用失败");
+        AdminError::Internal(format!("规则引擎调用失败: {}", e))
+    })?;
 
     let resp = response.into_inner();
     let result = serde_json::json!({
@@ -666,22 +678,24 @@ pub async fn test_rule_definition(
     };
 
     let guard = state.rule_engine_client.read().await;
-    let Some(client) = guard.as_ref() else {
+    let Some(client) = guard.as_ref().cloned() else {
         return Err(AdminError::Internal(
             "规则引擎服务不可用，请检查 RULE_ENGINE_GRPC_ADDR 配置".to_string(),
         ));
     };
-
-    let mut client = client.clone();
     drop(guard);
 
-    let response = client
-        .test_rule(tonic::Request::new(grpc_request))
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "规则引擎 gRPC 调用失败（测试规则定义）");
-            AdminError::Internal(format!("规则引擎调用失败: {}", e.message()))
-        })?;
+    let cb = &state.rule_engine_circuit_breaker;
+    let response = cb.call(|| {
+        let mut c = client.clone();
+        let req = grpc_request.clone();
+        async move { c.test_rule(tonic::Request::new(req)).await }
+    })
+    .await
+    .map_err(|e| {
+        warn!(error = %e, "规则引擎 gRPC 调用失败（测试规则定义）");
+        AdminError::Internal(format!("规则引擎调用失败: {}", e))
+    })?;
 
     let resp = response.into_inner();
     let result = serde_json::json!({

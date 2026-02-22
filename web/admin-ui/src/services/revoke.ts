@@ -19,12 +19,18 @@ export interface ManualRevokeRequest {
 
 /**
  * 批量撤销请求
+ *
+ * 支持两种模式：userIds 直接传入或 fileUrl 指向 CSV
  */
 export interface BatchRevokeRequest {
   /** 徽章 ID */
   badgeId: number;
-  /** CSV 文件 URL */
-  fileUrl: string;
+  /** 用户 ID 列表（直接传入，少量用户场景） */
+  userIds?: string[];
+  /** CSV 上传后的 Redis 引用键 */
+  csvRefKey?: string;
+  /** OSS 文件地址（可选） */
+  fileUrl?: string;
   /** 撤销原因 */
   reason: string;
 }

@@ -12,8 +12,11 @@ import {
   getMemberBadges,
   getMemberBadgeStats,
   revokeBadge,
+  getMemberLedger,
+  getMemberBenefits,
+  getMemberRedemptionHistory,
 } from '@/services/member';
-import type { RevokeBadgeRequest } from '@/types';
+import type { RevokeBadgeRequest, PaginationParams } from '@/types';
 
 /**
  * 缓存 key 常量
@@ -26,6 +29,9 @@ export const MEMBER_QUERY_KEYS = {
   detail: (userId: string) => [...MEMBER_QUERY_KEYS.all, 'detail', userId] as const,
   badges: (userId: string) => [...MEMBER_QUERY_KEYS.all, 'badges', userId] as const,
   badgeStats: (userId: string) => [...MEMBER_QUERY_KEYS.all, 'badgeStats', userId] as const,
+  ledger: (userId: string, params?: PaginationParams) => [...MEMBER_QUERY_KEYS.all, 'ledger', userId, params] as const,
+  benefits: (userId: string, params?: PaginationParams) => [...MEMBER_QUERY_KEYS.all, 'benefits', userId, params] as const,
+  redemptionHistory: (userId: string, params?: PaginationParams) => [...MEMBER_QUERY_KEYS.all, 'redemptionHistory', userId, params] as const,
 };
 
 /**
@@ -83,6 +89,53 @@ export function useMemberBadgeStats(userId: string, enabled = true) {
   return useQuery({
     queryKey: MEMBER_QUERY_KEYS.badgeStats(userId),
     queryFn: () => getMemberBadgeStats(userId),
+    enabled: enabled && !!userId,
+  });
+}
+
+/**
+ * 获取用户账本流水
+ *
+ * 包含获取、撤销、兑换等所有类型的徽章变动记录
+ *
+ * @param userId - 用户 ID
+ * @param params - 分页参数
+ * @param enabled - 是否启用查询
+ */
+export function useMemberLedger(userId: string, params?: PaginationParams, enabled = true) {
+  return useQuery({
+    queryKey: MEMBER_QUERY_KEYS.ledger(userId, params),
+    queryFn: () => getMemberLedger(userId, params),
+    enabled: enabled && !!userId,
+  });
+}
+
+/**
+ * 获取用户权益列表
+ *
+ * @param userId - 用户 ID
+ * @param params - 分页参数
+ * @param enabled - 是否启用查询
+ */
+export function useMemberBenefits(userId: string, params?: PaginationParams, enabled = true) {
+  return useQuery({
+    queryKey: MEMBER_QUERY_KEYS.benefits(userId, params),
+    queryFn: () => getMemberBenefits(userId, params),
+    enabled: enabled && !!userId,
+  });
+}
+
+/**
+ * 获取用户兑换历史
+ *
+ * @param userId - 用户 ID
+ * @param params - 分页参数
+ * @param enabled - 是否启用查询
+ */
+export function useMemberRedemptionHistory(userId: string, params?: PaginationParams, enabled = true) {
+  return useQuery({
+    queryKey: MEMBER_QUERY_KEYS.redemptionHistory(userId, params),
+    queryFn: () => getMemberRedemptionHistory(userId, params),
     enabled: enabled && !!userId,
   });
 }

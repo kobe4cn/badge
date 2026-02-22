@@ -56,6 +56,7 @@ struct TaskParams {
     badge_id: i64,
     reason: String,
     user_ids: Vec<String>,
+    quantity: i32,
 }
 
 /// 可重试的失败记录
@@ -197,18 +198,27 @@ impl BatchTaskWorker {
             .await;
 
         // 全部处理完毕，最终状态更新
+        // 有失败记录时生成失败清单下载链接，前端可通过此 URL 下载 CSV
+        let result_file_url: Option<String> = if failure_count > 0 {
+            Some(format!("/api/admin/tasks/{}/failures/download", task.id))
+        } else {
+            None
+        };
+
         let now = Utc::now();
         let _ = sqlx::query(
             r#"
             UPDATE batch_tasks
             SET status = 'completed', progress = 100,
-                success_count = $2, failure_count = $3, updated_at = $4
+                success_count = $2, failure_count = $3,
+                result_file_url = $4, updated_at = $5
             WHERE id = $1
             "#,
         )
         .bind(task.id)
         .bind(success_count)
         .bind(failure_count)
+        .bind(&result_file_url)
         .bind(now)
         .execute(&self.pool)
         .await;
@@ -245,6 +255,7 @@ impl BatchTaskWorker {
         let task_type = task.task_type.clone();
         let task_id = task.id;
         let badge_id = params.badge_id;
+        let quantity = params.quantity;
         let reason = params.reason.clone();
 
         // 按 chunk_size 分片
@@ -262,7 +273,7 @@ impl BatchTaskWorker {
                 handles.push(async move {
                     let result = match task_type_ref.as_str() {
                         "batch_grant" => {
-                            Self::grant_one_user_static(&pool, &user_id_owned, badge_id, task_id, &reason_ref)
+                            Self::grant_one_user_static(&pool, &user_id_owned, badge_id, quantity, task_id, &reason_ref)
                                 .await
                         }
                         "batch_revoke" => {
@@ -326,6 +337,7 @@ impl BatchTaskWorker {
         pool: &PgPool,
         user_id: &str,
         badge_id: i64,
+        quantity: i32,
         task_id: i64,
         reason: &str,
     ) -> Result<(), String> {
@@ -337,18 +349,19 @@ impl BatchTaskWorker {
             .await
             .map_err(|e| format!("开启事务失败: {e}"))?;
 
-        // 1. 插入或累加 user_badges
+        // 1. 插入或累加 user_badges（使用实际 quantity 而非硬编码 1）
         sqlx::query(
             r#"
             INSERT INTO user_badges (user_id, badge_id, quantity, status, first_acquired_at, source_type, created_at, updated_at)
-            VALUES ($1, $2, 1, 'ACTIVE', $3, 'BATCH', $3, $3)
+            VALUES ($1, $2, $4, 'active', $3, 'BATCH', $3, $3)
             ON CONFLICT (user_id, badge_id)
-            DO UPDATE SET quantity = user_badges.quantity + 1, status = 'ACTIVE', updated_at = $3
+            DO UPDATE SET quantity = user_badges.quantity + $4, status = 'active', updated_at = $3
             "#,
         )
         .bind(user_id)
         .bind(badge_id)
         .bind(now)
+        .bind(quantity)
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("upsert user_badges 失败: {e}"))?;
@@ -363,17 +376,18 @@ impl BatchTaskWorker {
         .await
         .map_err(|e| format!("查询余额失败: {e}"))?;
 
-        let balance_after = balance_row.0 + 1;
+        let balance_after = balance_row.0 + quantity;
 
         sqlx::query(
             r#"
             INSERT INTO badge_ledger (user_id, badge_id, change_type, source_type, ref_id, quantity, balance_after, remark, created_at)
-            VALUES ($1, $2, 'acquire', 'BATCH', $3, 1, $4, $5, $6)
+            VALUES ($1, $2, 'acquire', 'BATCH', $3, $4, $5, $6, $7)
             "#,
         )
         .bind(user_id)
         .bind(badge_id)
         .bind(&source_ref_id)
+        .bind(quantity)
         .bind(balance_after)
         .bind(reason)
         .bind(now)
@@ -385,11 +399,12 @@ impl BatchTaskWorker {
         sqlx::query(
             r#"
             INSERT INTO user_badge_logs (user_id, badge_id, action, quantity, source_type, source_ref_id, remark, created_at)
-            VALUES ($1, $2, 'grant', 1, 'BATCH', $3, $4, $5)
+            VALUES ($1, $2, 'grant', $3, 'BATCH', $4, $5, $6)
             "#,
         )
         .bind(user_id)
         .bind(badge_id)
+        .bind(quantity)
         .bind(&source_ref_id)
         .bind(reason)
         .bind(now)
@@ -399,9 +414,10 @@ impl BatchTaskWorker {
 
         // 4. 累加徽章已发放计数
         sqlx::query(
-            "UPDATE badges SET issued_count = issued_count + 1, updated_at = $2 WHERE id = $1",
+            "UPDATE badges SET issued_count = issued_count + $2, updated_at = $3 WHERE id = $1",
         )
         .bind(badge_id)
+        .bind(quantity as i64)
         .bind(now)
         .execute(&mut *tx)
         .await
@@ -512,9 +528,9 @@ impl BatchTaskWorker {
         .await
         .map_err(|e| format!("写入 user_badge_logs 失败: {e}"))?;
 
-        // 4. 扣减徽章已发放计数
+        // 4. 扣减徽章已发放计数（GREATEST 防止负数）
         sqlx::query(
-            "UPDATE badges SET issued_count = issued_count - 1, updated_at = $2 WHERE id = $1",
+            "UPDATE badges SET issued_count = GREATEST(issued_count - 1, 0), updated_at = $2 WHERE id = $1",
         )
         .bind(badge_id)
         .bind(now)
@@ -563,6 +579,11 @@ impl BatchTaskWorker {
                 return Err("任务参数缺少 user_ids 且无 file_url".to_string());
             };
 
+        let quantity = params
+            .get("quantity")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32;
+
         if user_ids.is_empty() {
             return Err("user_ids 为空，无需处理".to_string());
         }
@@ -571,6 +592,7 @@ impl BatchTaskWorker {
             badge_id,
             reason,
             user_ids,
+            quantity,
         })
     }
 
@@ -725,12 +747,13 @@ impl BatchTaskWorker {
         };
 
         let badge_id = params.get("badge_id").and_then(|v| v.as_i64()).unwrap_or(0);
+        let quantity = params.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
         let reason = params.get("reason").and_then(|v| v.as_str()).unwrap_or("");
 
         // 执行重试
         let result = match failure.task_type.as_str() {
             "batch_grant" => {
-                Self::grant_one_user_static(&self.pool, &failure.user_id, badge_id, failure.task_id, reason).await
+                Self::grant_one_user_static(&self.pool, &failure.user_id, badge_id, quantity, failure.task_id, reason).await
             }
             "batch_revoke" => {
                 Self::revoke_one_user_static(&self.pool, &failure.user_id, badge_id, failure.task_id, reason).await

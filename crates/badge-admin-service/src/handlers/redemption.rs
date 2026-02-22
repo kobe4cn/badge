@@ -3,9 +3,10 @@
 //! 实现兑换规则管理和兑换操作的 HTTP 接口
 
 use axum::{
+    Extension, Json,
     extract::{Path, Query, State},
-    Json,
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -370,6 +371,7 @@ pub async fn get_redemption_rule(
 pub async fn update_redemption_rule(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateRedemptionRuleRequest>,
 ) -> Result<Json<ApiResponse<RedemptionRuleDto>>, AdminError> {
     req.validate()?;
@@ -413,6 +415,9 @@ pub async fn update_redemption_rule(
         ValidityType::Relative => "RELATIVE",
     });
 
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "redemption_rules", id).await;
+
     sqlx::query(
         r#"
         UPDATE badge_redemption_rules
@@ -455,6 +460,7 @@ pub async fn update_redemption_rule(
 pub async fn delete_redemption_rule(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     // 检查是否有关联订单
     let has_orders: (bool,) = sqlx::query_as(
@@ -469,6 +475,9 @@ pub async fn delete_redemption_rule(
             "该规则已有兑换订单，无法删除".to_string(),
         ));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "redemption_rules", id).await;
 
     let result = sqlx::query("DELETE FROM badge_redemption_rules WHERE id = $1")
         .bind(id)

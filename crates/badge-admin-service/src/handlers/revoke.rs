@@ -4,8 +4,10 @@
 //! 取消操作涉及多表事务：user_badges 扣减 + badge_ledger + user_badge_logs。
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Query, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::IntoResponse,
 };
 use chrono::{DateTime, Utc};
 use tracing::info;
@@ -13,6 +15,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    auth::Claims,
     dto::{
         ApiResponse, AutoRevokeRequest, AutoRevokeScenario, BatchRevokeRequest, BatchTaskDto,
         GrantLogDto, GrantLogFilter, ManualRevokeRequest, PageResponse, PaginationParams,
@@ -107,7 +110,7 @@ pub async fn manual_revoke(
         sqlx::query(
             r#"
             UPDATE user_badges
-            SET quantity = 0, status = 'REVOKED', updated_at = $2
+            SET quantity = 0, status = 'revoked', updated_at = $2
             WHERE id = $1
             "#,
         )
@@ -163,9 +166,9 @@ pub async fn manual_revoke(
     .execute(&mut *tx)
     .await?;
 
-    // 4. 扣减徽章已发放计数
+    // 4. 扣减徽章已发放计数（GREATEST 防止负数）
     sqlx::query(
-        "UPDATE badges SET issued_count = issued_count - $2, updated_at = $3 WHERE id = $1",
+        "UPDATE badges SET issued_count = GREATEST(issued_count - $2, 0), updated_at = $3 WHERE id = $1",
     )
     .bind(badge_id)
     .bind(quantity as i64)
@@ -203,6 +206,7 @@ pub async fn manual_revoke(
 /// 与批量发放类似，创建异步任务后立即返回任务 ID。
 pub async fn batch_revoke(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<BatchRevokeRequest>,
 ) -> Result<Json<ApiResponse<BatchTaskDto>>, AdminError> {
     req.validate()?;
@@ -219,28 +223,45 @@ pub async fn batch_revoke(
 
     let now = Utc::now();
 
-    // 将业务参数序列化到 params 列，Worker 轮询到任务后从中解析 badge_id 和 reason
+    // 如果传了 csv_ref_key，从 Redis 解析出 user_ids
+    let user_ids: Option<Vec<String>> = if let Some(ref key) = req.csv_ref_key {
+        state
+            .cache
+            .get::<Vec<String>>(key)
+            .await
+            .map_err(|e| AdminError::Internal(format!("Redis 读取 CSV 引用失败: {}", e)))?
+            .or(None)
+    } else {
+        req.user_ids.clone()
+    };
+
+    // 将业务参数序列化到 params 列，Worker 轮询到任务后从中解析
     let params = serde_json::json!({
         "badge_id": req.badge_id,
         "reason": &req.reason,
+        "user_ids": &user_ids,
     });
+
+    let created_by = &claims.username;
 
     let row: (i64,) = sqlx::query_as(
         r#"
         INSERT INTO batch_tasks (task_type, file_url, params, status, progress, total_count, success_count, failure_count, created_by, created_at, updated_at)
-        VALUES ('batch_revoke', $1, $2, 'pending', 0, 0, 0, 0, 'admin', $3, $3)
+        VALUES ('batch_revoke', $1, $2, 'pending', 0, 0, 0, 0, $4, $3, $3)
         RETURNING id
         "#,
     )
     .bind(&req.file_url)
     .bind(&params)
     .bind(now)
+    .bind(created_by)
     .fetch_one(&state.pool)
     .await?;
 
     info!(
         task_id = row.0,
         badge_id = req.badge_id,
+        created_by = %created_by,
         "Batch revoke task created"
     );
     let task_dto = BatchTaskDto {
@@ -251,10 +272,10 @@ pub async fn batch_revoke(
         success_count: 0,
         failure_count: 0,
         progress: 0,
-        file_url: Some(req.file_url),
+        file_url: req.file_url,
         result_file_url: None,
         error_message: None,
-        created_by: "admin".to_string(),
+        created_by: created_by.clone(),
         created_at: now,
         updated_at: now,
     };
@@ -278,7 +299,7 @@ pub async fn list_revokes(
     let source_type_str = filter.source_type.map(|t| {
         serde_json::to_value(t)
             .ok()
-            .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_default()
     });
 
@@ -348,6 +369,86 @@ pub async fn list_revokes(
     Ok(Json(ApiResponse::success(response)))
 }
 
+/// 导出撤销记录为 CSV
+///
+/// GET /api/admin/revokes/export
+///
+/// 按过滤条件查询所有 cancel 记录（不分页），生成 CSV 文件流式返回。
+/// 使用 10000 条硬上限防止超大导出导致 OOM。
+pub async fn export_revoke_logs(
+    State(state): State<AppState>,
+    Query(filter): Query<GrantLogFilter>,
+) -> Result<impl IntoResponse, AdminError> {
+    let source_type_str = filter.source_type.map(|t| {
+        serde_json::to_value(t)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default()
+    });
+
+    let rows = sqlx::query_as::<_, RevokeLogRow>(
+        r#"
+        SELECT
+            l.id,
+            l.user_id,
+            l.badge_id,
+            b.name as badge_name,
+            l.quantity,
+            l.source_type,
+            l.ref_id as source_id,
+            l.remark as reason,
+            l.created_at
+        FROM badge_ledger l
+        JOIN badges b ON b.id = l.badge_id
+        WHERE l.change_type = 'cancel'
+          AND ($1::text IS NULL OR l.user_id = $1)
+          AND ($2::bigint IS NULL OR l.badge_id = $2)
+          AND ($3::text IS NULL OR l.source_type::text = $3)
+          AND ($4::timestamptz IS NULL OR l.created_at >= $4)
+          AND ($5::timestamptz IS NULL OR l.created_at <= $5)
+        ORDER BY l.created_at DESC
+        LIMIT 10000
+        "#,
+    )
+    .bind(&filter.user_id)
+    .bind(filter.badge_id)
+    .bind(&source_type_str)
+    .bind(filter.start_time)
+    .bind(filter.end_time)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut csv = String::from("id,user_id,badge_name,action,source_type,created_at\n");
+    for row in &rows {
+        // CSV 字段中的逗号和引号需要转义
+        let badge_name = if row.badge_name.contains(',') || row.badge_name.contains('"') {
+            format!("\"{}\"", row.badge_name.replace('"', "\"\""))
+        } else {
+            row.badge_name.clone()
+        };
+        csv.push_str(&format!(
+            "{},{},{},revoke,{},{}\n",
+            row.id,
+            row.user_id,
+            badge_name,
+            row.source_type,
+            row.created_at.format("%Y-%m-%d %H:%M:%S"),
+        ));
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"revoke_logs.csv\""),
+    );
+
+    Ok((StatusCode::OK, headers, csv))
+}
+
 /// 自动取消结果
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -404,7 +505,7 @@ pub async fn auto_revoke(
             SELECT ub.id, ub.badge_id, b.name, ub.quantity
             FROM user_badges ub
             JOIN badges b ON b.id = ub.badge_id
-            WHERE ub.user_id = $1 AND ub.badge_id = $2 AND UPPER(ub.status::text) = 'ACTIVE' AND ub.quantity > 0
+            WHERE ub.user_id = $1 AND ub.badge_id = $2 AND ub.status = 'active' AND ub.quantity > 0
             "#,
         )
         .bind(&req.user_id)
@@ -418,7 +519,7 @@ pub async fn auto_revoke(
             SELECT ub.id, ub.badge_id, b.name, ub.quantity
             FROM user_badges ub
             JOIN badges b ON b.id = ub.badge_id
-            WHERE ub.user_id = $1 AND UPPER(ub.status::text) = 'ACTIVE' AND ub.quantity > 0
+            WHERE ub.user_id = $1 AND ub.status = 'active' AND ub.quantity > 0
             "#,
         )
         .bind(&req.user_id)
@@ -449,7 +550,7 @@ pub async fn auto_revoke(
         sqlx::query(
             r#"
             UPDATE user_badges
-            SET quantity = 0, status = 'REVOKED', updated_at = $2
+            SET quantity = 0, status = 'revoked', updated_at = $2
             WHERE id = $1
             "#,
         )
@@ -492,9 +593,9 @@ pub async fn auto_revoke(
         .execute(&mut *tx)
         .await?;
 
-        // 4. 扣减徽章已发放计数
+        // 4. 扣减徽章已发放计数（GREATEST 防止负数）
         sqlx::query(
-            "UPDATE badges SET issued_count = issued_count - $2, updated_at = $3 WHERE id = $1",
+            "UPDATE badges SET issued_count = GREATEST(issued_count - $2, 0), updated_at = $3 WHERE id = $1",
         )
         .bind(badge_id)
         .bind(quantity as i64)
@@ -561,19 +662,24 @@ mod tests {
     fn test_batch_revoke_request_validation() {
         use crate::dto::BatchRevokeRequest;
 
+        // user_ids 模式
         let valid = BatchRevokeRequest {
             badge_id: 1,
-            file_url: "https://oss.example.com/users.csv".to_string(),
+            user_ids: Some(vec!["user1".to_string()]),
+            csv_ref_key: None,
+            file_url: None,
             reason: "批量清退".to_string(),
         };
         assert!(valid.validate().is_ok());
 
-        // 无效URL
-        let invalid = BatchRevokeRequest {
+        // file_url 模式
+        let valid_url = BatchRevokeRequest {
             badge_id: 1,
-            file_url: "not-a-url".to_string(),
+            user_ids: None,
+            csv_ref_key: None,
+            file_url: Some("https://oss.example.com/users.csv".to_string()),
             reason: "批量清退".to_string(),
         };
-        assert!(invalid.validate().is_err());
+        assert!(valid_url.validate().is_ok());
     }
 }

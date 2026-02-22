@@ -8,7 +8,7 @@
  * - 查看任务进度
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Button,
   Card,
@@ -62,7 +62,6 @@ const BatchRevokePage: React.FC = () => {
   const [csvResult, setCsvResult] = useState<CsvParseResult | null>(null);
   const [taskId, setTaskId] = useState<number | null>(null);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
-  const fileUrlRef = useRef<string>('');
 
   // 查询任务状态
   const { data: task } = useQuery({
@@ -100,14 +99,14 @@ const BatchRevokePage: React.FC = () => {
 
   /**
    * 处理 CSV 上传
+   *
+   * 上传后后端解析返回 userIds，直接用于提交任务，不再构造 uploaded:// 伪 URL
    */
   const handleCsvUpload = useCallback(async (file: File) => {
     try {
       const result = await uploadUserCsv(file);
       setCsvResult(result);
-      // 模拟文件 URL（实际场景需要后端返回）
-      fileUrlRef.current = `uploaded://${file.name}`;
-      return false; // 阻止默认上传行为
+      return false;
     } catch {
       message.error('CSV 解析失败');
       return false;
@@ -121,7 +120,7 @@ const BatchRevokePage: React.FC = () => {
     if (currentStep === 0) {
       try {
         await form.validateFields();
-        if (!csvResult || csvResult.userIds.length === 0) {
+        if (!csvResult || csvResult.validCount === 0) {
           message.error('请先上传有效的用户列表');
           return;
         }
@@ -133,7 +132,7 @@ const BatchRevokePage: React.FC = () => {
       const values = form.getFieldsValue();
       revokeMutation.mutate({
         badgeId: values.badgeId,
-        fileUrl: fileUrlRef.current,
+        csvRefKey: csvResult?.csvRefKey,
         reason: values.reason,
       });
     }
@@ -154,7 +153,6 @@ const BatchRevokePage: React.FC = () => {
     setTaskId(null);
     setCsvResult(null);
     setFileList([]);
-    fileUrlRef.current = '';
     form.resetFields();
   };
 
@@ -189,7 +187,6 @@ const BatchRevokePage: React.FC = () => {
             onRemove={() => {
               setCsvResult(null);
               setFileList([]);
-              fileUrlRef.current = '';
             }}
           >
             <Button icon={<UploadOutlined />}>上传 CSV 文件</Button>
@@ -197,21 +194,15 @@ const BatchRevokePage: React.FC = () => {
           {csvResult && (
             <Alert
               style={{ marginTop: 12 }}
-              type={csvResult.userIds.length > 0 ? 'success' : 'warning'}
+              type={csvResult.validCount > 0 ? 'success' : 'warning'}
               message={
                 <Space direction="vertical" size={0}>
                   <Text>
-                    共 {csvResult.totalRows} 行，有效 {csvResult.userIds.length} 条
+                    共 {csvResult.totalRows} 行，有效 {csvResult.validCount} 条
                     {csvResult.invalidRows.length > 0 && (
                       <Text type="warning">，无效 {csvResult.invalidRows.length} 条</Text>
                     )}
                   </Text>
-                  {csvResult.userIds.length > 0 && (
-                    <Text type="secondary">
-                      预览: {csvResult.userIds.slice(0, 3).join(', ')}
-                      {csvResult.userIds.length > 3 && '...'}
-                    </Text>
-                  )}
                 </Space>
               }
             />
@@ -262,7 +253,7 @@ const BatchRevokePage: React.FC = () => {
           <Descriptions.Item label="徽章 ID">{values.badgeId}</Descriptions.Item>
           <Descriptions.Item label="影响用户数">
             <Text strong style={{ color: '#ff4d4f' }}>
-              {csvResult?.userIds.length || 0} 人
+              {csvResult?.validCount || 0} 人
             </Text>
           </Descriptions.Item>
           <Descriptions.Item label="撤销原因">{values.reason}</Descriptions.Item>

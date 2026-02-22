@@ -198,7 +198,7 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
 
       // 验证用户数据
       if (mode === 'csv') {
-        if (!csvResult || csvResult.userIds.length === 0) {
+        if (!csvResult || csvResult.validCount === 0) {
           message.error('请上传有效的 CSV 文件');
           return;
         }
@@ -226,7 +226,7 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
         badgeId: values.badge.value,
         quantity: values.quantity,
         reason: values.reason,
-        userIds: mode === 'csv' ? csvResult?.userIds : undefined,
+        csvRefKey: mode === 'csv' ? csvResult?.csvRefKey : undefined,
         userFilter: mode === 'filter' ? filterCondition : undefined,
         scheduleType,
         scheduledAt: scheduleType === 'once' ? values.scheduledAt?.toISOString() : undefined,
@@ -278,7 +278,7 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
               <Text>
                 解析完成：共 {csvResult.totalRows} 行，有效用户{' '}
                 <Text strong type="success">
-                  {csvResult.userIds.length}
+                  {csvResult.validCount}
                 </Text>{' '}
                 个
               </Text>
@@ -420,7 +420,7 @@ const CreateBatchTaskModal: React.FC<CreateBatchTaskModalProps> = ({
    */
   const getUserCount = (): number => {
     if (mode === 'csv') {
-      return csvResult?.userIds.length || 0;
+      return csvResult?.validCount || 0;
     }
     return filterPreview?.count || 0;
   };

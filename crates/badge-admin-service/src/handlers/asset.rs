@@ -3,9 +3,11 @@
 //! 提供素材的 CRUD 操作，支持图片、动画、视频和 3D 模型
 
 use axum::{
+    Extension,
     extract::{Path, Query, State},
     Json,
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -204,33 +206,58 @@ pub async fn list_assets(
     ))))
 }
 
-/// 辅助函数：统计素材数量
-async fn count_assets(pool: &PgPool, params: &AssetQueryParams) -> Result<i64, AdminError> {
-    let mut query = String::from("SELECT COUNT(*) FROM assets WHERE 1=1");
+/// 构建素材查询的动态 WHERE 子句和绑定参数
+///
+/// 使用参数化占位符（$N）防止 SQL 注入，所有用户输入均通过 bind 传入。
+/// 返回 (where_clause, bind_values)，调用方拼接 SELECT 前缀后统一绑定。
+fn build_asset_where(params: &AssetQueryParams) -> (String, Vec<String>) {
+    let mut conditions = Vec::new();
+    let mut binds: Vec<String> = Vec::new();
 
     if let Some(ref asset_type) = params.asset_type {
-        query.push_str(&format!(" AND asset_type = '{}'", asset_type));
+        binds.push(asset_type.clone());
+        conditions.push(format!("asset_type = ${}", binds.len()));
     }
     if let Some(ref category) = params.category {
-        query.push_str(&format!(" AND category = '{}'", category));
+        binds.push(category.clone());
+        conditions.push(format!("category = ${}", binds.len()));
     }
     if let Some(ref tag) = params.tag {
-        query.push_str(&format!(" AND '{}' = ANY(tags)", tag));
+        binds.push(tag.clone());
+        conditions.push(format!("${} = ANY(tags)", binds.len()));
     }
     if let Some(ref status) = params.status {
-        query.push_str(&format!(" AND status = '{}'", status));
+        binds.push(status.clone());
+        conditions.push(format!("status = ${}", binds.len()));
     }
     if let Some(ref keyword) = params.keyword {
-        query.push_str(&format!(" AND name ILIKE '%{}%'", keyword));
+        binds.push(format!("%{}%", keyword));
+        conditions.push(format!("name ILIKE ${}", binds.len()));
     }
 
-    let row: (i64,) = sqlx::query_as(&query)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "查询素材总数失败");
-            AdminError::Database(e)
-        })?;
+    let where_clause = if conditions.is_empty() {
+        " WHERE 1=1".to_string()
+    } else {
+        format!(" WHERE {}", conditions.join(" AND "))
+    };
+
+    (where_clause, binds)
+}
+
+/// 辅助函数：统计素材数量
+async fn count_assets(pool: &PgPool, params: &AssetQueryParams) -> Result<i64, AdminError> {
+    let (where_clause, binds) = build_asset_where(params);
+    let sql = format!("SELECT COUNT(*) FROM assets{}", where_clause);
+
+    let mut query = sqlx::query_as::<_, (i64,)>(&sql);
+    for val in &binds {
+        query = query.bind(val);
+    }
+
+    let row = query.fetch_one(pool).await.map_err(|e| {
+        error!(error = %e, "查询素材总数失败");
+        AdminError::Database(e)
+    })?;
 
     Ok(row.0)
 }
@@ -242,33 +269,23 @@ async fn fetch_assets(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<AssetDto>, AdminError> {
-    let mut query = String::from("SELECT * FROM assets WHERE 1=1");
+    let (where_clause, binds) = build_asset_where(params);
+    let next_idx = binds.len() + 1;
+    let sql = format!(
+        "SELECT * FROM assets{} ORDER BY created_at DESC LIMIT ${} OFFSET ${}",
+        where_clause, next_idx, next_idx + 1
+    );
 
-    if let Some(ref asset_type) = params.asset_type {
-        query.push_str(&format!(" AND asset_type = '{}'", asset_type));
+    let mut query = sqlx::query_as::<_, AssetRow>(&sql);
+    for val in &binds {
+        query = query.bind(val);
     }
-    if let Some(ref category) = params.category {
-        query.push_str(&format!(" AND category = '{}'", category));
-    }
-    if let Some(ref tag) = params.tag {
-        query.push_str(&format!(" AND '{}' = ANY(tags)", tag));
-    }
-    if let Some(ref status) = params.status {
-        query.push_str(&format!(" AND status = '{}'", status));
-    }
-    if let Some(ref keyword) = params.keyword {
-        query.push_str(&format!(" AND name ILIKE '%{}%'", keyword));
-    }
+    query = query.bind(limit).bind(offset);
 
-    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
-
-    let rows: Vec<AssetRow> = sqlx::query_as(&query)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "查询素材列表失败");
-            AdminError::Database(e)
-        })?;
+    let rows: Vec<AssetRow> = query.fetch_all(pool).await.map_err(|e| {
+        error!(error = %e, "查询素材列表失败");
+        AdminError::Database(e)
+    })?;
 
     Ok(rows.into_iter().map(AssetDto::from).collect())
 }
@@ -353,6 +370,7 @@ pub async fn create_asset(
 pub async fn update_asset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateAssetRequest>,
 ) -> Result<Json<ApiResponse<AssetDto>>, AdminError> {
     req.validate().map_err(|e| AdminError::Validation(e.to_string()))?;
@@ -372,6 +390,9 @@ pub async fn update_asset(
     if !exists {
         return Err(AdminError::NotFound(format!("素材 {} 不存在", id)));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "asset_library", id).await;
 
     let row: AssetRow = sqlx::query_as(
         r#"
@@ -410,8 +431,12 @@ pub async fn update_asset(
 pub async fn delete_asset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     let pool = &state.pool;
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "asset_library", id).await;
 
     let result = sqlx::query("DELETE FROM assets WHERE id = $1")
         .bind(id)

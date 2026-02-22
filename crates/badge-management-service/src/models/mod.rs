@@ -11,7 +11,8 @@ pub mod user_badge;
 pub use badge::{Badge, BadgeAssets, BadgeCategory, BadgeRule, BadgeSeries, ValidityConfig};
 pub use enums::{
     BadgeStatus, BadgeType, BenefitType, CategoryStatus, ChangeType, GrantStatus, LogAction,
-    OrderStatus, RevokeReason, SourceType, UserBadgeStatus, ValidityType,
+    OrderStatus, RecipientType, RedemptionValidityType, RevokeReason, SourceType,
+    UserBadgeStatus, ValidityType,
 };
 pub use redemption::{
     BadgeRedemptionRule, Benefit, BenefitInfo, BenefitStatus, FrequencyConfig, RedemptionDetail,

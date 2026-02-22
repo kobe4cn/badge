@@ -62,9 +62,21 @@ async fn main() -> Result<()> {
 
     // 启动 gRPC 服务
     // 健康检查端点已由 observability 模块在 metrics_port 上提供
-    info!("gRPC server listening on {}", service_config.grpc_addr);
+    let tls_config = badge_shared::grpc_tls::build_server_tls_config(&config.tls)
+        .await
+        .expect("TLS 配置加载失败");
 
-    Server::builder()
+    let mut server_builder = Server::builder();
+    if let Some(tls) = tls_config {
+        server_builder = server_builder
+            .tls_config(tls)
+            .expect("gRPC TLS 配置应用失败");
+        info!("gRPC server listening on {} (TLS enabled)", service_config.grpc_addr);
+    } else {
+        info!("gRPC server listening on {} (plaintext)", service_config.grpc_addr);
+    }
+
+    server_builder
         .add_service(RuleEngineServiceServer::new(rule_service))
         .serve_with_shutdown(service_config.grpc_addr, shutdown_signal())
         .await?;

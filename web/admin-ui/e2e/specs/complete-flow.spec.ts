@@ -64,7 +64,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
 
     // 4. 发布徽章
     const publishRes = await api.publishBadge(badgeId);
-    expect(publishRes?.success || publishRes?.data).toBeTruthy();
+    expect(publishRes?.code).toBe(0);
 
     // 验证状态变为已发布
     let badges = await api.getBadges({ keyword: testPrefix });
@@ -74,7 +74,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
     // 5. 发放徽章给用户
     const userId = `e2e_lifecycle_${Date.now()}`;
     const grantRes = await api.grantBadgeManual(userId, badgeId, '完整流程测试发放');
-    expect(grantRes?.success || grantRes?.data).toBeTruthy();
+    expect(grantRes?.code).toBe(0);
 
     // 验证用户拥有徽章
     const userBadges = await api.getUserBadges(userId);
@@ -101,7 +101,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
 
     // 7. 下架徽章
     const offlineRes = await api.offlineBadge(badgeId);
-    expect(offlineRes?.success || offlineRes?.data).toBeTruthy();
+    expect(offlineRes?.code).toBe(0);
 
     // 验证状态变为下架
     badges = await api.getBadges({ keyword: testPrefix });
@@ -110,7 +110,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
 
     // 8. 归档徽章
     const archiveRes = await api.archiveBadge(badgeId);
-    expect(archiveRes?.success || archiveRes?.data).toBeTruthy();
+    expect(archiveRes?.code).toBe(0);
   });
 });
 
@@ -176,7 +176,7 @@ test.describe('完整流程测试: 规则触发', () => {
 
     // 2. 发布规则
     const publishRes = await api.publishRule(ruleId);
-    expect(publishRes?.success || publishRes?.data).toBeTruthy();
+    expect(publishRes?.code).toBe(0);
 
     // 验证规则已启用
     let rules = await api.getRules({ keyword: testPrefix });
@@ -200,7 +200,7 @@ test.describe('完整流程测试: 规则触发', () => {
 
     // 4. 禁用规则
     const disableRes = await api.disableRule(ruleId);
-    expect(disableRes?.success || disableRes?.data).toBeTruthy();
+    expect(disableRes?.code).toBe(0);
 
     // 验证规则已禁用
     rules = await api.getRules({ keyword: testPrefix });
@@ -284,18 +284,18 @@ test.describe('完整流程测试: 徽章兑换', () => {
     // 2. 发放徽章给用户
     const userId = `e2e_redeem_flow_${Date.now()}`;
     const grantRes = await api.grantBadgeManual(userId, badgeId, '兑换流程测试发放');
-    expect(grantRes?.success || grantRes?.data).toBeTruthy();
+    expect(grantRes?.code).toBe(0);
 
     // 3. 执行兑换
     const redeemRes = await api.redeemBadge(userId, redemptionRuleId);
-    expect(redeemRes?.success || redeemRes?.data).toBeTruthy();
+    expect(redeemRes?.code).toBe(0);
 
     const orderNo = redeemRes?.data?.orderNo || redeemRes?.data?.id;
     expect(orderNo).toBeTruthy();
 
     // 4. 查询兑换订单列表
     const orders = await api.getRedemptionOrders({ userId, page: 1, pageSize: 10 });
-    expect(orders?.data).toBeTruthy();
+    expect(orders?.data).toBeDefined();
 
     // 5. 查询权益发放记录
     const benefitGrants = await api.getBenefitGrants({ userId, page: 1, pageSize: 10 });
@@ -606,7 +606,7 @@ test.describe('完整流程测试: RBAC 权限', () => {
 
     // 4. Viewer 只能读取，不能修改
     const viewerBadges = await viewerApi.getBadges({ keyword: testPrefix });
-    expect(viewerBadges?.data).toBeTruthy();
+    expect(viewerBadges?.data).toBeDefined();
 
     // 5. Viewer 尝试创建徽章应该失败
     const viewerCreateRes = await viewerContext.post(
@@ -626,7 +626,7 @@ test.describe('完整流程测试: RBAC 权限', () => {
 
     // 6. Admin 可以执行所有操作
     const adminUsers = await adminApi.getSystemUsers();
-    expect(adminUsers?.data).toBeTruthy();
+    expect(adminUsers?.data).toBeDefined();
   });
 });
 

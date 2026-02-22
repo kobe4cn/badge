@@ -36,12 +36,12 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-      # 允许健康检查使用 ruok 指令
-      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok"
+      # 允许健康检查使用 ruok 和 srvr 指令
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,srvr"
     ports:
       - "2181:2181"
     healthcheck:
-      test: ["CMD-SHELL", "echo srvr | nc localhost 2181 | grep Mode"]
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -70,8 +70,7 @@ services:
       retries: 5
 
   elasticsearch:
-    image: elasticsearch:8.19.10
-    platform: linux/arm64
+    image: elasticsearch:8.12.2
     container_name: badge-elasticsearch
     environment:
       - discovery.type=single-node

@@ -3,9 +3,11 @@
 //! 实现权益的 CRUD 操作，包括关联徽章和用户权益查询
 
 use axum::{
+    Extension,
     Json,
     extract::{Path, Query, State},
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -485,6 +487,7 @@ pub async fn get_benefit(
 pub async fn update_benefit(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateBenefitRequest>,
 ) -> Result<Json<ApiResponse<BenefitDto>>, AdminError> {
     req.validate()?;
@@ -498,6 +501,9 @@ pub async fn update_benefit(
     if !exists.0 {
         return Err(AdminError::BenefitNotFound(id));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "benefits", id).await;
 
     let status_str = req.status.map(|s| {
         serde_json::to_value(s)
@@ -518,7 +524,7 @@ pub async fn update_benefit(
             external_system = COALESCE($5, external_system),
             total_stock = COALESCE($6, total_stock),
             remaining_stock = CASE
-                WHEN $6 IS NOT NULL THEN $6 - COALESCE(redeemed_count, 0)
+                WHEN $6 IS NOT NULL THEN GREATEST($6 - COALESCE(redeemed_count, 0), 0)
                 ELSE remaining_stock
             END,
             config = COALESCE($7, config),
@@ -558,6 +564,7 @@ pub async fn update_benefit(
 pub async fn delete_benefit(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     // 检查权益是否存在
     let exists: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM benefits WHERE id = $1)")
@@ -568,6 +575,9 @@ pub async fn delete_benefit(
     if !exists.0 {
         return Err(AdminError::BenefitNotFound(id));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "benefits", id).await;
 
     // 检查是否有关联的兑换规则
     let has_rules: (bool,) = sqlx::query_as(

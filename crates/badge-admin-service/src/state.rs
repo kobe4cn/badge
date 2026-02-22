@@ -8,13 +8,32 @@ use badge_management::service::RedemptionService;
 use badge_proto::badge::badge_management_service_client::BadgeManagementServiceClient;
 use badge_proto::rule_engine::rule_engine_service_client::RuleEngineServiceClient;
 use badge_shared::cache::Cache;
+use badge_shared::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use sqlx::PgPool;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 
 use crate::auth::{JwtConfig, JwtManager};
 use crate::error::AdminError;
+
+/// 创建 gRPC 服务的默认熔断器配置
+fn default_grpc_circuit_breakers() -> (CircuitBreaker, CircuitBreaker) {
+    let badge_mgmt_cb = CircuitBreaker::new(
+        CircuitBreakerConfig::new("grpc-badge-management")
+            .with_failure_threshold(5)
+            .with_recovery_timeout(Duration::from_secs(30))
+            .with_half_open_permits(3),
+    );
+    let rule_engine_cb = CircuitBreaker::new(
+        CircuitBreakerConfig::new("grpc-rule-engine")
+            .with_failure_threshold(5)
+            .with_recovery_timeout(Duration::from_secs(30))
+            .with_half_open_permits(3),
+    );
+    (badge_mgmt_cb, rule_engine_cb)
+}
 
 /// Axum 应用共享状态
 ///
@@ -37,6 +56,10 @@ pub struct AppState {
     pub badge_management_client: Arc<RwLock<Option<BadgeManagementServiceClient<Channel>>>>,
     /// 规则引擎 gRPC 客户端（用于规则测试和评估）
     pub rule_engine_client: Arc<RwLock<Option<RuleEngineServiceClient<Channel>>>>,
+    /// badge-management gRPC 调用的熔断器
+    pub badge_mgmt_circuit_breaker: CircuitBreaker,
+    /// 规则引擎 gRPC 调用的熔断器
+    pub rule_engine_circuit_breaker: CircuitBreaker,
 }
 
 impl AppState {
@@ -44,6 +67,7 @@ impl AppState {
     pub fn new(pool: PgPool, cache: Arc<Cache>) -> Self {
         let jwt_config = JwtConfig::default();
         let jwt_manager = Arc::new(JwtManager::new(jwt_config));
+        let (badge_mgmt_cb, rule_engine_cb) = default_grpc_circuit_breakers();
 
         Self {
             pool,
@@ -54,12 +78,15 @@ impl AppState {
             redemption_service: None,
             badge_management_client: Arc::new(RwLock::new(None)),
             rule_engine_client: Arc::new(RwLock::new(None)),
+            badge_mgmt_circuit_breaker: badge_mgmt_cb,
+            rule_engine_circuit_breaker: rule_engine_cb,
         }
     }
 
     /// 创建带有自定义 JWT 配置的应用状态
     pub fn with_jwt_config(pool: PgPool, cache: Arc<Cache>, jwt_config: JwtConfig) -> Self {
         let jwt_manager = Arc::new(JwtManager::new(jwt_config));
+        let (badge_mgmt_cb, rule_engine_cb) = default_grpc_circuit_breakers();
 
         Self {
             pool,
@@ -70,6 +97,8 @@ impl AppState {
             redemption_service: None,
             badge_management_client: Arc::new(RwLock::new(None)),
             rule_engine_client: Arc::new(RwLock::new(None)),
+            badge_mgmt_circuit_breaker: badge_mgmt_cb,
+            rule_engine_circuit_breaker: rule_engine_cb,
         }
     }
 
@@ -84,6 +113,7 @@ impl AppState {
     ) -> Self {
         let jwt_config = JwtConfig::default();
         let jwt_manager = Arc::new(JwtManager::new(jwt_config));
+        let (badge_mgmt_cb, rule_engine_cb) = default_grpc_circuit_breakers();
 
         Self {
             pool,
@@ -94,6 +124,8 @@ impl AppState {
             redemption_service: None,
             badge_management_client: Arc::new(RwLock::new(None)),
             rule_engine_client: Arc::new(RwLock::new(None)),
+            badge_mgmt_circuit_breaker: badge_mgmt_cb,
+            rule_engine_circuit_breaker: rule_engine_cb,
         }
     }
 

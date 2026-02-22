@@ -200,13 +200,20 @@ pub struct ManualRevokeRequest {
 }
 
 /// 批量取消请求
+///
+/// 支持两种模式：
+/// 1. user_ids 直接传入用户列表（CSV 上传后前端解析）
+/// 2. file_url 指向 OSS 上的 CSV 文件（Worker 下载解析）
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchRevokeRequest {
     pub badge_id: i64,
-    /// OSS 文件地址，包含用户列表
-    #[validate(url(message = "文件地址必须是有效的URL"))]
-    pub file_url: String,
+    /// 用户 ID 列表（直接传入，适用于少量用户）
+    pub user_ids: Option<Vec<String>>,
+    /// CSV 上传后的 Redis 引用键（大量用户场景）
+    pub csv_ref_key: Option<String>,
+    /// OSS 文件地址（可选）
+    pub file_url: Option<String>,
     #[validate(length(min = 1, max = 500, message = "取消原因不能为空且不超过500字符"))]
     pub reason: String,
 }

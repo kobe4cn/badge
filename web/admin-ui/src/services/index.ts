@@ -19,3 +19,8 @@ export * from './member';
 export * from './auth';
 export * from './benefit';
 export * from './redemption';
+export * from './revoke';
+export * from './notification';
+export * from './asset';
+export * from './operationLog';
+export * from './monitoring';

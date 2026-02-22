@@ -4,7 +4,7 @@
  * 提供素材的 CRUD 操作 API
  */
 
-import request from './api';
+import { get, getList, post, put, del, patch } from './api';
 import type { PaginatedResponse } from '@/types';
 
 /**
@@ -100,49 +100,49 @@ export interface UpdateAssetRequest {
  * 获取素材列表
  */
 export async function getAssets(params?: AssetQueryParams): Promise<PaginatedResponse<Asset>> {
-  return request.get('/assets', { params });
+  return getList<Asset>('/admin/assets', params as Record<string, unknown>);
 }
 
 /**
  * 获取单个素材
  */
 export async function getAsset(id: number): Promise<Asset> {
-  return request.get(`/assets/${id}`);
+  return get<Asset>(`/admin/assets/${id}`);
 }
 
 /**
  * 创建素材
  */
 export async function createAsset(data: CreateAssetRequest): Promise<Asset> {
-  return request.post('/assets', data);
+  return post<Asset>('/admin/assets', data);
 }
 
 /**
  * 更新素材
  */
 export async function updateAsset(id: number, data: UpdateAssetRequest): Promise<Asset> {
-  return request.put(`/assets/${id}`, data);
+  return put<Asset>(`/admin/assets/${id}`, data);
 }
 
 /**
  * 删除素材
  */
 export async function deleteAsset(id: number): Promise<void> {
-  return request.delete(`/assets/${id}`);
+  return del(`/admin/assets/${id}`);
 }
 
 /**
  * 增加素材使用次数
  */
 export async function incrementAssetUsage(id: number): Promise<void> {
-  return request.post(`/assets/${id}/use`);
+  return patch<void>(`/admin/assets/${id}/use`, {});
 }
 
 /**
  * 获取素材分类列表
  */
 export async function getAssetCategories(): Promise<string[]> {
-  return request.get('/assets/categories');
+  return get<string[]>('/admin/assets/categories');
 }
 
 /**

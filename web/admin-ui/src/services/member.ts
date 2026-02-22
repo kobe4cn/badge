@@ -4,13 +4,18 @@
  * 封装会员查询、徽章查询和撤销等接口
  */
 
-import { get, post } from './api';
+import { get, post, getList } from './api';
 import type {
   User,
   MemberDetail,
   MemberBadgeStats,
   UserBadgeDetail,
   RevokeBadgeRequest,
+  UserLedgerEntry,
+  UserBenefit,
+  UserRedemptionHistory,
+  PaginatedResponse,
+  PaginationParams,
 } from '@/types';
 
 /**
@@ -64,6 +69,47 @@ export function revokeBadge(request: RevokeBadgeRequest): Promise<void> {
 }
 
 /**
+ * 获取用户账本流水
+ *
+ * 返回用户在 badge_ledger 中的所有变动记录
+ *
+ * @param userId - 用户 ID
+ * @param params - 分页参数
+ */
+export function getMemberLedger(
+  userId: string,
+  params?: PaginationParams
+): Promise<PaginatedResponse<UserLedgerEntry>> {
+  return getList<UserLedgerEntry>(`/admin/users/${userId}/ledger`, params as Record<string, unknown>);
+}
+
+/**
+ * 获取用户权益列表
+ *
+ * @param userId - 用户 ID
+ * @param params - 分页参数
+ */
+export function getMemberBenefits(
+  userId: string,
+  params?: PaginationParams
+): Promise<PaginatedResponse<UserBenefit>> {
+  return getList<UserBenefit>(`/admin/users/${userId}/benefits`, params as Record<string, unknown>);
+}
+
+/**
+ * 获取用户兑换历史
+ *
+ * @param userId - 用户 ID
+ * @param params - 分页参数
+ */
+export function getMemberRedemptionHistory(
+  userId: string,
+  params?: PaginationParams
+): Promise<PaginatedResponse<UserRedemptionHistory>> {
+  return getList<UserRedemptionHistory>(`/admin/users/${userId}/redemption-history`, params as Record<string, unknown>);
+}
+
+/**
  * 会员服务对象
  *
  * 提供面向对象风格的 API 调用方式
@@ -74,4 +120,7 @@ export const memberService = {
   getMemberBadges,
   getMemberBadgeStats,
   revokeBadge,
+  getMemberLedger,
+  getMemberBenefits,
+  getMemberRedemptionHistory,
 };

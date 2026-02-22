@@ -98,3 +98,62 @@ export interface RevokeBadgeRequest {
   /** 撤销原因 */
   reason: string;
 }
+
+/**
+ * 用户账本流水记录
+ *
+ * 对应后端 UserLedgerDto，记录用户徽章的所有变动（获取/撤销/兑换）
+ */
+export interface UserLedgerEntry {
+  id: number;
+  badgeId: number;
+  badgeName: string;
+  /** 变动类型：GRANT / REVOKE / REDEEM / EXPIRE 等 */
+  changeType: string;
+  /** 来源类型：EVENT / MANUAL / SYSTEM 等 */
+  sourceType: string;
+  /** 变动数量（正为获得，负为扣减） */
+  quantity: number;
+  remark?: string;
+  createdAt: string;
+}
+
+/**
+ * 用户权益记录
+ *
+ * 对应后端 UserBenefitDto，展示用户获得的权益发放记录
+ */
+export interface UserBenefit {
+  grantId: number;
+  grantNo: string;
+  benefitId: number;
+  benefitName: string;
+  benefitType: string;
+  status: string;
+  grantedAt?: string;
+  expiresAt?: string;
+  createdAt: string;
+}
+
+/**
+ * 用户兑换历史记录
+ *
+ * 对应后端 RedemptionOrderDto
+ */
+export interface UserRedemptionHistory {
+  id: number;
+  orderNo: string;
+  userId: string;
+  ruleId: number;
+  ruleName: string;
+  benefitId: number;
+  benefitName: string;
+  status: string;
+  failureReason?: string;
+  consumedBadges: Array<{
+    badgeId: number;
+    badgeName: string;
+    quantity: number;
+  }>;
+  createdAt: string;
+}

@@ -23,7 +23,7 @@ pub async fn auth_middleware(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
-    let path = request.uri().path();
+    let path = request.uri().path().to_string();
 
     // 公开路由列表（不需要 JWT 认证）
     // "/api/v1/" 是面向外部系统的 API 路由，使用独立的 API Key 认证机制，
@@ -34,6 +34,8 @@ pub async fn auth_middleware(
         "/api/admin/health",
         "/api/v1/",
         "/health",
+        "/ready",
+        "/metrics",
     ];
 
     // 检查是否是公开路由
@@ -62,6 +64,12 @@ pub async fn auth_middleware(
                 return unauthorized_response("Token 已被注销");
             }
 
+            // 使用默认密码的用户只允许访问认证相关接口（修改密码、查看个人信息、登出），
+            // 阻止其执行任何业务操作，从后端层面强制修改密码。
+            if claims.must_change_password && !path.starts_with("/api/admin/auth/") {
+                return password_change_required_response();
+            }
+
             // 将 Claims 注入请求扩展，供后续处理器使用
             request.extensions_mut().insert(claims);
             next.run(request).await
@@ -81,6 +89,22 @@ fn unauthorized_response(message: &str) -> Response {
 
     (
         StatusCode::UNAUTHORIZED,
+        axum::Json(body),
+    )
+        .into_response()
+}
+
+/// 默认密码未修改时返回 403，前端通过 PASSWORD_CHANGE_REQUIRED 错误码跳转修改密码页面
+fn password_change_required_response() -> Response {
+    let body = json!({
+        "success": false,
+        "code": "PASSWORD_CHANGE_REQUIRED",
+        "message": "请先修改默认密码",
+        "data": null
+    });
+
+    (
+        StatusCode::FORBIDDEN,
         axum::Json(body),
     )
         .into_response()

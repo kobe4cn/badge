@@ -4,9 +4,10 @@
 //! API Key 采用 SHA256 哈希存储，仅在创建和重新生成时返回明文。
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, Query, State},
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use rand::Rng;
 use sha2::{Digest, Sha256};
@@ -217,7 +218,11 @@ pub async fn create_api_key(
 pub async fn delete_api_key(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "api_key", id).await;
+
     let result = sqlx::query("DELETE FROM api_key WHERE id = $1")
         .bind(id)
         .execute(&state.pool)

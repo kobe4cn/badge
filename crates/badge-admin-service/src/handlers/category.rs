@@ -3,9 +3,12 @@
 //! 实现徽章分类的 CRUD 操作
 
 use axum::{
+    Extension,
     Json,
     extract::{Path, Query, State},
 };
+
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use tracing::info;
 use validator::Validate;
@@ -318,6 +321,7 @@ pub async fn get_category(
 pub async fn update_category(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateCategoryRequest>,
 ) -> Result<Json<ApiResponse<CategoryDto>>, AdminError> {
     req.validate()?;
@@ -332,6 +336,9 @@ pub async fn update_category(
     if !exists.0 {
         return Err(AdminError::CategoryNotFound(id));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_categories", id).await;
 
     // 动态构建更新字段
     let row = sqlx::query_as::<_, CategoryRow>(
@@ -390,6 +397,7 @@ pub async fn update_category(
 pub async fn delete_category(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     // 检查是否有关联的系列
     let series_count: (i64,) =
@@ -404,6 +412,9 @@ pub async fn delete_category(
             series_count.0
         )));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_categories", id).await;
 
     let result = sqlx::query("DELETE FROM badge_categories WHERE id = $1")
         .bind(id)
@@ -425,8 +436,12 @@ pub async fn delete_category(
 pub async fn update_category_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateStatusRequest>,
 ) -> Result<Json<ApiResponse<CategoryDto>>, AdminError> {
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_categories", id).await;
+
     let result = sqlx::query(
         "UPDATE badge_categories SET status = $2, updated_at = NOW() WHERE id = $1",
     )
@@ -494,8 +509,12 @@ pub async fn update_category_status(
 pub async fn update_category_sort(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateSortRequest>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_categories", id).await;
+
     let result = sqlx::query(
         "UPDATE badge_categories SET sort_order = $2, updated_at = NOW() WHERE id = $1",
     )
@@ -520,6 +539,7 @@ pub struct UpdateStatusRequest {
 
 /// 排序更新请求
 #[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateSortRequest {
     pub sort_order: i32,
 }

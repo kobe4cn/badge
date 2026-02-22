@@ -48,6 +48,9 @@ pub struct Claims {
     pub exp: i64,
     /// 签发者
     pub iss: String,
+    /// 是否需要强制修改密码（种子用户首次登录时为 true）
+    #[serde(default)]
+    pub must_change_password: bool,
 }
 
 /// JWT 管理器
@@ -79,6 +82,7 @@ impl JwtManager {
     /// - `display_name`: 显示名称
     /// - `roles`: 角色列表
     /// - `permissions`: 权限列表
+    /// - `must_change_password`: 是否需要强制修改密码
     pub fn generate_token(
         &self,
         user_id: i64,
@@ -86,6 +90,7 @@ impl JwtManager {
         display_name: Option<&str>,
         roles: Vec<String>,
         permissions: Vec<String>,
+        must_change_password: bool,
     ) -> Result<(String, i64), AdminError> {
         let now = Utc::now();
         let exp = now + Duration::seconds(self.config.expires_in_secs);
@@ -99,6 +104,7 @@ impl JwtManager {
             iat: now.timestamp(),
             exp: exp.timestamp(),
             iss: self.config.issuer.clone(),
+            must_change_password,
         };
 
         let token = encode(&Header::default(), &claims, &self.encoding_key)
@@ -131,7 +137,8 @@ impl JwtManager {
 
     /// 刷新 Token
     ///
-    /// 基于现有的 Claims 生成新的 Token（延长过期时间）
+    /// 基于现有的 Claims 生成新的 Token（延长过期时间）。
+    /// must_change_password 标记会被保留——用户必须真正修改密码后重新登录才能解除限制。
     pub fn refresh_token(&self, claims: &Claims) -> Result<(String, i64), AdminError> {
         let user_id: i64 = claims
             .sub
@@ -144,6 +151,7 @@ impl JwtManager {
             claims.display_name.as_deref(),
             claims.roles.clone(),
             claims.permissions.clone(),
+            claims.must_change_password,
         )
     }
 
@@ -169,6 +177,7 @@ mod tests {
                 Some("管理员"),
                 vec!["admin".to_string()],
                 vec!["system:user:read".to_string()],
+                false,
             )
             .unwrap();
 

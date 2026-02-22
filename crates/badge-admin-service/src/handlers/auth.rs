@@ -13,7 +13,7 @@ use sqlx::FromRow;
 use std::time::Duration;
 use validator::Validate;
 
-use crate::auth::{verify_password, Claims};
+use crate::auth::{hash_password, verify_password, Claims};
 use crate::dto::ApiResponse;
 use crate::error::{AdminError, Result};
 use crate::state::AppState;
@@ -43,6 +43,8 @@ pub struct LoginResponse {
     pub user: AdminUserDto,
     pub permissions: Vec<String>,
     pub expires_at: i64,
+    /// 前端收到 true 时应强制跳转到修改密码页面
+    pub must_change_password: bool,
 }
 
 /// 当前用户响应
@@ -104,6 +106,7 @@ struct AdminUserRow {
     locked_until: Option<DateTime<Utc>>,
     last_login_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    must_change_password: bool,
 }
 
 /// 数据库角色记录
@@ -138,7 +141,8 @@ pub async fn login(
     let user: AdminUserRow = sqlx::query_as(
         r#"
         SELECT id, username, password_hash, email, display_name, avatar_url,
-               status, failed_login_attempts, locked_until, last_login_at, created_at
+               status, failed_login_attempts, locked_until, last_login_at, created_at,
+               must_change_password
         FROM admin_user
         WHERE username = $1
         "#,
@@ -254,6 +258,7 @@ pub async fn login(
         user.display_name.as_deref(),
         role_codes,
         permission_codes.clone(),
+        user.must_change_password,
     )?;
 
     let response = LoginResponse {
@@ -270,6 +275,7 @@ pub async fn login(
         },
         permissions: permission_codes,
         expires_at,
+        must_change_password: user.must_change_password,
     };
 
     Ok(Json(ApiResponse::success(response)))
@@ -359,7 +365,8 @@ pub async fn get_current_user(
     let user: AdminUserRow = sqlx::query_as(
         r#"
         SELECT id, username, password_hash, email, display_name, avatar_url,
-               status, failed_login_attempts, locked_until, last_login_at, created_at
+               status, failed_login_attempts, locked_until, last_login_at, created_at,
+               must_change_password
         FROM admin_user
         WHERE id = $1
         "#,
@@ -442,4 +449,80 @@ pub async fn refresh_token(
         token,
         expires_at,
     })))
+}
+
+/// 修改密码请求
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangePasswordRequest {
+    #[validate(length(min = 1, message = "旧密码不能为空"))]
+    pub old_password: String,
+    #[validate(length(min = 8, max = 100, message = "新密码长度必须在 8-100 之间"))]
+    pub new_password: String,
+}
+
+/// 修改密码
+///
+/// POST /api/admin/auth/change-password
+///
+/// 验证旧密码正确后更新密码哈希，同时清除 must_change_password 标记。
+/// 种子用户首次登录后会被前端强制跳转到此接口。
+pub async fn change_password(
+    State(state): State<AppState>,
+    request: Request,
+) -> Result<Json<ApiResponse<()>>> {
+    let claims = request
+        .extensions()
+        .get::<Claims>()
+        .ok_or_else(|| AdminError::Unauthorized("未认证".to_string()))?;
+
+    let user_id: i64 = claims
+        .sub
+        .parse()
+        .map_err(|_| AdminError::Internal("无效的用户 ID".to_string()))?;
+
+    // 需要从 body 中提取 JSON，但 request 已经被 extensions 使用
+    // 使用 axum::body::to_bytes 手动解析
+    let (_, body) = request.into_parts();
+    let bytes = axum::body::to_bytes(body, 1024 * 1024)
+        .await
+        .map_err(|_| AdminError::Validation("请求体解析失败".to_string()))?;
+    let req: ChangePasswordRequest = serde_json::from_slice(&bytes)
+        .map_err(|e| AdminError::Validation(format!("请求格式错误: {}", e)))?;
+
+    req.validate()?;
+
+    // 查询当前密码哈希
+    let user: (String,) =
+        sqlx::query_as("SELECT password_hash FROM admin_user WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AdminError::UserNotFound(user_id.to_string()))?;
+
+    // 验证旧密码
+    if !verify_password(&req.old_password, &user.0)? {
+        return Err(AdminError::InvalidCredentials);
+    }
+
+    // 生成新密码哈希
+    let new_hash = hash_password(&req.new_password)?;
+
+    // 更新密码并清除强制修改标记
+    sqlx::query(
+        r#"
+        UPDATE admin_user
+        SET password_hash = $1, must_change_password = FALSE,
+            password_changed_at = NOW(), updated_at = NOW()
+        WHERE id = $2
+        "#,
+    )
+    .bind(&new_hash)
+    .bind(user_id)
+    .execute(&state.pool)
+    .await?;
+
+    tracing::info!(user_id = user_id, "用户已修改密码");
+
+    Ok(Json(ApiResponse::success(())))
 }

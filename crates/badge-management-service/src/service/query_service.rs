@@ -638,6 +638,7 @@ mod tests {
         Badge {
             id,
             series_id,
+            code: None,
             badge_type: crate::models::BadgeType::Normal,
             name: format!("Badge {}", id),
             description: Some("Test badge".to_string()),
@@ -666,6 +667,11 @@ mod tests {
             acquired_at: Utc::now(),
             expires_at: None,
             source_type: crate::models::SourceType::Manual,
+            source_ref: None,
+            expire_reminded: false,
+            expired_at: None,
+            recipient_type: crate::models::RecipientType::Owner,
+            actual_user_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

@@ -218,8 +218,8 @@ export interface CreateBatchTaskRequest {
   quantity: number;
   /** 发放原因 */
   reason?: string;
-  /** 用户 ID 列表（CSV 上传模式） */
-  userIds?: string[];
+  /** CSV 上传后的 Redis 引用键（CSV 上传模式） */
+  csvRefKey?: string;
   /** 用户筛选条件（条件筛选模式） */
   userFilter?: UserFilterCondition;
   /** 调度类型：立即执行/定时/周期 */
@@ -248,10 +248,15 @@ export interface UserFilterCondition {
 
 /**
  * CSV 解析结果
+ *
+ * userIds 存储在服务端 Redis 中（通过 csvRefKey 引用），
+ * 避免大量用户 ID 在 HTTP 请求中来回传输。
  */
 export interface CsvParseResult {
-  /** 有效用户 ID 列表 */
-  userIds: string[];
+  /** Redis 引用键，创建任务时传此键即可 */
+  csvRefKey: string;
+  /** 有效用户数量 */
+  validCount: number;
   /** 无效行号列表 */
   invalidRows: number[];
   /** 总行数 */
@@ -274,7 +279,7 @@ export interface UserFilterPreview {
 /**
  * 操作日志
  *
- * 记录 B 端所有运营操作
+ * 记录 B 端所有运营操作，与后端 OperationLogDto 对应
  */
 export interface OperationLog {
   id: number;
@@ -296,15 +301,26 @@ export interface OperationLog {
   afterData?: Record<string, unknown>;
   /** 操作者 IP */
   ipAddress?: string;
-  /** User-Agent */
-  userAgent?: string;
   createdAt: string;
 }
 
 /**
  * 操作模块
+ *
+ * 覆盖后端所有审计模块
  */
-export type OperationModule = 'category' | 'series' | 'badge' | 'rule' | 'grant' | 'revoke';
+export type OperationModule =
+  | 'category'
+  | 'series'
+  | 'badge'
+  | 'rule'
+  | 'grant'
+  | 'revoke'
+  | 'benefit'
+  | 'redemption'
+  | 'notification'
+  | 'system'
+  | 'asset';
 
 // ============ 表单数据类型 ============
 
@@ -324,10 +340,10 @@ export interface ManualGrantRequest {
   userIds: string[];
   /** 徽章 ID */
   badgeId: number;
-  /** 发放数量 */
-  quantity?: number;
-  /** 发放原因 */
-  reason?: string;
+  /** 发放数量（后端要求 1-100） */
+  quantity: number;
+  /** 发放原因（后端要求必填，1-500 字符） */
+  reason: string;
   /** 发放对象类型：OWNER-账号注册人（默认），USER-实际使用人 */
   recipientType?: RecipientType;
   /** 实际使用人 ID（当 recipientType = USER 时必填） */

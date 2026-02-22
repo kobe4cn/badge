@@ -117,13 +117,22 @@ impl KafkaProducer {
     /// 设置 `message.timeout.ms` 为 5 秒——在徽章系统中如果 5 秒内仍无法投递，
     /// 应由上层重试或写入死信队列，而非无限等待。
     pub fn new(config: &KafkaConfig) -> Result<Self, BadgeError> {
-        let producer: FutureProducer = ClientConfig::new()
+        let mut client_config = ClientConfig::new();
+        client_config
             .set("bootstrap.servers", &config.brokers)
-            .set("message.timeout.ms", "5000")
+            .set("message.timeout.ms", "5000");
+
+        apply_security_config(&mut client_config, &config.security);
+
+        let producer: FutureProducer = client_config
             .create()
             .map_err(|e| BadgeError::Kafka(format!("创建生产者失败: {e}")))?;
 
-        info!(brokers = %config.brokers, "Kafka 生产者已初始化");
+        info!(
+            brokers = %config.brokers,
+            security_protocol = %config.security.security_protocol,
+            "Kafka 生产者已初始化"
+        );
         Ok(Self { producer })
     }
 
@@ -192,15 +201,32 @@ impl KafkaConsumer {
             None => config.consumer_group.clone(),
         };
 
-        let consumer: StreamConsumer = ClientConfig::new()
+        let mut client_config = ClientConfig::new();
+        client_config
             .set("bootstrap.servers", &config.brokers)
             .set("group.id", &group_id)
             .set("auto.offset.reset", &config.auto_offset_reset)
             .set("enable.auto.commit", "true")
+            // 消费者处理链路涉及 DB 事务 + 规则匹配 + 通知投递，
+            // 高负载下单条消息可能耗时较长，需放宽 poll 间隔避免被踢出消费组
+            .set("max.poll.interval.ms", &config.max_poll_interval_ms.to_string())
+            .set("session.timeout.ms", &config.session_timeout_ms.to_string())
+            .set("heartbeat.interval.ms", &config.heartbeat_interval_ms.to_string());
+
+        apply_security_config(&mut client_config, &config.security);
+
+        let consumer: StreamConsumer = client_config
             .create()
             .map_err(|e| BadgeError::Kafka(format!("创建消费者失败: {e}")))?;
 
-        info!(brokers = %config.brokers, group_id, "Kafka 消费者已初始化");
+        info!(
+            brokers = %config.brokers,
+            group_id,
+            max_poll_interval_ms = config.max_poll_interval_ms,
+            session_timeout_ms = config.session_timeout_ms,
+            security_protocol = %config.security.security_protocol,
+            "Kafka 消费者已初始化"
+        );
         Ok(Self { consumer })
     }
 
@@ -271,6 +297,44 @@ impl KafkaConsumer {
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 安全配置
+// ---------------------------------------------------------------------------
+
+use crate::config::KafkaSecurityConfig;
+
+/// 将 SASL_SSL 安全配置应用到 rdkafka ClientConfig
+///
+/// 仅当 security_protocol 不为 PLAINTEXT 时才设置额外参数，
+/// 开发环境无需配置即保持明文通信。
+fn apply_security_config(
+    client_config: &mut ClientConfig,
+    security: &KafkaSecurityConfig,
+) {
+    client_config.set("security.protocol", &security.security_protocol);
+
+    // PLAINTEXT 模式无需额外配置
+    if security.security_protocol == "PLAINTEXT" {
+        return;
+    }
+
+    if let Some(ref mechanism) = security.sasl_mechanism {
+        client_config.set("sasl.mechanism", mechanism);
+    }
+
+    if let Some(ref username) = security.sasl_username {
+        client_config.set("sasl.username", username);
+    }
+
+    if let Some(ref password) = security.sasl_password {
+        client_config.set("sasl.password", password);
+    }
+
+    if let Some(ref ca_location) = security.ssl_ca_location {
+        client_config.set("ssl.ca.location", ca_location);
     }
 }
 

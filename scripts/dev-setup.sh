@@ -16,9 +16,12 @@ podman compose -f docker/docker-compose.infra.yml up -d
 echo "⏳ Waiting for services to be ready..."
 sleep 10
 
-# 运行数据库迁移
+# 运行数据库迁移（执行全部迁移文件）
 echo "🗃️ Running database migrations..."
-podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250128_001_init_schema.sql || true
+for f in migrations/*.sql; do
+  echo "  Applying $f..."
+  podman exec -i badge-postgres psql -U badge -d badge_db < "$f" || true
+done
 
 # 安装前端依赖
 echo "📦 Installing frontend dependencies..."

@@ -32,8 +32,8 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             url: "postgres://badge:badge_secret@localhost:5432/badge_db".to_string(),
-            max_connections: 10,
-            min_connections: 2,
+            max_connections: 50,
+            min_connections: 5,
             connect_timeout_seconds: 30,
             idle_timeout_seconds: 600,
         }
@@ -51,7 +51,7 @@ impl Default for RedisConfig {
     fn default() -> Self {
         Self {
             url: "redis://localhost:6379".to_string(),
-            pool_size: 10,
+            pool_size: 20,
         }
     }
 }
@@ -109,8 +109,31 @@ pub struct KafkaConfig {
     pub brokers: String,
     pub consumer_group: String,
     pub auto_offset_reset: String,
+    /// 消费者两次 poll 间的最大间隔（毫秒），超时会被踢出消费组触发 rebalance。
+    /// 需要大于单条消息最慢处理时间（含级联规则评估 + DB 事务 + 通知投递）。
+    #[serde(default = "default_max_poll_interval_ms")]
+    pub max_poll_interval_ms: u32,
+    /// Broker 侧会话超时（毫秒），消费者在此窗口内无心跳则被移出消费组。
+    #[serde(default = "default_session_timeout_ms")]
+    pub session_timeout_ms: u32,
+    /// 心跳间隔（毫秒），建议 ≤ session_timeout_ms 的 1/3。
+    #[serde(default = "default_heartbeat_interval_ms")]
+    pub heartbeat_interval_ms: u32,
     #[serde(default)]
     pub topics: KafkaTopicsConfig,
+    /// 安全配置（SASL_SSL），开发环境不配置时使用 PLAINTEXT
+    #[serde(default)]
+    pub security: KafkaSecurityConfig,
+}
+
+fn default_max_poll_interval_ms() -> u32 {
+    600_000
+}
+fn default_session_timeout_ms() -> u32 {
+    45_000
+}
+fn default_heartbeat_interval_ms() -> u32 {
+    15_000
 }
 
 impl Default for KafkaConfig {
@@ -119,7 +142,11 @@ impl Default for KafkaConfig {
             brokers: "localhost:9092".to_string(),
             consumer_group: "badge-service".to_string(),
             auto_offset_reset: "earliest".to_string(),
+            max_poll_interval_ms: default_max_poll_interval_ms(),
+            session_timeout_ms: default_session_timeout_ms(),
+            heartbeat_interval_ms: default_heartbeat_interval_ms(),
             topics: KafkaTopicsConfig::default(),
+            security: KafkaSecurityConfig::default(),
         }
     }
 }
@@ -178,6 +205,69 @@ impl Default for RulesConfig {
     }
 }
 
+/// TLS 配置
+///
+/// 控制 gRPC 服务端/客户端的 TLS 行为。
+/// 开发环境默认禁用，生产环境通过配置文件或环境变量启用。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TlsConfig {
+    /// 是否启用 TLS（开发环境默认 false）
+    #[serde(default)]
+    pub enabled: bool,
+    /// 服务端证书路径（PEM 格式）
+    pub cert_path: Option<String>,
+    /// 服务端私钥路径（PEM 格式）
+    pub key_path: Option<String>,
+    /// CA 证书路径（用于双向 TLS 验证客户端，或客户端验证服务端）
+    pub ca_path: Option<String>,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            cert_path: None,
+            key_path: None,
+            ca_path: None,
+        }
+    }
+}
+
+/// Kafka 安全配置
+///
+/// 生产环境使用 SASL_SSL 加密 Kafka 通信，
+/// 开发环境默认 PLAINTEXT（不配置此节即可）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct KafkaSecurityConfig {
+    /// 安全协议：PLAINTEXT / SSL / SASL_PLAINTEXT / SASL_SSL
+    #[serde(default = "default_security_protocol")]
+    pub security_protocol: String,
+    /// SASL 认证机制：PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512
+    pub sasl_mechanism: Option<String>,
+    /// SASL 用户名
+    pub sasl_username: Option<String>,
+    /// SASL 密码
+    pub sasl_password: Option<String>,
+    /// SSL CA 证书路径
+    pub ssl_ca_location: Option<String>,
+}
+
+fn default_security_protocol() -> String {
+    "PLAINTEXT".into()
+}
+
+impl Default for KafkaSecurityConfig {
+    fn default() -> Self {
+        Self {
+            security_protocol: default_security_protocol(),
+            sasl_mechanism: None,
+            sasl_username: None,
+            sasl_password: None,
+            ssl_ca_location: None,
+        }
+    }
+}
+
 /// 应用配置
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct AppConfig {
@@ -190,6 +280,8 @@ pub struct AppConfig {
     pub observability: ObservabilityConfig,
     #[serde(default)]
     pub rules: RulesConfig,
+    #[serde(default)]
+    pub tls: TlsConfig,
 }
 
 impl AppConfig {
@@ -315,7 +407,7 @@ mod tests {
     fn test_default_config() {
         let config = AppConfig::default();
         assert_eq!(config.server.port, 8080);
-        assert_eq!(config.database.max_connections, 10);
+        assert_eq!(config.database.max_connections, 50);
     }
 
     #[test]

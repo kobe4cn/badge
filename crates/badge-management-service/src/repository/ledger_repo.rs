@@ -27,19 +27,23 @@ impl BadgeLedgerRepository {
     pub async fn create(&self, ledger: &BadgeLedger) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO badge_ledger (user_id, badge_id, change_type, quantity, balance_after, ref_id, source_type, remark, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO badge_ledger (user_id, badge_id, user_badge_id, change_type, quantity, balance_after, ref_id, source_type, remark, operator, recipient_type, actual_user_id, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id
             "#,
         )
         .bind(&ledger.user_id)
         .bind(ledger.badge_id)
+        .bind(ledger.user_badge_id)
         .bind(ledger.change_type)
         .bind(ledger.quantity)
         .bind(ledger.balance_after)
         .bind(&ledger.ref_id)
         .bind(ledger.ref_type)
         .bind(&ledger.remark)
+        .bind(&ledger.operator)
+        .bind(ledger.recipient_type)
+        .bind(&ledger.actual_user_id)
         .bind(ledger.created_at)
         .fetch_one(&self.pool)
         .await?;
@@ -51,19 +55,23 @@ impl BadgeLedgerRepository {
     pub async fn create_in_tx(tx: &mut PgConnection, ledger: &BadgeLedger) -> Result<i64> {
         let row = sqlx::query(
             r#"
-            INSERT INTO badge_ledger (user_id, badge_id, change_type, quantity, balance_after, ref_id, source_type, remark, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO badge_ledger (user_id, badge_id, user_badge_id, change_type, quantity, balance_after, ref_id, source_type, remark, operator, recipient_type, actual_user_id, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id
             "#,
         )
         .bind(&ledger.user_id)
         .bind(ledger.badge_id)
+        .bind(ledger.user_badge_id)
         .bind(ledger.change_type)
         .bind(ledger.quantity)
         .bind(ledger.balance_after)
         .bind(&ledger.ref_id)
         .bind(ledger.ref_type)
         .bind(&ledger.remark)
+        .bind(&ledger.operator)
+        .bind(ledger.recipient_type)
+        .bind(&ledger.actual_user_id)
         .bind(ledger.created_at)
         .fetch_one(tx)
         .await?;
@@ -77,8 +85,9 @@ impl BadgeLedgerRepository {
     pub async fn list_by_user(&self, user_id: &str, limit: i64) -> Result<Vec<BadgeLedger>> {
         let ledgers = sqlx::query_as::<_, BadgeLedger>(
             r#"
-            SELECT id, user_id, badge_id, change_type, quantity, balance_after,
-                   ref_id, source_type AS ref_type, remark, created_at
+            SELECT id, user_id, badge_id, user_badge_id, change_type, quantity, balance_after,
+                   ref_id, source_type AS ref_type, remark, operator,
+                   recipient_type, actual_user_id, created_at
             FROM badge_ledger
             WHERE user_id = $1
             ORDER BY created_at DESC
@@ -101,8 +110,9 @@ impl BadgeLedgerRepository {
     ) -> Result<Vec<BadgeLedger>> {
         let ledgers = sqlx::query_as::<_, BadgeLedger>(
             r#"
-            SELECT id, user_id, badge_id, change_type, quantity, balance_after,
-                   ref_id, source_type AS ref_type, remark, created_at
+            SELECT id, user_id, badge_id, user_badge_id, change_type, quantity, balance_after,
+                   ref_id, source_type AS ref_type, remark, operator,
+                   recipient_type, actual_user_id, created_at
             FROM badge_ledger
             WHERE user_id = $1 AND badge_id = $2
             ORDER BY created_at DESC

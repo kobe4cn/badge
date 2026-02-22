@@ -181,7 +181,7 @@ const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({
   const renderValueInput = () => {
     switch (valueType) {
       case 'none':
-        // is_null / is_not_null 不需要值输入
+        // is_empty / is_not_empty 不需要值输入
         return null;
 
       case 'range':

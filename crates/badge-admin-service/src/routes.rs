@@ -17,6 +17,7 @@ pub fn auth_routes() -> Router<AppState> {
         .route("/auth/logout", post(handlers::auth::logout))
         .route("/auth/me", get(handlers::auth::get_current_user))
         .route("/auth/refresh", post(handlers::auth::refresh_token))
+        .route("/auth/change-password", post(handlers::auth::change_password))
 }
 
 /// 构建系统管理路由
@@ -230,6 +231,9 @@ fn grant_routes() -> Router<AppState> {
 fn revoke_routes() -> Router<AppState> {
     Router::new()
         .route("/revokes", get(handlers::revoke::list_revokes)
+            .layer(axum_mw::from_fn(require_permission("grant:revoke:read"))))
+        // export 必须在参数路径之前注册
+        .route("/revokes/export", get(handlers::revoke::export_revoke_logs)
             .layer(axum_mw::from_fn(require_permission("grant:revoke:read"))))
         .route("/revokes/manual", post(handlers::revoke::manual_revoke)
             .layer(axum_mw::from_fn(require_permission("grant:revoke:write"))))

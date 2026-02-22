@@ -9,6 +9,7 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use badge_shared::observability::metrics;
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 use sqlx::PgPool;
@@ -70,6 +71,9 @@ impl ScheduledTaskWorker {
                 error!(error = %e, "周期任务处理出错");
             }
 
+            // 记录 Worker 健康状态，供 Prometheus 告警判断 Worker 是否存活
+            metrics::set_worker_last_run("scheduled_task_worker");
+
             tokio::time::sleep(self.poll_interval).await;
         }
     }
@@ -78,11 +82,11 @@ impl ScheduledTaskWorker {
     ///
     /// 找出已到期的定时任务，将其状态从 scheduled 改为 pending，
     /// 让 BatchTaskWorker 执行实际处理。
+    /// 使用显式事务包裹 `FOR UPDATE SKIP LOCKED`，确保多实例部署时的互斥正确性。
     async fn process_once_tasks(&self) -> Result<(), sqlx::Error> {
         let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
 
-        // 查找到期的定时单次任务
-        // status = 'scheduled' 表示任务已创建但等待执行时间
         let tasks = sqlx::query_as::<_, ScheduledTask>(
             r#"
             SELECT id, schedule_type, scheduled_at, cron_expression, next_run_at
@@ -96,17 +100,17 @@ impl ScheduledTaskWorker {
             "#,
         )
         .bind(now)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
 
         if tasks.is_empty() {
+            tx.rollback().await?;
             return Ok(());
         }
 
         info!(count = tasks.len(), "发现到期的定时任务");
 
-        for task in tasks {
-            // 将任务状态改为 pending，让 BatchTaskWorker 处理
+        for task in &tasks {
             let result = sqlx::query(
                 r#"
                 UPDATE batch_tasks
@@ -115,7 +119,7 @@ impl ScheduledTaskWorker {
                 "#,
             )
             .bind(task.id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await;
 
             match result {
@@ -131,6 +135,7 @@ impl ScheduledTaskWorker {
             }
         }
 
+        tx.commit().await?;
         Ok(())
     }
 
@@ -138,10 +143,11 @@ impl ScheduledTaskWorker {
     ///
     /// 找出 next_run_at 已到期的周期任务，执行后计算下次执行时间。
     /// 周期任务会创建一个新的任务记录来执行，原记录保持 recurring 状态。
+    /// 查询使用显式事务 + `FOR UPDATE SKIP LOCKED` 保证多实例安全。
     async fn process_recurring_tasks(&self) -> Result<(), sqlx::Error> {
         let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
 
-        // 查找到期的周期任务
         let tasks = sqlx::query_as::<_, ScheduledTask>(
             r#"
             SELECT id, schedule_type, scheduled_at, cron_expression, next_run_at
@@ -155,17 +161,17 @@ impl ScheduledTaskWorker {
             "#,
         )
         .bind(now)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
 
         if tasks.is_empty() {
+            tx.rollback().await?;
             return Ok(());
         }
 
         info!(count = tasks.len(), "发现到期的周期任务");
 
-        for task in tasks {
-            // 计算下次执行时间
+        for task in &tasks {
             let next_run = task
                 .cron_expression
                 .as_ref()
@@ -173,10 +179,7 @@ impl ScheduledTaskWorker {
 
             match next_run {
                 Some(next) => {
-                    // 1. 创建一个即时执行的子任务
-                    let child_task_result = self.create_child_task(task.id).await;
-
-                    // 2. 更新周期任务的下次执行时间
+                    // 1. 在事务内更新 next_run_at，防止其他实例重复触发
                     if let Err(e) = sqlx::query(
                         r#"
                         UPDATE batch_tasks
@@ -186,13 +189,15 @@ impl ScheduledTaskWorker {
                     )
                     .bind(task.id)
                     .bind(next)
-                    .execute(&self.pool)
+                    .execute(&mut *tx)
                     .await
                     {
                         error!(task_id = task.id, error = %e, "更新周期任务下次执行时间失败");
+                        continue;
                     }
 
-                    match child_task_result {
+                    // 2. 在事务内创建子任务，确保原子性
+                    match self.create_child_task_in_tx(&mut tx, task.id).await {
                         Ok(child_id) => {
                             info!(
                                 parent_task_id = task.id,
@@ -207,7 +212,6 @@ impl ScheduledTaskWorker {
                     }
                 }
                 None => {
-                    // cron 表达式无效或没有下次执行时间，标记任务为无效
                     warn!(
                         task_id = task.id,
                         cron = task.cron_expression,
@@ -221,19 +225,25 @@ impl ScheduledTaskWorker {
                         "#,
                     )
                     .bind(task.id)
-                    .execute(&self.pool)
+                    .execute(&mut *tx)
                     .await;
                 }
             }
         }
 
+        tx.commit().await?;
         Ok(())
     }
 
-    /// 为周期任务创建一个子任务
+    /// 在已有事务内为周期任务创建子任务
     ///
-    /// 复制父任务的参数，创建一个 immediate 类型的子任务进入 pending 状态。
-    async fn create_child_task(&self, parent_task_id: i64) -> Result<i64, sqlx::Error> {
+    /// 与 next_run_at 更新在同一事务中执行，保证不会出现
+    /// "next_run_at 已更新但子任务未创建"的中间状态。
+    async fn create_child_task_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        parent_task_id: i64,
+    ) -> Result<i64, sqlx::Error> {
         let row: (i64,) = sqlx::query_as(
             r#"
             INSERT INTO batch_tasks (
@@ -260,7 +270,7 @@ impl ScheduledTaskWorker {
             "#,
         )
         .bind(parent_task_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut **tx)
         .await?;
 
         Ok(row.0)

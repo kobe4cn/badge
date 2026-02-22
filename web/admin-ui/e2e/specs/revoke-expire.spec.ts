@@ -50,7 +50,7 @@ test.describe('撤销测试: 手动撤销', () => {
 
     // 1. 先发放徽章
     const grantRes = await api.grantBadgeManual(userId, badgeId, 'E2E撤销测试发放');
-    expect(grantRes?.data || grantRes?.success).toBeTruthy();
+    expect(grantRes?.code).toBe(0);
 
     // 2. 查询用户徽章确认发放成功
     const userBadges = await api.getUserBadges(userId);
@@ -76,7 +76,7 @@ test.describe('撤销测试: 手动撤销', () => {
 
     expect(revokeRes.status()).toBe(200);
     const revokeData = await revokeRes.json();
-    expect(revokeData?.data || revokeData?.success).toBeTruthy();
+    expect(revokeData?.code).toBe(0);
 
     // 4. 验证撤销后用户徽章状态
     const userBadgesAfter = await api.getUserBadges(userId);
@@ -100,7 +100,7 @@ test.describe('撤销测试: 手动撤销', () => {
 
     expect(response.status()).toBe(200);
     const data = await response.json();
-    expect(data?.data !== undefined).toBeTruthy();
+    expect(data?.data).toBeDefined();
   });
 
   test('撤销记录导出 - 验证接口可用', async () => {
@@ -336,7 +336,7 @@ test.describe('撤销测试: 过期处理', () => {
 
     expect(response.status()).toBe(200);
     const data = await response.json();
-    expect(data?.data || data?.success).toBeTruthy();
+    expect(data?.code).toBe(0);
 
     // 验证用户徽章包含过期时间
     const userBadges = await api.getUserBadges(userId);
@@ -368,7 +368,7 @@ test.describe('撤销测试: 过期处理', () => {
     expect(response.status()).toBe(200);
     const data = await response.json();
     // 验证接口正常返回
-    expect(data?.data !== undefined).toBeTruthy();
+    expect(data?.data).toBeDefined();
   });
 
   test('撤销记录筛选 - 按时间范围', async () => {
@@ -445,7 +445,7 @@ test.describe('撤销测试: 批量撤销', () => {
     expect([200, 201, 202]).toContain(response.status());
     const data = await response.json();
     // 验证返回任务 ID 或相关信息
-    expect(data?.data?.taskId || data?.data?.id || data?.success).toBeTruthy();
+    expect(data?.data?.taskId ?? data?.data?.id).toBeTruthy();
   });
 
   test('批量任务状态查询', async () => {

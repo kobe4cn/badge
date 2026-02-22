@@ -15,10 +15,13 @@ import {
   ProFormGroup,
   ProFormDateTimePicker,
   ProFormSwitch,
+  ProFormRadio,
+  ProFormDependency,
 } from '@ant-design/pro-components';
 import type {
   RedemptionRule,
   CreateRedemptionRuleRequest,
+  ValidityType,
 } from '@/services/redemption';
 
 interface RedemptionRuleFormProps {
@@ -49,6 +52,8 @@ interface RedemptionRuleFormData {
   maxPerWeek?: number;
   maxPerMonth?: number;
   maxPerYear?: number;
+  validityType?: ValidityType;
+  relativeDays?: number;
   startTime?: string;
   endTime?: string;
   autoRedeem?: boolean;
@@ -84,11 +89,13 @@ const RedemptionRuleForm: React.FC<RedemptionRuleFormProps> = ({
               maxPerWeek: initialValues.frequencyConfig?.maxPerWeek,
               maxPerMonth: initialValues.frequencyConfig?.maxPerMonth,
               maxPerYear: initialValues.frequencyConfig?.maxPerYear,
+              validityType: initialValues.validityType || 'FIXED',
+              relativeDays: initialValues.relativeDays,
               startTime: initialValues.startTime,
               endTime: initialValues.endTime,
               autoRedeem: initialValues.autoRedeem,
             }
-          : { autoRedeem: false }
+          : { autoRedeem: false, validityType: 'FIXED' }
       }
       modalProps={{
         destroyOnClose: true,
@@ -118,6 +125,8 @@ const RedemptionRuleForm: React.FC<RedemptionRuleFormProps> = ({
           benefitId: values.benefitId,
           requiredBadges: values.requiredBadges,
           frequencyConfig,
+          validityType: values.validityType,
+          relativeDays: values.validityType === 'RELATIVE' ? values.relativeDays : undefined,
           startTime: values.startTime || undefined,
           endTime: values.endTime || undefined,
           autoRedeem: values.autoRedeem,
@@ -241,6 +250,36 @@ const RedemptionRuleForm: React.FC<RedemptionRuleFormProps> = ({
         min={1}
         fieldProps={{ precision: 0 }}
       />
+
+      <Divider>有效期配置</Divider>
+
+      <ProFormRadio.Group
+        name="validityType"
+        label="有效期类型"
+        options={[
+          { label: '固定时间段', value: 'FIXED' },
+          { label: '相对有效期（从获得徽章起算）', value: 'RELATIVE' },
+        ]}
+        rules={[{ required: true, message: '请选择有效期类型' }]}
+      />
+
+      <ProFormDependency name={['validityType']}>
+        {({ validityType }) => {
+          if (validityType === 'RELATIVE') {
+            return (
+              <ProFormDigit
+                name="relativeDays"
+                label="相对有效天数"
+                placeholder="请输入天数"
+                min={1}
+                fieldProps={{ precision: 0 }}
+                rules={[{ required: true, message: '请输入相对有效天数' }]}
+              />
+            );
+          }
+          return null;
+        }}
+      </ProFormDependency>
 
       <Divider>时间与选项</Divider>
 

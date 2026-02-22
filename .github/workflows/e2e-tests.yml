@@ -215,18 +215,53 @@ jobs:
           # 确保输出目录存在
           mkdir -p target/test-results
 
-          # 运行测试并转换为 JUnit 格式
-          cargo test --test e2e -- --ignored --test-threads=1 -Z unstable-options --format json \
-            2>&1 | cargo2junit > target/test-results/backend-e2e.xml || true
+          # 运行测试并转换为 JUnit 格式，保留退出码以正确反映测试结果
+          # 使用 CARGO_TERM_COLOR=never 保证输出干净，不依赖 nightly -Z 参数
+          set +e
+          cargo test --test e2e -- --ignored --test-threads=1 2>&1 | cargo2junit > target/test-results/backend-e2e.xml
+          TEST_EXIT_CODE=$?
+          set -e
 
           # 如果没有生成有效的 XML 文件，创建一个空的测试报告
           if [ ! -s target/test-results/backend-e2e.xml ]; then
             echo '<?xml version="1.0" encoding="UTF-8"?><testsuites><testsuite name="backend-e2e" tests="0" failures="0" errors="0" skipped="0"></testsuite></testsuites>' > target/test-results/backend-e2e.xml
           fi
+
+          exit $TEST_EXIT_CODE
         env:
           ADMIN_SERVICE_URL: http://localhost:8080
           RULE_ENGINE_ADDR: http://localhost:50051
           BADGE_MANAGEMENT_ADDR: http://localhost:50052
+
+      - name: Run crate-level integration tests
+        run: |
+          # 运行需要 PostgreSQL + Redis 的 crate 集成测试（这些在普通 cargo test 中被 ignore）
+          set +e
+          cargo test -p badge-management-service --test grant_service_test -- --ignored --test-threads=1 2>&1 | tee -a /tmp/crate-integration.log
+          GRANT_EXIT=$?
+          cargo test -p badge-management-service --test revoke_service_test -- --ignored --test-threads=1 2>&1 | tee -a /tmp/crate-integration.log
+          REVOKE_EXIT=$?
+          cargo test -p badge-management-service --test redemption_service_test -- --ignored --test-threads=1 2>&1 | tee -a /tmp/crate-integration.log
+          REDEEM_EXIT=$?
+          cargo test -p badge-management-service --test badge_flow_test -- --ignored --test-threads=1 2>&1 | tee -a /tmp/crate-integration.log
+          FLOW_EXIT=$?
+          set -e
+
+          # 汇总结果
+          FAILED=0
+          [ $GRANT_EXIT -ne 0 ] && echo "::warning::grant_service_test 失败 (exit=$GRANT_EXIT)" && FAILED=1
+          [ $REVOKE_EXIT -ne 0 ] && echo "::warning::revoke_service_test 失败 (exit=$REVOKE_EXIT)" && FAILED=1
+          [ $REDEEM_EXIT -ne 0 ] && echo "::warning::redemption_service_test 失败 (exit=$REDEEM_EXIT)" && FAILED=1
+          [ $FLOW_EXIT -ne 0 ] && echo "::warning::badge_flow_test 失败 (exit=$FLOW_EXIT)" && FAILED=1
+
+          if [ $FAILED -ne 0 ]; then
+            echo "::error::部分 crate 集成测试失败，详见上方日志"
+            exit 1
+          fi
+        env:
+          DATABASE_URL: postgres://badge:badge@localhost:5432/badge_test
+          BADGE_DATABASE_URL: postgres://badge:badge@localhost:5432/badge_test
+          BADGE_REDIS_URL: redis://localhost:6379
 
       - name: Backend test report
         uses: dorny/test-reporter@v1
@@ -236,7 +271,7 @@ jobs:
           name: Backend E2E Results
           path: target/test-results/backend-e2e.xml
           reporter: java-junit
-          fail-on-error: false
+          fail-on-error: true
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -408,16 +443,9 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-html-report
-          path: web/admin-ui/e2e/playwright-report/
-          retention-days: 14
-
-      - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
           name: playwright-report
           path: web/admin-ui/e2e/playwright-report/
+          retention-days: 14
 
       - name: Upload test screenshots
         uses: actions/upload-artifact@v4

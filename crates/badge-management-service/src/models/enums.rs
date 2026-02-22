@@ -239,6 +239,34 @@ pub enum LogAction {
     Expire,
 }
 
+/// 发放对象类型
+///
+/// 区分"账号注册人"和"实际使用人"，支持代领场景
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RecipientType {
+    /// 账号注册人（默认，原有行为）
+    #[default]
+    Owner,
+    /// 实际使用人（需要填写 actual_user_id）
+    User,
+}
+
+/// 兑换规则有效期类型
+///
+/// 控制兑换规则的时间窗口计算方式（区别于徽章自身的 ValidityType）
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RedemptionValidityType {
+    /// 固定时间段（使用 start_time/end_time）
+    #[default]
+    Fixed,
+    /// 相对于徽章获取时间
+    Relative,
+}
+
 /// 分类/系列状态
 ///
 /// 控制徽章分类和系列的可见性

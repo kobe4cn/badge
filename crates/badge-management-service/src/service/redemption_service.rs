@@ -26,7 +26,7 @@ use crate::benefit::{BenefitService, GrantBenefitRequest};
 use crate::error::{BadgeError, Result};
 use crate::notification::NotificationSender;
 use crate::models::{
-    BadgeLedger, BadgeRedemptionRule, Benefit, ChangeType, LogAction, OrderStatus,
+    BadgeLedger, BadgeRedemptionRule, Benefit, ChangeType, LogAction, OrderStatus, RecipientType,
     RedemptionDetail, RedemptionOrder, RequiredBadge, SourceType, UserBadgeStatus,
 };
 use crate::repository::{BadgeLedgerRepository, RedemptionRepository, UserBadgeRepository};
@@ -119,6 +119,9 @@ impl RedemptionService {
     /// 11. 清除缓存
     #[instrument(skip(self), fields(user_id = %request.user_id, rule_id = %request.rule_id))]
     pub async fn redeem_badge(&self, request: RedeemBadgeRequest) -> Result<RedeemBadgeResponse> {
+        let start = std::time::Instant::now();
+        let rule_id = request.rule_id;
+
         // 1. 幂等检查
         if let Some(response) = self.check_idempotency(&request.idempotency_key).await? {
             info!(idempotency_key = %request.idempotency_key, "幂等请求，返回已存在的订单");
@@ -126,20 +129,45 @@ impl RedemptionService {
         }
 
         // 2. 获取兑换规则并检查有效性
-        let rule = self.validate_rule(request.rule_id).await?;
+        let rule = match self.validate_rule(rule_id).await {
+            Ok(r) => r,
+            Err(e) => {
+                badge_shared::observability::metrics::record_redemption(rule_id, "error", start.elapsed().as_secs_f64());
+                return Err(e);
+            }
+        };
 
         // 3. 获取权益并检查库存
-        let benefit = self.validate_benefit(rule.benefit_id).await?;
+        let benefit = match self.validate_benefit(rule.benefit_id).await {
+            Ok(b) => b,
+            Err(e) => {
+                badge_shared::observability::metrics::record_redemption(rule_id, "error", start.elapsed().as_secs_f64());
+                return Err(e);
+            }
+        };
 
         // 4. 解析所需徽章
-        let required_badges = rule
-            .parse_required_badges()
-            .map_err(BadgeError::Serialization)?;
+        let required_badges = match rule.parse_required_badges() {
+            Ok(b) => b,
+            Err(e) => {
+                badge_shared::observability::metrics::record_redemption(rule_id, "error", start.elapsed().as_secs_f64());
+                return Err(BadgeError::Serialization(e));
+            }
+        };
 
         // 5-10. 事务内执行兑换
-        let (order_id, order_no) = self
+        let (order_id, order_no) = match self
             .execute_redemption(&request, &rule, &benefit, &required_badges)
-            .await?;
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                badge_shared::observability::metrics::record_redemption(rule_id, "error", start.elapsed().as_secs_f64());
+                return Err(e);
+            }
+        };
+
+        badge_shared::observability::metrics::record_redemption(rule_id, "success", start.elapsed().as_secs_f64());
 
         // 11. 清除缓存
         self.invalidate_user_cache(&request.user_id).await;
@@ -482,12 +510,16 @@ impl RedemptionService {
                 id: 0,
                 user_id: request.user_id.clone(),
                 badge_id: required.badge_id,
+                user_badge_id: Some(user_badge.id),
                 change_type: ChangeType::RedeemOut,
                 quantity: required.quantity,
                 balance_after: new_quantity,
                 ref_id: Some(order_no.clone()),
                 ref_type: SourceType::Redemption,
                 remark: Some(format!("兑换权益: {}", benefit.name)),
+                operator: None,
+                recipient_type: RecipientType::Owner,
+                actual_user_id: None,
                 created_at: now,
             };
             BadgeLedgerRepository::create_in_tx(&mut tx, &ledger).await?;

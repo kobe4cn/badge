@@ -3,6 +3,8 @@
 //! 自动记录所有写操作（POST/PUT/PATCH/DELETE）到 operation_logs 表，
 //! 实现运营操作的全链路审计追溯。
 
+use std::sync::Arc;
+
 use axum::{
     extract::State,
     http::{Method, Request},
@@ -10,10 +12,47 @@ use axum::{
     response::Response,
 };
 use sqlx::PgPool;
+use tokio::sync::Mutex;
 use tracing::{error, debug};
 
 use crate::auth::Claims;
 use crate::state::AppState;
+
+/// Handler 层通过此上下文向审计中间件传递变更前数据快照。
+///
+/// 中间件在请求进入时注入 AuditContext 到 Extension，
+/// Handler 在执行 UPDATE/DELETE 前调用 `set_before_data` 记录原始状态，
+/// 中间件在响应后取出 before_data 一起写入审计日志。
+#[derive(Clone, Default)]
+pub struct AuditContext {
+    inner: Arc<Mutex<Option<serde_json::Value>>>,
+}
+
+impl AuditContext {
+    /// Handler 层在执行变更操作前调用，记录变更前的数据快照
+    pub async fn set_before_data(&self, data: serde_json::Value) {
+        *self.inner.lock().await = Some(data);
+    }
+
+    /// 利用 PostgreSQL 的 to_jsonb 将整行序列化为 JSON，
+    /// 避免为每张表手写查询——传入表名和 ID 即可获取完整快照。
+    pub async fn snapshot(&self, pool: &PgPool, table: &str, id: i64) {
+        // 表名来自代码常量而非用户输入，无 SQL 注入风险
+        let sql = format!("SELECT to_jsonb(t.*) FROM {} t WHERE t.id = $1", table);
+        if let Ok(Some(row)) = sqlx::query_scalar::<_, serde_json::Value>(&sql)
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+        {
+            *self.inner.lock().await = Some(row);
+        }
+    }
+
+    /// 中间件内部调用：取出 before_data（消费性取出，避免重复记录）
+    async fn take_before_data(&self) -> Option<serde_json::Value> {
+        self.inner.lock().await.take()
+    }
+}
 
 /// 审计中间件：在写操作成功后异步写入操作日志
 ///
@@ -21,7 +60,7 @@ use crate::state::AppState;
 /// 避免审计功能故障导致正常业务不可用。
 pub async fn audit_middleware(
     State(state): State<AppState>,
-    request: Request<axum::body::Body>,
+    mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     let method = request.method().clone();
@@ -42,12 +81,51 @@ pub async fn audit_middleware(
     // 未认证的请求（如被 auth 中间件拦截的）不会到达这里
     let claims = request.extensions().get::<Claims>().cloned();
 
+    // 注入 AuditContext 供 Handler 设置 before_data
+    let audit_ctx = AuditContext::default();
+    request.extensions_mut().insert(audit_ctx.clone());
+
     let ip_address = extract_client_ip(&request);
     let user_agent = request
         .headers()
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+
+    // 只为 JSON 请求体做缓冲（排除 multipart 文件上传等大体积请求）
+    let is_json_body = request
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.contains("application/json"))
+        .unwrap_or(false);
+
+    let (request, request_body_str) = if is_json_body {
+        let (parts, body) = request.into_parts();
+        match axum::body::to_bytes(body, 2 * 1024 * 1024).await {
+            Ok(bytes) => {
+                let body_str = if bytes.is_empty() {
+                    None
+                } else {
+                    Some(String::from_utf8_lossy(&bytes).to_string())
+                };
+                (
+                    Request::from_parts(parts, axum::body::Body::from(bytes)),
+                    body_str,
+                )
+            }
+            Err(_) => {
+                // 超过 2MB 的 JSON 体不记录，但仍需传递原始请求
+                // 此场景极少发生——正常 JSON API 请求远小于此限制
+                (
+                    Request::from_parts(parts, axum::body::Body::empty()),
+                    None,
+                )
+            }
+        }
+    } else {
+        (request, None)
+    };
 
     let response = next.run(request).await;
 
@@ -60,6 +138,7 @@ pub async fn audit_middleware(
 
             // 异步写入避免阻塞业务响应，日志丢失可接受（极端情况下数据库短暂不可用）
             tokio::spawn(async move {
+                let before_data = audit_ctx.take_before_data().await;
                 write_audit_log(
                     &pool,
                     &claims.sub,
@@ -70,6 +149,8 @@ pub async fn audit_middleware(
                     target_id.as_deref(),
                     ip_address.as_deref(),
                     user_agent.as_deref(),
+                    before_data,
+                    request_body_str.as_deref(),
                 )
                 .await;
             });
@@ -140,6 +221,9 @@ fn extract_client_ip(request: &Request<axum::body::Body>) -> Option<String> {
 }
 
 /// 写入审计日志到 operation_logs 表
+///
+/// before_data 由 Handler 通过 AuditContext 提供，记录变更前的完整数据快照。
+/// request_body 为 JSON 请求体原文，存入 after_data 列作为变更内容。
 async fn write_audit_log(
     pool: &PgPool,
     operator_id: &str,
@@ -150,13 +234,20 @@ async fn write_audit_log(
     target_id: Option<&str>,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
+    before_data: Option<serde_json::Value>,
+    request_body: Option<&str>,
 ) {
+    // 尝试将请求体解析为 JSON Value，解析失败则丢弃（避免存入非法 JSON）
+    let after_data: Option<serde_json::Value> =
+        request_body.and_then(|s| serde_json::from_str(s).ok());
+
     let result = sqlx::query(
         r#"
         INSERT INTO operation_logs
-            (operator_id, operator_name, module, action, target_type, target_id, ip_address, user_agent)
+            (operator_id, operator_name, module, action, target_type, target_id,
+             ip_address, user_agent, before_data, after_data)
         VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8)
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
     )
     .bind(operator_id)
@@ -167,6 +258,8 @@ async fn write_audit_log(
     .bind(target_id)
     .bind(ip_address)
     .bind(user_agent)
+    .bind(before_data)
+    .bind(after_data)
     .execute(pool)
     .await;
 

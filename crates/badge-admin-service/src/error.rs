@@ -20,6 +20,8 @@ pub enum AdminError {
     UserDisabled,
     #[error("用户已被锁定，请稍后重试")]
     UserLocked,
+    #[error("请先修改默认密码")]
+    PasswordChangeRequired,
     #[error("用户不存在: {0}")]
     UserNotFound(String),
 
@@ -73,7 +75,9 @@ impl AdminError {
             // 认证错误
             Self::Unauthorized(_) | Self::InvalidCredentials => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
-            Self::UserDisabled | Self::UserLocked => StatusCode::FORBIDDEN,
+            Self::UserDisabled | Self::UserLocked | Self::PasswordChangeRequired => {
+                StatusCode::FORBIDDEN
+            }
             Self::UserNotFound(_) => StatusCode::NOT_FOUND,
 
             Self::Validation(_) | Self::InvalidRuleJson(_) => StatusCode::BAD_REQUEST,
@@ -108,6 +112,7 @@ impl AdminError {
             Self::InvalidCredentials => "INVALID_CREDENTIALS",
             Self::UserDisabled => "USER_DISABLED",
             Self::UserLocked => "USER_LOCKED",
+            Self::PasswordChangeRequired => "PASSWORD_CHANGE_REQUIRED",
             Self::UserNotFound(_) => "USER_NOT_FOUND",
 
             Self::Validation(_) => "VALIDATION_ERROR",
@@ -211,6 +216,7 @@ mod tests {
             (AdminError::InvalidCredentials, StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS"),
             (AdminError::UserDisabled, StatusCode::FORBIDDEN, "USER_DISABLED"),
             (AdminError::UserLocked, StatusCode::FORBIDDEN, "USER_LOCKED"),
+            (AdminError::PasswordChangeRequired, StatusCode::FORBIDDEN, "PASSWORD_CHANGE_REQUIRED"),
             (AdminError::UserNotFound("admin".into()), StatusCode::NOT_FOUND, "USER_NOT_FOUND"),
             // 参数校验
             (AdminError::Validation("name is required".into()), StatusCode::BAD_REQUEST, "VALIDATION_ERROR"),
@@ -332,6 +338,7 @@ mod tests {
             AdminError::InvalidCredentials,
             AdminError::UserDisabled,
             AdminError::UserLocked,
+            AdminError::PasswordChangeRequired,
             AdminError::BadgeAlreadyPublished,
             AdminError::InsufficientStock,
             AdminError::InsufficientUserBadge,
@@ -356,6 +363,7 @@ mod tests {
             (AdminError::InvalidCredentials, StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS"),
             (AdminError::UserDisabled, StatusCode::FORBIDDEN, "USER_DISABLED"),
             (AdminError::UserLocked, StatusCode::FORBIDDEN, "USER_LOCKED"),
+            (AdminError::PasswordChangeRequired, StatusCode::FORBIDDEN, "PASSWORD_CHANGE_REQUIRED"),
             (AdminError::BadgeNotFound(1), StatusCode::NOT_FOUND, "BADGE_NOT_FOUND"),
             (AdminError::CategoryNotFound(2), StatusCode::NOT_FOUND, "CATEGORY_NOT_FOUND"),
             (AdminError::SeriesNotFound(3), StatusCode::NOT_FOUND, "SERIES_NOT_FOUND"),
@@ -570,10 +578,10 @@ mod tests {
     /// 如果新增了变体但忘记加测试，这个计数断言会失败。
     #[test]
     fn test_all_variants_covered_in_table() {
-        // 共 23 个变体，Database 依赖 sqlx::Error 不易在表中构造，故排除 1 个 → 22
+        // 共 24 个变体，Database 依赖 sqlx::Error 不易在表中构造，故排除 1 个 → 23
         assert_eq!(
             all_error_variants().len(),
-            22,
+            23,
             "表驱动用例数量与变体总数不一致，可能新增了变体但未更新测试"
         );
     }

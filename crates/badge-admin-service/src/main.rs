@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
-use axum::{Json, Router, extract::Request, http::HeaderValue, middleware, middleware::Next, response::Response, routing::get};
-use badge_admin_service::{auth::JwtConfig, middleware::{auth_middleware, audit_middleware}, routes, state::AppState};
+use axum::{Json, Router, extract::Request, http::{HeaderValue, StatusCode}, middleware, middleware::Next, response::Response, routing::get};
+use badge_admin_service::{auth::JwtConfig, middleware::{auth_middleware, audit_middleware, rate_limit_middleware}, routes, state::AppState};
 use badge_proto::badge::badge_management_service_client::BadgeManagementServiceClient;
 use badge_proto::rule_engine::rule_engine_service_client::RuleEngineServiceClient;
 use badge_shared::{
@@ -68,18 +68,22 @@ async fn main() -> anyhow::Result<()> {
     state.set_redemption_service(redemption_service);
     info!("RedemptionService initialized");
 
-    // 尝试连接 badge-management-service 的 gRPC 端点（用于跨服务刷新缓存）
-    // 默认地址为 http://127.0.0.1:50052，可通过环境变量 BADGE_MANAGEMENT_GRPC_ADDR 覆盖
-    let grpc_addr = std::env::var("BADGE_MANAGEMENT_GRPC_ADDR")
-        .unwrap_or_else(|_| "http://127.0.0.1:50052".to_string());
+    // 构建 gRPC 客户端 TLS 配置（TLS 未启用时为 None，客户端使用明文连接）
+    let client_tls = badge_shared::grpc_tls::build_client_tls_config(&config.tls)
+        .await
+        .expect("gRPC 客户端 TLS 配置加载失败");
+    let grpc_scheme = badge_shared::grpc_tls::grpc_scheme(&config.tls);
 
-    match BadgeManagementServiceClient::connect(grpc_addr.clone()).await {
-        Ok(client) => {
-            state.set_badge_management_client(client).await;
+    // 尝试连接 badge-management-service 的 gRPC 端点（用于跨服务刷新缓存）
+    let grpc_addr = std::env::var("BADGE_MANAGEMENT_GRPC_ADDR")
+        .unwrap_or_else(|_| format!("{grpc_scheme}://127.0.0.1:50052"));
+
+    match connect_grpc_client(&grpc_addr, &client_tls).await {
+        Ok(channel) => {
+            state.set_badge_management_client(BadgeManagementServiceClient::new(channel)).await;
             info!("Connected to badge-management-service gRPC at {}", grpc_addr);
         }
         Err(e) => {
-            // 连接失败不阻止服务启动，只记录警告
             warn!(
                 "Failed to connect to badge-management-service gRPC at {}: {}. \
                 Dependency cache refresh will be local-only.",
@@ -89,17 +93,15 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 尝试连接规则引擎 gRPC 端点（用于规则测试和评估）
-    // 规则引擎默认端口 50051，与 badge-management-service 的 50052 区分
     let rule_engine_addr = std::env::var("RULE_ENGINE_GRPC_ADDR")
-        .unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+        .unwrap_or_else(|_| format!("{grpc_scheme}://127.0.0.1:50051"));
 
-    match RuleEngineServiceClient::connect(rule_engine_addr.clone()).await {
-        Ok(client) => {
-            state.set_rule_engine_client(client).await;
+    match connect_grpc_client(&rule_engine_addr, &client_tls).await {
+        Ok(channel) => {
+            state.set_rule_engine_client(RuleEngineServiceClient::new(channel)).await;
             info!("Connected to rule-engine gRPC at {}", rule_engine_addr);
         }
         Err(e) => {
-            // 连接失败不阻止服务启动，规则测试功能将不可用
             warn!(
                 "Failed to connect to rule-engine gRPC at {}: {}. \
                 Rule testing will be unavailable.",
@@ -114,9 +116,9 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "http://localhost:3001,http://localhost:5173".to_string());
 
     let cors = if allowed_origins == "*" {
-        // 生产环境使用通配符 CORS 是严重的安全隐患，可能导致跨站请求伪造
+        // 生产环境禁止使用通配符 CORS，拒绝启动
         if std::env::var("BADGE_ENV").unwrap_or_default() == "production" {
-            warn!("BADGE_CORS_ORIGINS=\"*\" 在生产环境中不安全，请设置为具体域名");
+            panic!("BADGE_CORS_ORIGINS=\"*\" 在生产环境中不允许，请设置为具体域名");
         }
         info!("CORS allowed_origins: * (all origins)");
         CorsLayer::new()
@@ -178,6 +180,8 @@ async fn main() -> anyhow::Result<()> {
         )
         // 审计中间件：自动记录写操作到 operation_logs（位于 auth 之后，可访问 Claims）
         .layer(middleware::from_fn_with_state(state.clone(), audit_middleware))
+        // 限流中间件：基于 Redis 的分级限流，位于 auth 之后（需要用户身份）、audit 之前（被拒请求不记录审计）
+        .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         // HTTP 安全头：纵深防御，即使反向代理未配置也确保基本安全策略生效
         .layer(middleware::from_fn(security_headers))
         .layer(cors)
@@ -252,6 +256,24 @@ async fn shutdown_signal() {
     }
 }
 
+/// 建立 gRPC 客户端连接
+///
+/// 当 TLS 配置存在时，将 `ClientTlsConfig` 应用到 Endpoint；
+/// 未启用 TLS 时使用明文连接。两种模式复用同一入口，避免重复代码。
+async fn connect_grpc_client(
+    addr: &str,
+    tls: &Option<tonic::transport::ClientTlsConfig>,
+) -> Result<tonic::transport::Channel, tonic::transport::Error> {
+    let mut endpoint = tonic::transport::Endpoint::from_shared(addr.to_string())
+        .expect("无效的 gRPC 地址");
+
+    if let Some(tls_config) = tls {
+        endpoint = endpoint.tls_config(tls_config.clone())?;
+    }
+
+    endpoint.connect().await
+}
+
 /// 存活探针：服务进程正常即返回 ok
 async fn health_check() -> Json<serde_json::Value> {
     Json(serde_json::json!({
@@ -262,19 +284,26 @@ async fn health_check() -> Json<serde_json::Value> {
 
 /// 就绪探针：检查数据库和 Redis 连接是否可用
 ///
-/// K8s 就绪探针失败时会将 Pod 从 Service 端点移除，
-/// 避免将流量路由到无法正常处理请求的实例。
-async fn readiness_check(db: Database, cache: Arc<Cache>) -> Json<serde_json::Value> {
+/// K8s 就绪探针通过 HTTP 状态码判断 Pod 是否可接收流量：
+/// - 200：一切正常，可接收流量
+/// - 503：依赖不可用，K8s 将 Pod 从 Service 端点移除
+async fn readiness_check(db: Database, cache: Arc<Cache>) -> (StatusCode, Json<serde_json::Value>) {
     let db_ok = db.health_check().await.is_ok();
     let cache_ok = cache.health_check().await.is_ok();
     let all_ok = db_ok && cache_ok;
 
-    Json(serde_json::json!({
+    let status_code = if all_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (status_code, Json(serde_json::json!({
         "status": if all_ok { "ok" } else { "degraded" },
         "service": "badge-admin-service",
         "checks": {
             "database": if db_ok { "ok" } else { "fail" },
             "redis": if cache_ok { "ok" } else { "fail" }
         }
-    }))
+    })))
 }

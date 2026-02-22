@@ -28,6 +28,8 @@ import {
   Segmented,
   DatePicker,
   Empty,
+  Dropdown,
+  message,
 } from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
 import {
@@ -44,6 +46,9 @@ import {
   LineChartOutlined,
   PieChartOutlined,
   BarChartOutlined,
+  DownloadOutlined,
+  SwapOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -64,6 +69,59 @@ import type { BadgeRanking, TimeRangePreset } from '@/types/dashboard';
 const { RangePicker } = DatePicker;
 
 const { Text } = Typography;
+
+/**
+ * 将看板数据导出为 CSV 文件
+ *
+ * 汇总当前页面上的概览统计和排行数据，方便运营离线分析
+ */
+function exportDashboardCSV(
+  stats: { totalGrants: number; activeBadges: number; badgeHolders: number; userCoverageRate: number; redemptionCount?: number; redemptionRate?: number } | undefined,
+  todayStats: { grants: number; newHolders: number; redemptions: number } | undefined,
+  ranking: Array<{ badgeName: string; grantCount: number; holderCount: number }> | undefined
+) {
+  const lines: string[] = [];
+
+  // 概览数据
+  lines.push('指标,数值');
+  if (todayStats) {
+    lines.push(`今日发放,${todayStats.grants}`);
+    lines.push(`今日新增持有者,${todayStats.newHolders}`);
+    lines.push(`今日兑换,${todayStats.redemptions}`);
+  }
+  if (stats) {
+    lines.push(`总发放数,${stats.totalGrants}`);
+    lines.push(`活跃徽章,${stats.activeBadges}`);
+    lines.push(`持有用户,${stats.badgeHolders}`);
+    lines.push(`用户覆盖率,${(stats.userCoverageRate * 100).toFixed(1)}%`);
+    if (stats.redemptionCount !== undefined) {
+      lines.push(`总兑换数,${stats.redemptionCount}`);
+    }
+    if (stats.redemptionRate !== undefined) {
+      lines.push(`兑换转化率,${(stats.redemptionRate * 100).toFixed(1)}%`);
+    }
+  }
+
+  // 排行数据
+  if (ranking && ranking.length > 0) {
+    lines.push('');
+    lines.push('徽章排行');
+    lines.push('排名,徽章名称,发放次数,持有人数');
+    ranking.forEach((item, index) => {
+      lines.push(`${index + 1},${item.badgeName},${item.grantCount},${item.holderCount}`);
+    });
+  }
+
+  // BOM 头保证 Excel 正确识别 UTF-8
+  const csvContent = '\uFEFF' + lines.join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `看板数据_${dayjs().format('YYYYMMDD_HHmmss')}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 /**
  * 变化趋势显示组件
@@ -418,6 +476,25 @@ const DashboardPage: React.FC = () => {
               最后更新: {formatRelativeTime(lastUpdatedAt)}
             </Text>
           )}
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'csv',
+                  label: '导出 CSV',
+                  icon: <DownloadOutlined />,
+                  onClick: () => {
+                    exportDashboardCSV(stats, todayStats, ranking);
+                    message.success('数据已导出');
+                  },
+                },
+              ],
+            }}
+          >
+            <Button icon={<DownloadOutlined />}>
+              数据导出
+            </Button>
+          </Dropdown>
           <Tooltip title="刷新数据">
             <Button
               icon={<ReloadOutlined />}
@@ -466,7 +543,7 @@ const DashboardPage: React.FC = () => {
 
       {/* 第二行：总量统计 */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={4}>
           <SummaryCard
             title="总发放数"
             value={stats ? formatCount(stats.totalGrants) : undefined}
@@ -475,7 +552,7 @@ const DashboardPage: React.FC = () => {
             loading={statsLoading}
           />
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={4}>
           <SummaryCard
             title="活跃徽章"
             value={stats?.activeBadges}
@@ -485,7 +562,7 @@ const DashboardPage: React.FC = () => {
             loading={statsLoading}
           />
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={4}>
           <SummaryCard
             title="持有用户"
             value={stats ? formatCount(stats.badgeHolders) : undefined}
@@ -494,7 +571,7 @@ const DashboardPage: React.FC = () => {
             loading={statsLoading}
           />
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={4}>
           <SummaryCard
             title="用户覆盖率"
             value={
@@ -504,6 +581,29 @@ const DashboardPage: React.FC = () => {
             }
             icon={<PercentageOutlined />}
             iconColor="#eb2f96"
+            suffix="%"
+            loading={statsLoading}
+          />
+        </Col>
+        <Col xs={24} sm={12} md={4}>
+          <SummaryCard
+            title="总兑换数"
+            value={stats?.redemptionCount !== undefined ? formatCount(stats.redemptionCount) : undefined}
+            icon={<SwapOutlined />}
+            iconColor="#13c2c2"
+            loading={statsLoading}
+          />
+        </Col>
+        <Col xs={24} sm={12} md={4}>
+          <SummaryCard
+            title="兑换转化率"
+            value={
+              stats?.redemptionRate !== undefined
+                ? (stats.redemptionRate * 100).toFixed(1)
+                : undefined
+            }
+            icon={<ClockCircleOutlined />}
+            iconColor="#fa541c"
             suffix="%"
             loading={statsLoading}
           />

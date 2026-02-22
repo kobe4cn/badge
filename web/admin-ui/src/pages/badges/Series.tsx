@@ -155,7 +155,6 @@ const SeriesPage: React.FC = () => {
           description: values.description,
           coverUrl: values.coverUrl,
           sortOrder: values.sortOrder,
-          status: values.status,
           startTime: values.startTime,
           endTime: values.endTime,
         };

@@ -4,7 +4,7 @@
  * 提供通知配置的 CRUD 操作、测试发送和任务查询
  */
 
-import { get, post, put, del } from './api';
+import { get, getList, post, put, del } from './api';
 import type { PaginatedResponse, PaginationParams } from '@/types';
 
 // ============ 类型定义 ============
@@ -171,14 +171,14 @@ export const TASK_STATUS_OPTIONS = [
 export async function getNotificationConfigs(
   params: NotificationConfigParams
 ): Promise<PaginatedResponse<NotificationConfig>> {
-  return get<PaginatedResponse<NotificationConfig>>('/notification-configs', params as Record<string, unknown>);
+  return getList<NotificationConfig>('/admin/notification-configs', params as Record<string, unknown>);
 }
 
 /**
  * 获取单个通知配置
  */
 export async function getNotificationConfig(id: number): Promise<NotificationConfig> {
-  return get<NotificationConfig>(`/notification-configs/${id}`);
+  return get<NotificationConfig>(`/admin/notification-configs/${id}`);
 }
 
 /**
@@ -187,7 +187,7 @@ export async function getNotificationConfig(id: number): Promise<NotificationCon
 export async function createNotificationConfig(
   data: CreateNotificationConfigRequest
 ): Promise<NotificationConfig> {
-  return post<NotificationConfig>('/notification-configs', data);
+  return post<NotificationConfig>('/admin/notification-configs', data);
 }
 
 /**
@@ -197,14 +197,14 @@ export async function updateNotificationConfig(
   id: number,
   data: UpdateNotificationConfigRequest
 ): Promise<NotificationConfig> {
-  return put<NotificationConfig>(`/notification-configs/${id}`, data);
+  return put<NotificationConfig>(`/admin/notification-configs/${id}`, data);
 }
 
 /**
  * 删除通知配置
  */
 export async function deleteNotificationConfig(id: number): Promise<void> {
-  return del(`/notification-configs/${id}`);
+  return del(`/admin/notification-configs/${id}`);
 }
 
 /**
@@ -213,7 +213,7 @@ export async function deleteNotificationConfig(id: number): Promise<void> {
 export async function testNotification(
   data: TestNotificationRequest
 ): Promise<TestNotificationResult> {
-  return post<TestNotificationResult>('/notification-configs/test', data);
+  return post<TestNotificationResult>('/admin/notification-configs/test', data);
 }
 
 /**
@@ -222,5 +222,5 @@ export async function testNotification(
 export async function getNotificationTasks(
   params: NotificationTaskParams
 ): Promise<PaginatedResponse<NotificationTask>> {
-  return get<PaginatedResponse<NotificationTask>>('/notification-tasks', params as Record<string, unknown>);
+  return getList<NotificationTask>('/admin/notification-tasks', params as Record<string, unknown>);
 }

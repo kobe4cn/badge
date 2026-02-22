@@ -1,5 +1,3 @@
-version: '3.8'
-
 # E2E 测试环境配置
 # 用法: docker-compose -f docker-compose.test.yml up -d
 
@@ -142,7 +140,7 @@ services:
   rule-engine-service:
     build:
       context: .
-      dockerfile: crates/rule-engine-service/Dockerfile
+      dockerfile: crates/unified-rule-engine/Dockerfile
     container_name: badge-test-rule-engine
     ports:
       - "50051:50051"

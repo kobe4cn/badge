@@ -3,9 +3,10 @@
 //! 实现徽章的 CRUD 操作及状态管理（发布/下线）
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, Query, State},
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tracing::info;
@@ -265,6 +266,7 @@ pub async fn get_badge(
 pub async fn update_badge(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateBadgeRequest>,
 ) -> Result<Json<ApiResponse<BadgeAdminDto>>, AdminError> {
     req.validate()?;
@@ -300,6 +302,9 @@ pub async fn update_badge(
             .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
             .unwrap_or_default()
     });
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badges", id).await;
 
     // 使用 COALESCE 实现部分更新，NULL 参数表示不更新该字段
     sqlx::query(
@@ -344,6 +349,7 @@ pub async fn update_badge(
 pub async fn delete_badge(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     // 检查徽章状态
     let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
@@ -357,6 +363,9 @@ pub async fn delete_badge(
     if badge.0 != BadgeStatus::Draft {
         return Err(AdminError::BadgeAlreadyPublished);
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badges", id).await;
 
     sqlx::query("DELETE FROM badges WHERE id = $1")
         .bind(id)
@@ -376,6 +385,7 @@ pub async fn delete_badge(
 pub async fn publish_badge(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<BadgeAdminDto>>, AdminError> {
     // 只有草稿状态才能发布
     let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
@@ -391,6 +401,9 @@ pub async fn publish_badge(
             badge.0
         )));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badges", id).await;
 
     sqlx::query("UPDATE badges SET status = 'active', updated_at = NOW() WHERE id = $1")
         .bind(id)
@@ -411,6 +424,7 @@ pub async fn publish_badge(
 pub async fn offline_badge(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<BadgeAdminDto>>, AdminError> {
     // 只有上线状态才能下线
     let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
@@ -426,6 +440,9 @@ pub async fn offline_badge(
             badge.0
         )));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badges", id).await;
 
     sqlx::query("UPDATE badges SET status = 'inactive', updated_at = NOW() WHERE id = $1")
         .bind(id)
@@ -446,6 +463,7 @@ pub async fn offline_badge(
 pub async fn archive_badge(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<BadgeAdminDto>>, AdminError> {
     // 只有下线状态才能归档
     let badge: Option<(BadgeStatus,)> = sqlx::query_as("SELECT status FROM badges WHERE id = $1")
@@ -461,6 +479,9 @@ pub async fn archive_badge(
             badge.0
         )));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badges", id).await;
 
     sqlx::query("UPDATE badges SET status = 'archived', updated_at = NOW() WHERE id = $1")
         .bind(id)
@@ -481,8 +502,12 @@ pub async fn archive_badge(
 pub async fn update_badge_sort(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateSortRequest>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badges", id).await;
+
     let result = sqlx::query(
         "UPDATE badges SET sort_order = $2, updated_at = NOW() WHERE id = $1",
     )
@@ -501,6 +526,7 @@ pub async fn update_badge_sort(
 
 /// 排序更新请求
 #[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateSortRequest {
     pub sort_order: i32,
 }

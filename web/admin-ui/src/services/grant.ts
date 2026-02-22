@@ -89,10 +89,49 @@ export interface GrantRecordParams extends ListParams {
 /**
  * 手动发放徽章
  *
- * @param data - 发放请求数据，包含用户列表、徽章 ID、数量和原因
+ * 后端为单用户接口（user_id: String），前端需逐用户调用并聚合结果。
+ * 并发控制通过 Promise.allSettled 实现，保证所有用户都尝试发放。
  */
-export function manualGrant(data: ManualGrantRequest): Promise<GrantResult> {
-  return post<GrantResult>('/admin/grants/manual', data);
+export async function manualGrant(data: ManualGrantRequest): Promise<GrantResult> {
+  const results: UserGrantResult[] = [];
+
+  const promises = data.userIds.map(async (userId) => {
+    try {
+      const res = await post<{
+        userId: string;
+        badgeId: number;
+        badgeName: string;
+        quantity: number;
+        sourceRefId: string;
+      }>('/admin/grants/manual', {
+        userId,
+        badgeId: data.badgeId,
+        quantity: data.quantity ?? 1,
+        reason: data.reason ?? '',
+        recipientType: data.recipientType,
+        actualUserId: data.actualUserId,
+      });
+      return { userId, success: true, userBadgeId: res.badgeId } as UserGrantResult;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '发放失败';
+      return { userId, success: false, message: msg } as UserGrantResult;
+    }
+  });
+
+  const settled = await Promise.allSettled(promises);
+  for (const r of settled) {
+    if (r.status === 'fulfilled') {
+      results.push(r.value);
+    }
+  }
+
+  const successCount = results.filter((r) => r.success).length;
+  return {
+    totalCount: results.length,
+    successCount,
+    failedCount: results.length - successCount,
+    results,
+  };
 }
 
 /**
@@ -198,10 +237,14 @@ export function createBatchTask(data: CreateBatchTaskRequest): Promise<BatchTask
       badge_id: data.badgeId,
       quantity: data.quantity,
       reason: data.reason,
-      user_ids: data.userIds,
+      csv_ref_key: data.csvRefKey,
       user_filter: data.userFilter,
       name: data.name,
     },
+    // 调度字段需放在顶层，后端 CreateBatchTaskRequest 直接读取
+    schedule_type: data.scheduleType,
+    scheduled_at: data.scheduledAt,
+    cron_expression: data.cronExpression,
   };
   return post<BatchTask>('/admin/tasks', payload);
 }

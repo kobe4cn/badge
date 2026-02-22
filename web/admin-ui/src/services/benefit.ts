@@ -175,6 +175,60 @@ export function listBenefitGrants(
   return getList<BenefitGrant>('/admin/benefit-grants', params);
 }
 
+// ==================== 权益同步 ====================
+
+/**
+ * 权益同步日志
+ *
+ * 对应后端 BenefitSyncLogDto
+ */
+export interface BenefitSyncLog {
+  id: number;
+  syncType: string;
+  status: string;
+  totalCount: number;
+  successCount: number;
+  failedCount: number;
+  errorMessage?: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
+/**
+ * 触发同步请求
+ */
+export interface TriggerSyncRequest {
+  syncType?: string;
+  benefitIds?: number[];
+}
+
+/**
+ * 同步结果
+ */
+export interface SyncResult {
+  syncId: number;
+  status: string;
+  message: string;
+}
+
+/**
+ * 获取权益同步日志
+ */
+export function listSyncLogs(
+  params?: BenefitQueryParams
+): Promise<PaginatedResponse<BenefitSyncLog>> {
+  return getList<BenefitSyncLog>('/admin/benefits/sync-logs', params);
+}
+
+/**
+ * 触发权益同步
+ *
+ * 创建异步同步任务，后台 worker 执行实际同步
+ */
+export function triggerSync(data: TriggerSyncRequest): Promise<SyncResult> {
+  return post<SyncResult>('/admin/benefits/sync', data);
+}
+
 /**
  * 权益服务对象
  */
@@ -186,4 +240,6 @@ export const benefitService = {
   delete: deleteBenefit,
   linkBadge,
   listGrants: listBenefitGrants,
+  listSyncLogs,
+  triggerSync,
 };

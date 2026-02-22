@@ -4,8 +4,9 @@
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    Extension, Json,
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -350,6 +351,7 @@ pub async fn create_notification_config(
 pub async fn update_notification_config(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateNotificationConfigRequest>,
 ) -> Result<Json<ApiResponse<NotificationConfigDto>>, AdminError> {
     req.validate()?;
@@ -390,6 +392,9 @@ pub async fn update_notification_config(
     }
 
     let channels_json = req.channels.as_ref().map(|c| serde_json::to_value(c).ok()).flatten();
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "notification_configs", id).await;
 
     sqlx::query(
         r#"
@@ -433,7 +438,11 @@ pub async fn update_notification_config(
 pub async fn delete_notification_config(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "notification_configs", id).await;
+
     let result = sqlx::query("DELETE FROM notification_configs WHERE id = $1")
         .bind(id)
         .execute(&state.pool)

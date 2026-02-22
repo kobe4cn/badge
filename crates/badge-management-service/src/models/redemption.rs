@@ -126,6 +126,12 @@ pub struct BadgeRedemptionRule {
     pub required_badges: Value,
     /// 频率限制配置（JSON）
     pub frequency_config: Value,
+    /// 有效期类型：FIXED-固定时间段，RELATIVE-相对徽章获取时间
+    #[sqlx(default)]
+    pub validity_type: Option<String>,
+    /// 相对有效天数（validity_type=RELATIVE 时使用）
+    #[sqlx(default)]
+    pub relative_days: Option<i32>,
     /// 规则生效开始时间
     #[sqlx(default)]
     pub start_time: Option<DateTime<Utc>>,
@@ -384,6 +390,8 @@ mod tests {
                 {"badgeId": 2, "quantity": 1}
             ]),
             frequency_config: json!({"maxPerUser": 5, "maxPerDay": 1}),
+            validity_type: None,
+            relative_days: None,
             start_time: None,
             end_time: None,
             enabled: true,

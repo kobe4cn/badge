@@ -3,10 +3,11 @@
 //! 实现徽章依赖关系的 CRUD 操作，支持前置条件、消耗关系和互斥关系的配置
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
 };
+use crate::middleware::AuditContext;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tracing::info;
@@ -163,8 +164,12 @@ pub async fn list_dependencies(
 pub async fn delete_dependency(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>, AdminError> {
     let dependency_repo = state.dependency_repo()?;
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_dependencies", id).await;
 
     let deleted = dependency_repo.delete(id).await?;
 
@@ -198,11 +203,18 @@ pub async fn refresh_dependency_cache(
         info!("Local dependency cache refreshed");
     }
 
-    // 2. 通过 gRPC 刷新 badge-management-service 的缓存
-    let client = state.badge_management_client.read().await;
-    if let Some(ref mut client) = client.clone() {
+    // 2. 通过 gRPC 刷新 badge-management-service 的缓存（受熔断器保护）
+    let client_guard = state.badge_management_client.read().await;
+    if let Some(client) = client_guard.clone() {
+        drop(client_guard);
         use badge_proto::badge::RefreshDependencyCacheRequest;
-        match client.refresh_dependency_cache(RefreshDependencyCacheRequest {}).await {
+        let cb = &state.badge_mgmt_circuit_breaker;
+        let result = cb.call(|| {
+            let mut c = client.clone();
+            async move { c.refresh_dependency_cache(RefreshDependencyCacheRequest {}).await }
+        }).await;
+
+        match result {
             Ok(response) => {
                 let resp = response.into_inner();
                 if resp.success {
@@ -212,11 +224,12 @@ pub async fn refresh_dependency_cache(
                 }
             }
             Err(e) => {
-                // gRPC 调用失败不阻塞响应，只记录警告
+                // 熔断器跳闸或 gRPC 调用失败均不阻塞响应
                 tracing::warn!("Failed to refresh badge-management-service cache via gRPC: {}", e);
             }
         }
     } else {
+        drop(client_guard);
         tracing::debug!("Badge-management-service gRPC client not configured, skipping remote cache refresh");
     }
 
@@ -232,11 +245,18 @@ pub async fn refresh_dependency_cache(
 pub async fn refresh_auto_benefit_cache(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<AutoBenefitCacheRefreshResult>>, AdminError> {
-    // 通过 gRPC 刷新 badge-management-service 的缓存
-    let client = state.badge_management_client.read().await;
-    if let Some(ref mut client) = client.clone() {
+    // 通过 gRPC 刷新 badge-management-service 的缓存（受熔断器保护）
+    let client_guard = state.badge_management_client.read().await;
+    if let Some(client) = client_guard.clone() {
+        drop(client_guard);
         use badge_proto::badge::RefreshAutoBenefitCacheRequest;
-        match client.refresh_auto_benefit_cache(RefreshAutoBenefitCacheRequest {}).await {
+        let cb = &state.badge_mgmt_circuit_breaker;
+        let result = cb.call(|| {
+            let mut c = client.clone();
+            async move { c.refresh_auto_benefit_cache(RefreshAutoBenefitCacheRequest {}).await }
+        }).await;
+
+        match result {
             Ok(response) => {
                 let resp = response.into_inner();
                 if resp.success {
@@ -259,6 +279,7 @@ pub async fn refresh_auto_benefit_cache(
             }
         }
     }
+    drop(client_guard);
 
     // 没有配置 gRPC 客户端
     Err(AdminError::Internal("Badge-management-service gRPC 客户端未配置".to_string()))
@@ -319,6 +340,7 @@ pub struct UpdateDependencyRequest {
 pub async fn update_dependency(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateDependencyRequest>,
 ) -> Result<Json<ApiResponse<DependencyResponse>>, AdminError> {
     // 验证 dependency_type
@@ -348,6 +370,9 @@ pub async fn update_dependency(
     }
 
     let dependency_repo = state.dependency_repo()?;
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "badge_dependencies", id).await;
 
     let update_req = badge_management::repository::UpdateDependencyRequest {
         id,

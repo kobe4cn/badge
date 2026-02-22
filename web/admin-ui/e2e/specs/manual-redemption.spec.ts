@@ -75,7 +75,7 @@ test.describe('手动兑换测试: 基础流程', () => {
       validityType: 'FIXED',
     });
 
-    expect(rule?.data?.id || rule?.success).toBeTruthy();
+    expect(rule?.data?.id).toBeGreaterThan(0);
     redemptionRuleId = rule?.data?.id;
   });
 
@@ -86,11 +86,11 @@ test.describe('手动兑换测试: 基础流程', () => {
 
     // 1. 先发放徽章给用户
     const grantRes = await api.grantBadgeManual(userId, badgeId, '兑换测试发放徽章');
-    expect(grantRes?.data || grantRes?.success).toBeTruthy();
+    expect(grantRes?.code).toBe(0);
 
     // 2. 执行兑换
     const redeemRes = await api.redeemBadge(userId, redemptionRuleId);
-    expect(redeemRes?.data || redeemRes?.success).toBeTruthy();
+    expect(redeemRes?.code).toBe(0);
 
     // 验证兑换订单返回了订单号
     const orderNo = redeemRes?.data?.orderNo || redeemRes?.data?.order_no || redeemRes?.data?.id;
@@ -180,7 +180,7 @@ test.describe('手动兑换测试: 有效期配置', () => {
       relativeDays: 14, // 获取徽章后 14 天内可兑换
     });
 
-    expect(rule?.data?.id || rule?.success).toBeTruthy();
+    expect(rule?.data?.id).toBeGreaterThan(0);
 
     // 验证返回的规则包含相对有效期配置
     const savedRule = rule?.data;
@@ -202,7 +202,7 @@ test.describe('手动兑换测试: 有效期配置', () => {
       // 不设置 startTime/endTime 表示无时间限制
     });
 
-    expect(rule?.data?.id || rule?.success).toBeTruthy();
+    expect(rule?.data?.id).toBeGreaterThan(0);
   });
 
   test('已过期规则兑换失败', async () => {
@@ -301,7 +301,7 @@ test.describe('手动兑换测试: 频率限制', () => {
 
     // 第一次兑换应该成功
     const firstRedeem = await api.redeemBadge(userId, ruleId);
-    expect(firstRedeem?.data || firstRedeem?.success).toBeTruthy();
+    expect(firstRedeem?.code).toBe(0);
 
     // 第二次兑换应该失败（超出限制）
     let secondRedeemFailed = false;
@@ -448,7 +448,7 @@ test.describe('手动兑换测试: 多徽章组合', () => {
 
     // 兑换应该成功
     const redeemRes = await api.redeemBadge(userId, ruleId);
-    expect(redeemRes?.data || redeemRes?.success).toBeTruthy();
+    expect(redeemRes?.code).toBe(0);
   });
 
   test('多徽章组合兑换 - 部分满足失败', async () => {
@@ -503,7 +503,7 @@ test.describe('手动兑换测试: 多徽章组合', () => {
 
     // 兑换应该成功
     const redeemRes = await api.redeemBadge(userId, ruleId);
-    expect(redeemRes?.data || redeemRes?.success).toBeTruthy();
+    expect(redeemRes?.code).toBe(0);
   });
 });
 
@@ -531,7 +531,7 @@ test.describe('手动兑换测试: 订单管理', () => {
   test('查询兑换订单列表', async () => {
     const orders = await api.getRedemptionOrders({ page: 1, pageSize: 10 });
     expect(orders).toBeTruthy();
-    expect(orders?.data !== undefined).toBeTruthy();
+    expect(orders?.data).toBeDefined();
   });
 
   test('按用户筛选兑换订单', async () => {

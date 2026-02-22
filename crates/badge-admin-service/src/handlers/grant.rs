@@ -4,7 +4,7 @@
 //! 发放操作涉及多表事务：user_badges + badge_ledger + user_badge_logs。
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Multipart, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::IntoResponse,
@@ -16,6 +16,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    auth::Claims,
     dto::{
         ApiResponse, BatchGrantRequest, BatchTaskDto, GrantLogDto, GrantLogFilter,
         ManualGrantRequest, PageResponse, PaginationParams,
@@ -96,15 +97,15 @@ pub async fn manual_grant(
     let mut tx = state.pool.begin().await?;
 
     // 1. 插入或更新 user_badges
-    // 注意：UserBadgeStatus 枚举使用 SCREAMING_SNAKE_CASE，必须使用大写 'ACTIVE'
+    // 数据库 DEFAULT 和 Worker 均使用小写 status，此处保持一致
     sqlx::query(
         r#"
         INSERT INTO user_badges (user_id, badge_id, quantity, status, first_acquired_at, source_type, created_at, updated_at)
-        VALUES ($1, $2, $3, 'ACTIVE', $4, 'MANUAL', $4, $4)
+        VALUES ($1, $2, $3, 'active', $4, 'MANUAL', $4, $4)
         ON CONFLICT (user_id, badge_id)
         DO UPDATE SET
             quantity = user_badges.quantity + $3,
-            status = 'ACTIVE',
+            status = 'active',
             updated_at = $4
         "#,
     )
@@ -145,7 +146,7 @@ pub async fn manual_grant(
     sqlx::query(
         r#"
         INSERT INTO user_badge_logs (user_id, badge_id, action, quantity, source_type, source_ref_id, remark, created_at)
-        VALUES ($1, $2, 'grant', $3, 'manual', $4, $5, $6)
+        VALUES ($1, $2, 'grant', $3, 'MANUAL', $4, $5, $6)
         "#,
     )
     .bind(&req.user_id)
@@ -195,6 +196,7 @@ pub async fn manual_grant(
 /// 实际处理由后台异步执行（简化实现）。
 pub async fn batch_grant(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<BatchGrantRequest>,
 ) -> Result<Json<ApiResponse<BatchTaskDto>>, AdminError> {
     req.validate()?;
@@ -217,22 +219,26 @@ pub async fn batch_grant(
         "reason": &req.reason,
     });
 
+    let created_by = &claims.username;
+
     let row: (i64,) = sqlx::query_as(
         r#"
         INSERT INTO batch_tasks (task_type, file_url, params, status, progress, total_count, success_count, failure_count, created_by, created_at, updated_at)
-        VALUES ('batch_grant', $1, $2, 'pending', 0, 0, 0, 0, 'admin', $3, $3)
+        VALUES ('batch_grant', $1, $2, 'pending', 0, 0, 0, 0, $4, $3, $3)
         RETURNING id
         "#,
     )
     .bind(&req.file_url)
     .bind(&params)
     .bind(now)
+    .bind(created_by)
     .fetch_one(&state.pool)
     .await?;
 
     info!(
         task_id = row.0,
         badge_id = req.badge_id,
+        created_by = %created_by,
         "Batch grant task created"
     );
     let task_dto = BatchTaskDto {
@@ -246,7 +252,7 @@ pub async fn batch_grant(
         file_url: Some(req.file_url),
         result_file_url: None,
         error_message: None,
-        created_by: "admin".to_string(),
+        created_by: created_by.clone(),
         created_at: now,
         updated_at: now,
     };
@@ -270,7 +276,7 @@ pub async fn list_grants(
     let source_type_str = filter.source_type.map(|t| {
         serde_json::to_value(t)
             .ok()
-            .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_default()
     });
 
@@ -416,7 +422,7 @@ pub async fn export_grant_logs(
     let source_type_str = filter.source_type.map(|t| {
         serde_json::to_value(t)
             .ok()
-            .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_default()
     });
 
@@ -495,13 +501,20 @@ fn escape_csv_field(field: &str) -> String {
 }
 
 /// CSV 上传解析结果
+///
+/// userIds 存储在 Redis（通过 csvRefKey 引用），避免大列表在 HTTP 请求中传输。
+/// 前端提交批量任务时只需传 csvRefKey，后端从 Redis 解析出用户列表。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CsvUploadResult {
-    total: usize,
-    valid: usize,
-    invalid: usize,
-    preview: Vec<String>,
+    /// Redis 中存储 userIds 的引用键，后续创建任务时传此键即可
+    csv_ref_key: String,
+    /// 有效用户数量
+    valid_count: usize,
+    /// 无效行号列表
+    invalid_rows: Vec<usize>,
+    /// 总行数
+    total_rows: usize,
 }
 
 /// 上传用户 CSV 文件
@@ -511,7 +524,7 @@ pub struct CsvUploadResult {
 /// 接收 multipart/form-data 上传的 CSV 文件，解析并返回预览结果。
 /// 前端通过 FormData 上传 file 字段，后端提取文件内容进行解析。
 pub async fn upload_user_csv(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Json<ApiResponse<CsvUploadResult>>, AdminError> {
     let mut csv_content = String::new();
@@ -553,37 +566,47 @@ pub async fn upload_user_csv(
         .position(|h| h.eq_ignore_ascii_case("user_id"))
         .ok_or_else(|| AdminError::Validation("CSV 缺少 user_id 列".to_string()))?;
 
-    let mut total = 0usize;
-    let mut valid = 0usize;
-    let mut invalid = 0usize;
-    let mut preview = Vec::new();
+    let mut total_rows = 0usize;
+    let mut user_ids = Vec::new();
+    let mut invalid_rows = Vec::new();
 
     for line in lines {
         if line.trim().is_empty() {
             continue;
         }
-        total += 1;
+        total_rows += 1;
         let cols: Vec<&str> = line.split(',').collect();
         if let Some(uid) = cols.get(user_id_col) {
             let uid = uid.trim();
             if !uid.is_empty() {
-                valid += 1;
-                if preview.len() < 10 {
-                    preview.push(uid.to_string());
-                }
+                user_ids.push(uid.to_string());
             } else {
-                invalid += 1;
+                invalid_rows.push(total_rows);
             }
         } else {
-            invalid += 1;
+            invalid_rows.push(total_rows);
         }
     }
 
+    let valid_count = user_ids.len();
+
+    // 将 userIds 存入 Redis（30 分钟 TTL），避免大列表随 HTTP 请求传输
+    let csv_ref_key = format!("csv_ref:{}", Uuid::new_v4());
+    state
+        .cache
+        .set(
+            &csv_ref_key,
+            &user_ids,
+            std::time::Duration::from_secs(30 * 60),
+        )
+        .await
+        .map_err(|e| AdminError::Internal(format!("Redis 存储 CSV 结果失败: {}", e)))?;
+
     Ok(Json(ApiResponse::success(CsvUploadResult {
-        total,
-        valid,
-        invalid,
-        preview,
+        csv_ref_key,
+        valid_count,
+        invalid_rows,
+        total_rows,
     })))
 }
 

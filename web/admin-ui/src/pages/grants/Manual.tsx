@@ -134,7 +134,7 @@ const ManualGrantPage: React.FC = () => {
         userIds: formData.users.map((u) => u.value),
         badgeId: formData.badge.value,
         quantity: formData.quantity,
-        reason: formData.reason || undefined,
+        reason: formData.reason || '手动发放',
         recipientType: formData.recipientType,
         actualUserId: formData.recipientType === 'USER' ? formData.actualUserId || undefined : undefined,
       });

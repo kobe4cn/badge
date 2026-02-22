@@ -79,7 +79,7 @@ const ConditionNode: React.FC<ConditionNodeProps> = ({ id, data, selected }) => 
   const operatorDisplay = nodeData.operator ? getOperatorLabel(nodeData.operator) : '未配置';
   const valueDisplay = nodeData.value !== undefined ? formatValue(nodeData.value) : '未配置值';
 
-  // 某些操作符（如 is_null, is_not_null）不需要显示值
+  // 某些操作符（如 is_empty, is_not_empty）不需要显示值
   const showValue = nodeData.operator
     ? OPERATOR_CONFIG[nodeData.operator]?.valueType !== 'none'
     : true;

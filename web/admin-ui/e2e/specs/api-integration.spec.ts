@@ -63,8 +63,8 @@ test.describe('API 集成测试: 徽章生命周期', () => {
     test.skip(!badgeId, '前置用例未创建徽章');
 
     const res = await api.publishBadge(badgeId);
-    // 发布后状态应为 published 或相关标识
-    expect(res?.data || res?.code === 0 || res?.success).toBeTruthy();
+    // 发布接口应返回 code=0 表示成功
+    expect(res?.code).toBe(0);
 
     // 再次查询确认状态
     const badges = await api.getBadges({ keyword: testPrefix });
@@ -78,7 +78,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
     test.skip(!badgeId, '前置用例未创建徽章');
 
     const res = await api.offlineBadge(badgeId);
-    expect(res?.data || res?.code === 0 || res?.success).toBeTruthy();
+    expect(res?.code).toBe(0);
 
     const badges = await api.getBadges({ keyword: testPrefix });
     const target = (badges?.data?.items || []).find((b: any) => b.id === badgeId);
@@ -91,7 +91,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
     test.skip(!badgeId, '前置用例未创建徽章');
 
     const res = await api.archiveBadge(badgeId);
-    expect(res?.data || res?.code === 0 || res?.success).toBeTruthy();
+    expect(res?.code).toBe(0);
   });
 
   test('删除草稿徽章', async () => {
@@ -188,7 +188,7 @@ test.describe('API 集成测试: 规则管理', () => {
     test.skip(!ruleId, '前置用例未创建规则');
 
     const res = await api.publishRule(ruleId);
-    expect(res?.success === true || res?.data != null || res?.code === 0).toBeTruthy();
+    expect(res?.code).toBe(0);
 
     // 验证规则列表中状态为已启用
     const rules = await api.getRules({ keyword: testPrefix });
@@ -202,7 +202,7 @@ test.describe('API 集成测试: 规则管理', () => {
     test.skip(!ruleId, '前置用例未创建规则');
 
     const res = await api.disableRule(ruleId);
-    expect(res?.data || res?.code === 0 || res?.success).toBeTruthy();
+    expect(res?.code).toBe(0);
 
     const rules = await api.getRules({ keyword: testPrefix });
     const target = (rules?.data?.items || []).find((r: any) => r.id === ruleId);
@@ -263,7 +263,7 @@ test.describe('API 集成测试: 发放管理', () => {
     test.skip(!badgeId, '前置数据未就绪');
 
     const grant = await api.grantBadgeManual('e2e_test_user_001', badgeId, 'E2E测试手动发放');
-    expect(grant?.data || grant?.code === 0 || grant?.success).toBeTruthy();
+    expect(grant?.code).toBe(0);
   });
 
   test('发放日志查询 - GET /grants/logs', async () => {
@@ -271,7 +271,7 @@ test.describe('API 集成测试: 发放管理', () => {
     // 只要接口正常返回即表示通过
     expect(logs).toBeTruthy();
     // 返回结构应包含列表
-    expect(logs?.data?.items !== undefined || Array.isArray(logs?.data)).toBeTruthy();
+    expect(logs?.data).toBeDefined();
   });
 
   test('发放日志详情 - GET /grants/logs/:id', async () => {
@@ -294,7 +294,7 @@ test.describe('API 集成测试: 发放管理', () => {
       });
       const detail = await response.json();
       expect(detail).toBeTruthy();
-      expect(detail?.data?.id || detail?.data).toBeTruthy();
+      expect(detail?.data).toBeDefined();
     } catch {
       test.info().annotations.push({
         type: 'info',
@@ -378,7 +378,7 @@ test.describe('API 集成测试: 兑换管理', () => {
       startTime: new Date().toISOString(),
       endTime: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
     });
-    expect(rule?.data?.id || rule?.code === 0 || rule?.success).toBeTruthy();
+    expect(rule?.data?.id).toBeGreaterThan(0);
     redemptionRuleId = rule?.data?.id;
   });
 
@@ -386,7 +386,7 @@ test.describe('API 集成测试: 兑换管理', () => {
     const orders = await api.getRedemptionOrders({ page: 1, pageSize: 10 });
     expect(orders).toBeTruthy();
     // 即使列表为空也验证结构正确
-    expect(orders?.data !== undefined).toBeTruthy();
+    expect(orders?.data).toBeDefined();
   });
 
   test('查询单个兑换订单详情 by order_no', async () => {
@@ -464,21 +464,21 @@ test.describe('API 集成测试: 权益管理', () => {
       description: 'API集成测试权益',
     });
     const res = await api.createBenefit(benefit);
-    expect(res?.data?.id || res?.code === 0 || res?.success).toBeTruthy();
+    expect(res?.data?.id).toBeGreaterThan(0);
     benefitId = res?.data?.id;
   });
 
   test('查询权益列表', async () => {
     const benefits = await api.getBenefits({ page: 1, pageSize: 10 });
     expect(benefits).toBeTruthy();
-    expect(benefits?.data !== undefined).toBeTruthy();
+    expect(benefits?.data).toBeDefined();
   });
 
   test('关联权益与徽章', async () => {
     test.skip(!benefitId || !badgeId, '前置数据未就绪');
 
     const res = await api.linkBadgeToBenefit(benefitId, badgeId);
-    expect(res?.data || res?.code === 0 || res?.success).toBeTruthy();
+    expect(res?.code).toBe(0);
   });
 });
 
@@ -528,7 +528,7 @@ test.describe('API 集成测试: 依赖关系', () => {
       requiredQuantity: 1,
       autoTrigger: false,
     });
-    expect(res?.data?.id || res?.code === 0 || res?.success).toBeTruthy();
+    expect(res?.data?.id).toBeGreaterThan(0);
     dependencyId = res?.data?.id;
   });
 
@@ -598,7 +598,7 @@ test.describe('API 集成测试: 系统管理', () => {
         email: `${testPrefix.toLowerCase()}user@test.com`,
         role: 'operator',
       });
-      expect(res?.data?.id || res?.code === 0 || res?.success).toBeTruthy();
+      expect(res?.data?.id).toBeGreaterThan(0);
       systemUserId = res?.data?.id;
     } catch {
       test.info().annotations.push({
@@ -612,7 +612,7 @@ test.describe('API 集成测试: 系统管理', () => {
     // 不传分页参数使用默认值，避免 serde_urlencoded flatten 类型转换问题
     const users = await api.getSystemUsers();
     expect(users).toBeTruthy();
-    expect(users?.data !== undefined).toBeTruthy();
+    expect(users?.data).toBeDefined();
   });
 
   test('创建角色', async () => {
@@ -623,7 +623,7 @@ test.describe('API 集成测试: 系统管理', () => {
         description: 'API集成测试角色',
         permissions: ['badge:read', 'badge:write'],
       });
-      expect(res?.data?.id || res?.code === 0 || res?.success).toBeTruthy();
+      expect(res?.data?.id).toBeGreaterThan(0);
       roleId = res?.data?.id;
     } catch {
       test.info().annotations.push({
@@ -637,13 +637,13 @@ test.describe('API 集成测试: 系统管理', () => {
     const tree = await api.getPermissionTree();
     expect(tree).toBeTruthy();
     // 权限树应返回嵌套结构或列表
-    expect(tree?.data !== undefined).toBeTruthy();
+    expect(tree?.data).toBeDefined();
   });
 
   test('API Key 创建和删除', async () => {
     try {
       const createRes = await api.createApiKey(`${testPrefix}Key`, ['badge:read']);
-      expect(createRes?.data?.id || createRes?.data?.key || createRes?.code === 0).toBeTruthy();
+      expect(createRes?.data?.id ?? createRes?.data?.key).toBeTruthy();
       apiKeyId = createRes?.data?.id;
 
       if (apiKeyId) {
@@ -687,13 +687,13 @@ test.describe('API 集成测试: 统计和模板', () => {
   test('获取统计概览', async () => {
     const stats = await api.getStatsOverview();
     expect(stats).toBeTruthy();
-    expect(stats?.data !== undefined).toBeTruthy();
+    expect(stats?.data).toBeDefined();
   });
 
   test('获取模板列表', async () => {
     const templates = await api.getTemplates();
     expect(templates).toBeTruthy();
-    expect(templates?.data !== undefined).toBeTruthy();
+    expect(templates?.data).toBeDefined();
   });
 });
 
@@ -748,7 +748,7 @@ test.describe('API 集成测试: 全链路', () => {
 
     // 4. 发布徽章
     const publishRes = await api.publishBadge(badgeId);
-    expect(publishRes?.data || publishRes?.code === 0 || publishRes?.success).toBeTruthy();
+    expect(publishRes?.code).toBe(0);
 
     // 5. 创建规则
     const ruleRes = await api.createRule({
@@ -766,12 +766,12 @@ test.describe('API 集成测试: 全链路', () => {
 
     // 6. 发布规则
     const publishRuleRes = await api.publishRule(ruleId);
-    expect(publishRuleRes?.data || publishRuleRes?.code === 0 || publishRuleRes?.success).toBeTruthy();
+    expect(publishRuleRes?.code).toBe(0);
 
     // 7. 手动发放
     const targetUser = `e2e_fullchain_${Date.now()}`;
     const grantRes = await api.grantBadgeManual(targetUser, badgeId, '全链路测试发放');
-    expect(grantRes?.data || grantRes?.code === 0 || grantRes?.success).toBeTruthy();
+    expect(grantRes?.code).toBe(0);
 
     // 8. 查询用户徽章
     const userBadges = await api.getUserBadges(targetUser);
@@ -792,7 +792,7 @@ test.describe('API 集成测试: 全链路', () => {
       description: '全链路权益关联测试',
     });
     const benefitRes = await api.createBenefit(benefit);
-    expect(benefitRes?.data?.id || benefitRes?.code === 0 || benefitRes?.success).toBeTruthy();
+    expect(benefitRes?.data?.id).toBeGreaterThan(0);
     const benefitId = benefitRes?.data?.id;
 
     // 2. 创建徽章
@@ -809,7 +809,7 @@ test.describe('API 集成测试: 全链路', () => {
     // 3. 关联权益与徽章
     if (benefitId && badgeId) {
       const linkRes = await api.linkBadgeToBenefit(benefitId, badgeId);
-      expect(linkRes?.data || linkRes?.code === 0 || linkRes?.success).toBeTruthy();
+      expect(linkRes?.code).toBe(0);
     }
 
     // 4. 查询权益列表确认关联存在
@@ -866,8 +866,8 @@ test.describe('API 集成测试: RBAC 权限执行', () => {
   test('viewer 角色可以读取徽章列表', async () => {
     const res = await viewerApi.getBadges({ page: 1, pageSize: 5 });
     // viewer 有 badge:badge:read 权限，应返回正常数据
-    expect(res?.data !== undefined || res?.success).toBeTruthy();
-    expect(res?.status !== 403).toBeTruthy();
+    expect(res?.data).toBeDefined();
+    expect(res?.status).not.toBe(403);
   });
 
   test('viewer 角色无法创建分类 (403)', async () => {
@@ -940,8 +940,8 @@ test.describe('API 集成测试: RBAC 权限执行', () => {
 
   test('admin 角色可以管理系统用户', async () => {
     const users = await adminApi.getSystemUsers();
-    expect(users?.data !== undefined).toBeTruthy();
-    expect(users?.status !== 403).toBeTruthy();
+    expect(users?.data).toBeDefined();
+    expect(users?.status).not.toBe(403);
   });
 
   // ---- 规则模块权限边界 ----

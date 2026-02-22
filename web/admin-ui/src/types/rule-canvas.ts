@@ -29,14 +29,13 @@ export type ConditionOperator =
   | 'lt'           // 小于
   | 'lte'          // 小于等于
   | 'contains'     // 包含
-  | 'not_contains' // 不包含
   | 'starts_with'  // 以...开头
   | 'ends_with'    // 以...结尾
   | 'in'           // 属于列表
   | 'not_in'       // 不属于列表
   | 'between'      // 区间范围
-  | 'is_null'      // 为空
-  | 'is_not_null'; // 不为空
+  | 'is_empty'     // 为空
+  | 'is_not_empty'; // 不为空
 
 /**
  * 操作符配置信息
@@ -60,14 +59,13 @@ export const OPERATOR_CONFIG: Record<ConditionOperator, OperatorConfig> = {
   lt: { label: '小于', valueType: 'single' },
   lte: { label: '小于等于', valueType: 'single' },
   contains: { label: '包含', valueType: 'single' },
-  not_contains: { label: '不包含', valueType: 'single' },
   starts_with: { label: '以...开头', valueType: 'single' },
   ends_with: { label: '以...结尾', valueType: 'single' },
   in: { label: '属于', valueType: 'list' },
   not_in: { label: '不属于', valueType: 'list' },
   between: { label: '介于', valueType: 'range' },
-  is_null: { label: '为空', valueType: 'none' },
-  is_not_null: { label: '不为空', valueType: 'none' },
+  is_empty: { label: '为空', valueType: 'none' },
+  is_not_empty: { label: '不为空', valueType: 'none' },
 };
 
 /**

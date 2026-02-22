@@ -1,8 +1,9 @@
 # 可观测性基础设施配置
-# 包含 Prometheus（指标）、Grafana（可视化）、Jaeger（追踪）
+# 包含 Prometheus（指标）、Grafana（可视化）、Jaeger（追踪）、Alertmanager（告警通知）
 #
 # 使用前请设置环境变量或创建 .env 文件：
 #   GRAFANA_ADMIN_PASSWORD=your-secure-password
+#   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 
 services:
   prometheus:
@@ -52,6 +53,24 @@ services:
     depends_on:
       prometheus:
         condition: service_healthy
+    networks:
+      - badge-network
+    restart: unless-stopped
+
+  # Alertmanager 告警通知
+  # 接收 Prometheus 告警并通过 Slack 发送通知
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: badge-alertmanager
+    ports:
+      - "9094:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    environment:
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}
     networks:
       - badge-network
     restart: unless-stopped

@@ -76,26 +76,41 @@ impl BadgeRuleClient {
     ///
     /// 使用懒连接模式，不会在启动时尝试建立连接。
     /// 连接将在首次 RPC 调用时按需建立，使服务可以独立启动。
-    pub fn new(rule_engine_url: &str, badge_service_url: &str) -> Result<Self, EngagementError> {
-        let rule_engine_channel = tonic::transport::Endpoint::from_shared(rule_engine_url.to_string())
-            .map_err(|e| EngagementError::RuleEngineError(format!("无效的规则引擎 URL: {e}")))?
-            .connect_lazy();
+    /// `tls_config` 为 None 时使用明文连接，Some 时启用 TLS。
+    pub fn new(
+        rule_engine_url: &str,
+        badge_service_url: &str,
+        tls_config: Option<tonic::transport::ClientTlsConfig>,
+    ) -> Result<Self, EngagementError> {
+        let mut rule_engine_endpoint = tonic::transport::Endpoint::from_shared(rule_engine_url.to_string())
+            .map_err(|e| EngagementError::RuleEngineError(format!("无效的规则引擎 URL: {e}")))?;
+        if let Some(ref tls) = tls_config {
+            rule_engine_endpoint = rule_engine_endpoint
+                .tls_config(tls.clone())
+                .map_err(|e| EngagementError::RuleEngineError(format!("规则引擎 TLS 配置失败: {e}")))?;
+        }
 
-        let badge_service_channel =
-            tonic::transport::Endpoint::from_shared(badge_service_url.to_string())
-                .map_err(|e| {
-                    EngagementError::BadgeGrantError(format!("无效的徽章管理服务 URL: {e}"))
-                })?
-                .connect_lazy();
+        let mut badge_service_endpoint = tonic::transport::Endpoint::from_shared(badge_service_url.to_string())
+            .map_err(|e| {
+                EngagementError::BadgeGrantError(format!("无效的徽章管理服务 URL: {e}"))
+            })?;
+        if let Some(ref tls) = tls_config {
+            badge_service_endpoint = badge_service_endpoint
+                .tls_config(tls.clone())
+                .map_err(|e| EngagementError::BadgeGrantError(format!("徽章服务 TLS 配置失败: {e}")))?;
+        }
 
+        let tls_status = if tls_config.is_some() { "TLS" } else { "plaintext" };
         info!(
             rule_engine_url,
-            badge_service_url, "gRPC 客户端已初始化（懒连接模式）"
+            badge_service_url,
+            tls_status,
+            "gRPC 客户端已初始化（懒连接模式）"
         );
 
         Ok(Self {
-            rule_engine: RuleEngineServiceClient::new(rule_engine_channel),
-            badge_service: BadgeManagementServiceClient::new(badge_service_channel),
+            rule_engine: RuleEngineServiceClient::new(rule_engine_endpoint.connect_lazy()),
+            badge_service: BadgeManagementServiceClient::new(badge_service_endpoint.connect_lazy()),
         })
     }
 }

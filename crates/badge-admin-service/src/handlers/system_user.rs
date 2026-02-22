@@ -4,8 +4,9 @@
 
 use axum::{
     extract::{Path, Query, Request, State},
-    Json,
+    Extension, Json,
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -26,7 +27,7 @@ use crate::state::AppState;
 pub struct CreateUserRequest {
     #[validate(length(min = 2, max = 50, message = "用户名长度必须在 2-50 之间"))]
     pub username: String,
-    #[validate(length(min = 6, max = 100, message = "密码长度必须在 6-100 之间"))]
+    #[validate(length(min = 8, max = 100, message = "密码长度必须在 8-100 之间"))]
     pub password: String,
     #[validate(email(message = "邮箱格式不正确"))]
     pub email: Option<String>,
@@ -55,7 +56,7 @@ pub struct UpdateUserRequest {
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct ResetPasswordRequest {
-    #[validate(length(min = 6, max = 100, message = "密码长度必须在 6-100 之间"))]
+    #[validate(length(min = 8, max = 100, message = "密码长度必须在 8-100 之间"))]
     pub new_password: String,
 }
 
@@ -415,6 +416,7 @@ pub async fn create_user(
 pub async fn update_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<ApiResponse<UserDetail>>> {
     req.validate()?;
@@ -428,6 +430,9 @@ pub async fn update_user(
     if !exists {
         return Err(AdminError::UserNotFound(id.to_string()));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "admin_user", id).await;
 
     // 更新用户信息
     sqlx::query(
@@ -477,11 +482,15 @@ pub async fn update_user(
 pub async fn delete_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>> {
     // 检查是否是系统管理员（ID=1 不允许删除）
     if id == 1 {
         return Err(AdminError::Validation("不能删除系统管理员".to_string()));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "admin_user", id).await;
 
     let result = sqlx::query("DELETE FROM admin_user WHERE id = $1")
         .bind(id)
@@ -508,10 +517,12 @@ pub async fn reset_password(
     // 加密新密码
     let password_hash = hash_password(&req.new_password)?;
 
+    // 重置密码后强制用户下次登录修改密码，避免管理员分配的临时密码长期使用
     let result = sqlx::query(
         r#"
         UPDATE admin_user
         SET password_hash = $1,
+            must_change_password = TRUE,
             password_changed_at = NOW(),
             failed_login_attempts = 0,
             locked_until = NULL,

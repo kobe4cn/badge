@@ -21,7 +21,7 @@ use tracing::{info, instrument, warn};
 use badge_shared::cache::Cache;
 
 use crate::error::{BadgeError, Result};
-use crate::models::{BadgeLedger, ChangeType, LogAction, UserBadgeStatus};
+use crate::models::{BadgeLedger, ChangeType, LogAction, RecipientType, UserBadgeStatus};
 use crate::notification::NotificationSender;
 use crate::repository::{BadgeLedgerRepository, BadgeRepositoryTrait, UserBadgeRepository};
 use crate::service::dto::{
@@ -88,11 +88,25 @@ where
     /// 6. 发送撤销通知
     #[instrument(skip(self), fields(user_id = %request.user_id, badge_id = %request.badge_id, quantity = %request.quantity))]
     pub async fn revoke_badge(&self, request: RevokeBadgeRequest) -> Result<RevokeBadgeResponse> {
+        let start = std::time::Instant::now();
+        let source_str = format!("{:?}", request.source_type).to_lowercase();
+
         // 1. 参数校验
-        self.validate_request(&request)?;
+        if let Err(e) = self.validate_request(&request) {
+            badge_shared::observability::metrics::record_badge_revoke(&source_str, "error", start.elapsed().as_secs_f64());
+            return Err(e);
+        }
 
         // 2-4. 事务内执行取消操作
-        let remaining_quantity = self.execute_revoke(&request).await?;
+        let remaining_quantity = match self.execute_revoke(&request).await {
+            Ok(q) => q,
+            Err(e) => {
+                badge_shared::observability::metrics::record_badge_revoke(&source_str, "error", start.elapsed().as_secs_f64());
+                return Err(e);
+            }
+        };
+
+        badge_shared::observability::metrics::record_badge_revoke(&source_str, "success", start.elapsed().as_secs_f64());
 
         // 5. 清除缓存
         self.invalidate_user_cache(&request.user_id).await;
@@ -432,12 +446,16 @@ where
             id: 0,
             user_id: request.user_id.clone(),
             badge_id: request.badge_id,
+            user_badge_id: Some(user_badge.id),
             change_type: ChangeType::Cancel,
             quantity: -request.quantity, // 负数表示减少
             balance_after: new_quantity,
             ref_id: request.source_ref_id.clone(),
             ref_type: request.source_type,
             remark: Some(request.reason.clone()),
+            operator: request.operator.clone(),
+            recipient_type: RecipientType::Owner,
+            actual_user_id: None,
             created_at: Utc::now(),
         };
         BadgeLedgerRepository::create_in_tx(&mut tx, &ledger).await?;

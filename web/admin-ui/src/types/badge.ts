@@ -208,7 +208,6 @@ export interface UpdateCategoryRequest {
   name?: string;
   iconUrl?: string;
   sortOrder?: number;
-  status?: CategoryStatus;
 }
 
 /**
@@ -219,6 +218,7 @@ export interface CreateSeriesRequest {
   name: string;
   description?: string;
   coverUrl?: string;
+  /** 排序权重（后端通过独立 /sort 端点处理，此处仅保留表单兼容） */
   sortOrder?: number;
   startTime?: string;
   endTime?: string;
@@ -231,8 +231,8 @@ export interface UpdateSeriesRequest {
   name?: string;
   description?: string;
   coverUrl?: string;
+  /** 排序权重（后端通过独立 /sort 端点处理） */
   sortOrder?: number;
-  status?: CategoryStatus;
   startTime?: string;
   endTime?: string;
 }
@@ -248,6 +248,7 @@ export interface CreateBadgeRequest {
   code?: string;
   description?: string;
   obtainDescription?: string;
+  /** 排序权重（后端通过独立 /sort 端点处理） */
   sortOrder?: number;
   assets: BadgeAssets;
   validityConfig: ValidityConfig;
@@ -263,9 +264,8 @@ export interface UpdateBadgeRequest {
   code?: string;
   description?: string;
   obtainDescription?: string;
-  sortOrder?: number;
   status?: BadgeStatus;
-  assets?: Partial<BadgeAssets>;
+  assets?: BadgeAssets;
   validityConfig?: ValidityConfig;
   maxSupply?: number;
 }

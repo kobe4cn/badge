@@ -197,7 +197,7 @@ impl ExpireWorker {
             SELECT EXISTS(
                 SELECT 1 FROM notification_configs
                 WHERE badge_id = $1
-                  AND trigger_type = 'badge_expire_remind'
+                  AND trigger_type = 'expire_remind'
                   AND status = 'active'
             )
             "#,
@@ -225,21 +225,22 @@ impl ExpireWorker {
             "days_remaining": days_left
         });
 
-        // 创建通知任务
+        // 创建通知任务（channels 为 NOT NULL，从关联配置中取值）
         sqlx::query(
             r#"
             INSERT INTO notification_tasks (
-                user_id, trigger_type, template_params, status, created_at
+                user_id, trigger_type, channels, template_params, status, created_at
             )
             SELECT
                 $1,
-                'badge_expire_remind',
+                'expire_remind',
+                nc.channels,
                 $2,
                 'pending',
                 NOW()
             FROM notification_configs nc
             WHERE nc.badge_id = $3
-              AND nc.trigger_type = 'badge_expire_remind'
+              AND nc.trigger_type = 'expire_remind'
               AND nc.status = 'active'
             "#,
         )
@@ -305,28 +306,26 @@ impl ExpireWorker {
             .execute(&mut *tx)
             .await?;
 
-            // 减少用户徽章计数
-            sqlx::query(
-                r#"
-                UPDATE user_badge_counts
-                SET quantity = quantity - 1, updated_at = NOW()
-                WHERE user_id = $1 AND badge_id = $2 AND quantity > 0
-                "#,
+            // 查询过期前的余额，用于流水记录
+            let balance_before: Option<(i32,)> = sqlx::query_as(
+                "SELECT quantity FROM user_badges WHERE id = $1",
             )
-            .bind(&badge.user_id)
-            .bind(badge.badge_id)
-            .execute(&mut *tx)
+            .bind(badge.id)
+            .fetch_optional(&mut *tx)
             .await?;
+            let qty = balance_before.map(|b| b.0).unwrap_or(1);
 
-            // 记录流水日志
+            // 记录流水日志（表名为 badge_ledger，需包含 balance_after 和 ref_id）
             sqlx::query(
                 r#"
-                INSERT INTO user_badge_ledger (user_id, badge_id, change_type, source_type, quantity, remark, created_at)
-                VALUES ($1, $2, 'decrease', 'expire', 1, '徽章到期自动过期', NOW())
+                INSERT INTO badge_ledger (user_id, badge_id, change_type, quantity, balance_after, source_type, ref_id, remark, created_at)
+                VALUES ($1, $2, 'expire', -$3, 0, 'SYSTEM', $4::text, '徽章到期自动过期', NOW())
                 "#,
             )
             .bind(&badge.user_id)
             .bind(badge.badge_id)
+            .bind(qty)
+            .bind(badge.id)
             .execute(&mut *tx)
             .await?;
 

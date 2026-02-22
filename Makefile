@@ -136,6 +136,22 @@ db-migrate:
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250204_001_rule_templates.sql
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250205_001_seed_templates.sql
 	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250206_001_benefit_grants.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250207_001_auto_benefit.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250208_001_auth_rbac.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250209_001_fix_password_hash.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250210_001_batch_task_failures.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250211_001_benefit_sync_link.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250212_001_rule_name_column.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250213_001_expire_worker_support.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250214_001_recipient_type.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250215_001_scheduled_tasks.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250216_001_asset_library.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250217_001_badge_code.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250218_001_redemption_relative_validity.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250219_001_task_retry_support.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250220_001_expand_source_type.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250221_001_batch_task_schedule_columns.sql
+	podman exec -i badge-postgres psql -U badge -d badge_db < migrations/20250222_001_force_password_change.sql
 	@echo "All migrations completed"
 
 db-reset:

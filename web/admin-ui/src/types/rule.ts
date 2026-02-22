@@ -81,16 +81,16 @@ export type ConditionType =
  */
 export type ComparisonOperator =
   | 'eq'           // 等于
-  | 'ne'           // 不等于
+  | 'neq'          // 不等于
   | 'gt'           // 大于
   | 'gte'          // 大于等于
   | 'lt'           // 小于
   | 'lte'          // 小于等于
   | 'in'           // 包含于
-  | 'notIn'        // 不包含于
+  | 'not_in'       // 不包含于
   | 'contains'     // 字符串包含
-  | 'startsWith'   // 以...开头
-  | 'endsWith';    // 以...结尾
+  | 'starts_with'  // 以...开头
+  | 'ends_with';   // 以...结尾
 
 /**
  * 规则动作

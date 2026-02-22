@@ -106,7 +106,8 @@ impl RedemptionRepository {
         let rule = sqlx::query_as::<_, BadgeRedemptionRule>(
             r#"
             SELECT id, name, description, benefit_id, required_badges,
-                   frequency_config, start_time, end_time, enabled,
+                   frequency_config, validity_type, relative_days,
+                   start_time, end_time, enabled,
                    created_at, updated_at
             FROM badge_redemption_rules
             WHERE id = $1
@@ -127,7 +128,8 @@ impl RedemptionRepository {
         let rules = sqlx::query_as::<_, BadgeRedemptionRule>(
             r#"
             SELECT id, name, description, benefit_id, required_badges,
-                   frequency_config, start_time, end_time, enabled,
+                   frequency_config, validity_type, relative_days,
+                   start_time, end_time, enabled,
                    created_at, updated_at
             FROM badge_redemption_rules
             WHERE enabled = true
@@ -150,7 +152,8 @@ impl RedemptionRepository {
         let rules = sqlx::query_as::<_, BadgeRedemptionRule>(
             r#"
             SELECT id, name, description, benefit_id, required_badges,
-                   frequency_config, start_time, end_time, enabled,
+                   frequency_config, validity_type, relative_days,
+                   start_time, end_time, enabled,
                    created_at, updated_at
             FROM badge_redemption_rules
             WHERE enabled = true
@@ -170,7 +173,8 @@ impl RedemptionRepository {
         let rules = sqlx::query_as::<_, BadgeRedemptionRule>(
             r#"
             SELECT id, name, description, benefit_id, required_badges,
-                   frequency_config, start_time, end_time, enabled,
+                   frequency_config, validity_type, relative_days,
+                   start_time, end_time, enabled,
                    created_at, updated_at
             FROM badge_redemption_rules
             WHERE auto_redeem = true AND status = 'active'
@@ -193,7 +197,8 @@ impl RedemptionRepository {
         let rules = sqlx::query_as::<_, BadgeRedemptionRule>(
             r#"
             SELECT id, name, description, benefit_id, required_badges,
-                   frequency_config, start_time, end_time, enabled,
+                   frequency_config, validity_type, relative_days,
+                   start_time, end_time, enabled,
                    created_at, updated_at
             FROM badge_redemption_rules
             WHERE auto_redeem = true

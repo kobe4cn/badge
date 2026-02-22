@@ -24,7 +24,7 @@ license = "MIT"
 tokio = { version = "1.43", features = ["full"] }
 
 # gRPC
-tonic = "0.14.3"
+tonic = { version = "0.14.3", features = ["tls-ring"] }
 tonic-prost = "0.14.3"
 tonic-prost-build = "0.14.3"
 prost = "0.14.3"

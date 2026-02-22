@@ -164,6 +164,21 @@ impl CascadeEvaluator {
         )
         .await;
 
+        // 记录指标（在 eval_result 被 move 之前判断状态）
+        let has_error = eval_result.is_err();
+        let status_str = if has_error {
+            "error"
+        } else if result.granted_badges.is_empty() && !result.blocked_badges.is_empty() {
+            "blocked"
+        } else {
+            "success"
+        };
+        badge_shared::observability::metrics::record_cascade_evaluation(
+            context.depth,
+            status_str,
+            context.started_at.elapsed().as_secs_f64(),
+        );
+
         // 即使出错也返回已成功发放的结果
         if let Err(e) = eval_result {
             warn!(

@@ -33,8 +33,8 @@ use crate::cascade::{BadgeGranter, CascadeEvaluator};
 use crate::error::{BadgeError, Result};
 use crate::notification::NotificationSender;
 use crate::models::{
-    BadgeLedger, BadgeStatus, ChangeType, LogAction, SourceType, UserBadge, UserBadgeStatus,
-    ValidityConfig, ValidityType,
+    BadgeLedger, BadgeStatus, ChangeType, LogAction, RecipientType, SourceType, UserBadge,
+    UserBadgeStatus, ValidityConfig, ValidityType,
 };
 use crate::repository::{BadgeLedgerRepository, BadgeRepositoryTrait, UserBadgeRepository};
 use crate::service::dto::{BatchGrantResponse, GrantBadgeRequest, GrantBadgeResponse, GrantResult};
@@ -147,19 +147,35 @@ where
     /// 11. 发送通知（异步，失败不影响主流程）
     #[instrument(skip(self), fields(user_id = %request.user_id, badge_id = %request.badge_id))]
     pub async fn grant_badge(&self, request: GrantBadgeRequest) -> Result<GrantBadgeResponse> {
+        let start = std::time::Instant::now();
         let user_id = request.user_id.clone();
         let badge_id = request.badge_id;
         let source_type = request.source_type;
+        let source_str = format!("{:?}", source_type).to_lowercase();
 
         // 仅对非级联来源检查前置条件和互斥组
         // 级联来源的检查已由 CascadeEvaluator 完成
         if source_type != SourceType::Cascade {
-            self.check_prerequisites(&user_id, badge_id).await?;
-            self.check_exclusive_conflict(&user_id, badge_id).await?;
+            if let Err(e) = self.check_prerequisites(&user_id, badge_id).await {
+                badge_shared::observability::metrics::record_badge_grant(badge_id, &source_str, "error", start.elapsed().as_secs_f64());
+                return Err(e);
+            }
+            if let Err(e) = self.check_exclusive_conflict(&user_id, badge_id).await {
+                badge_shared::observability::metrics::record_badge_grant(badge_id, &source_str, "error", start.elapsed().as_secs_f64());
+                return Err(e);
+            }
         }
 
         // 调用内部发放逻辑
-        let response = self.grant_badge_internal(request).await?;
+        let response = match self.grant_badge_internal(request).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                badge_shared::observability::metrics::record_badge_grant(badge_id, &source_str, "error", start.elapsed().as_secs_f64());
+                return Err(e);
+            }
+        };
+
+        badge_shared::observability::metrics::record_badge_grant(badge_id, &source_str, "success", start.elapsed().as_secs_f64());
 
         // 仅非级联来源触发级联评估，避免无限递归
         if source_type != SourceType::Cascade {
@@ -674,6 +690,11 @@ where
                 acquired_at: now,
                 expires_at,
                 source_type: request.source_type,
+                source_ref: request.source_ref_id.clone(),
+                expire_reminded: false,
+                expired_at: None,
+                recipient_type: RecipientType::Owner,
+                actual_user_id: None,
                 created_at: now,
                 updated_at: now,
             };
@@ -687,6 +708,7 @@ where
             id: 0,
             user_id: request.user_id.clone(),
             badge_id: request.badge_id,
+            user_badge_id: Some(user_badge_id),
             change_type: ChangeType::Acquire,
             quantity: request.quantity,
             balance_after: new_quantity,
@@ -696,6 +718,9 @@ where
                 .or(request.source_ref_id.clone()),
             ref_type: request.source_type,
             remark: request.reason.clone(),
+            operator: request.operator.clone(),
+            recipient_type: RecipientType::Owner,
+            actual_user_id: None,
             created_at: Utc::now(),
         };
         BadgeLedgerRepository::create_in_tx(&mut tx, &ledger).await?;
@@ -819,6 +844,7 @@ mod tests {
         Badge {
             id,
             series_id: 1,
+            code: None,
             badge_type: BadgeType::Normal,
             name: format!("Badge {}", id),
             description: None,
@@ -839,6 +865,12 @@ mod tests {
             id: 1,
             badge_id,
             rule_json: json!({}),
+            event_type: None,
+            rule_code: None,
+            global_quota: None,
+            global_granted: 0,
+            name: None,
+            description: None,
             start_time: None,
             end_time: None,
             max_count_per_user: Some(10),

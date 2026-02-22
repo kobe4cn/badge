@@ -1,0 +1,56 @@
+# Alertmanager 配置
+# Slack 通知渠道：普通告警 → #badge-alerts，严重告警 → #badge-alerts-critical
+#
+# 使用前设置环境变量：
+#   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+
+global:
+  resolve_timeout: 5m
+  # Alertmanager 不支持环境变量替换，此处用占位符提示部署时需手动替换
+  # 部署前运行: envsubst < alertmanager.yml.tmpl > alertmanager.yml
+  slack_api_url: 'https://hooks.slack.com/services/REPLACE_ME'
+
+route:
+  receiver: 'slack-default'
+  group_by: ['alertname', 'team']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: 'slack-critical'
+      match:
+        severity: critical
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  - name: 'slack-default'
+    slack_configs:
+      - channel: '#badge-alerts'
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *{{ .Labels.alertname }}* ({{ .Labels.severity }})
+          {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#badge-alerts-critical'
+        send_resolved: true
+        title: '[CRITICAL] {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *{{ .Labels.alertname }}* ({{ .Labels.severity }})
+          {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']

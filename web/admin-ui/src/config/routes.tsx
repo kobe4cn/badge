@@ -18,6 +18,9 @@ import {
   NotificationOutlined,
   RollbackOutlined,
   FolderOutlined,
+  AuditOutlined,
+  AlertOutlined,
+  BugOutlined,
 } from '@ant-design/icons';
 
 import type { RouteConfig } from './routeConfig';
@@ -44,11 +47,15 @@ const ManualRedemptionPage = React.lazy(() => import('@/pages/redemptions/Manual
 const SystemUsersPage = React.lazy(() => import('@/pages/system/Users'));
 const SystemRolesPage = React.lazy(() => import('@/pages/system/Roles'));
 const SystemApiKeysPage = React.lazy(() => import('@/pages/system/ApiKeys'));
+const OperationLogsPage = React.lazy(() => import('@/pages/system/OperationLogs'));
 const NotificationConfigsPage = React.lazy(() => import('@/pages/notifications/Configs'));
 const NotificationTasksPage = React.lazy(() => import('@/pages/notifications/Tasks'));
 const BatchRevokePage = React.lazy(() => import('@/pages/revokes/Batch'));
 const RevokeLogsPage = React.lazy(() => import('@/pages/revokes/Logs'));
 const AssetLibraryPage = React.lazy(() => import('@/pages/assets/Library'));
+const DisplayConfigPage = React.lazy(() => import('@/pages/badges/DisplayConfig'));
+const MonitoringPage = React.lazy(() => import('@/pages/system/Monitoring'));
+const ExceptionsPage = React.lazy(() => import('@/pages/system/Exceptions'));
 
 /**
  * 404 页面组件
@@ -97,6 +104,11 @@ export const routes: RouteConfig[] = [
         name: '依赖配置',
         component: DependenciesPage,
         hideInMenu: true,
+      },
+      {
+        path: '/badges/display-config',
+        name: '展示配置',
+        component: DisplayConfigPage,
       },
     ],
   },
@@ -272,6 +284,24 @@ export const routes: RouteConfig[] = [
         path: '/system/api-keys',
         name: 'API Key 管理',
         component: SystemApiKeysPage,
+      },
+      {
+        path: '/system/logs',
+        name: '操作日志',
+        icon: <AuditOutlined />,
+        component: OperationLogsPage,
+      },
+      {
+        path: '/system/monitoring',
+        name: '监控告警',
+        icon: <AlertOutlined />,
+        component: MonitoringPage,
+      },
+      {
+        path: '/system/exceptions',
+        name: '异常处置',
+        icon: <BugOutlined />,
+        component: ExceptionsPage,
       },
     ],
   },

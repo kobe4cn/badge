@@ -32,15 +32,22 @@ async fn main() -> Result<()> {
 
     let producer = badge_shared::kafka::KafkaProducer::new(&config.kafka)?;
 
+    // gRPC 客户端 TLS 配置（TLS 未启用时为 None，保持明文连接）
+    let client_tls = badge_shared::grpc_tls::build_client_tls_config(&config.tls)
+        .await
+        .expect("gRPC 客户端 TLS 配置加载失败");
+    let grpc_scheme = badge_shared::grpc_tls::grpc_scheme(&config.tls);
+
     // gRPC 客户端使用懒连接模式，允许服务独立启动
-    let rule_engine_url =
-        std::env::var("RULE_ENGINE_URL").unwrap_or_else(|_| "http://localhost:50051".to_string());
-    let badge_service_url =
-        std::env::var("BADGE_SERVICE_URL").unwrap_or_else(|_| "http://localhost:50052".to_string());
+    let rule_engine_url = std::env::var("RULE_ENGINE_URL")
+        .unwrap_or_else(|_| format!("{grpc_scheme}://localhost:50051"));
+    let badge_service_url = std::env::var("BADGE_SERVICE_URL")
+        .unwrap_or_else(|_| format!("{grpc_scheme}://localhost:50052"));
 
     let rule_client = event_engagement_service::rule_client::BadgeRuleClient::new(
         &rule_engine_url,
         &badge_service_url,
+        client_tls,
     )?;
 
     // 初始化规则组件：RuleBadgeMapping 作为内存缓存存储从数据库加载的规则

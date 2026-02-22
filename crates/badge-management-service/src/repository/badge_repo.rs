@@ -143,7 +143,7 @@ impl BadgeRepository {
     pub async fn get_badge(&self, id: i64) -> Result<Option<Badge>> {
         let badge = sqlx::query_as::<_, Badge>(
             r#"
-            SELECT id, series_id, badge_type, name, description, obtain_description,
+            SELECT id, series_id, code, badge_type, name, description, obtain_description,
                    sort_order, status, assets, validity_config, max_supply,
                    issued_count, created_at, updated_at
             FROM badges
@@ -165,7 +165,7 @@ impl BadgeRepository {
 
         let badges = sqlx::query_as::<_, Badge>(
             r#"
-            SELECT id, series_id, badge_type, name, description, obtain_description,
+            SELECT id, series_id, code, badge_type, name, description, obtain_description,
                    sort_order, status, assets, validity_config, max_supply,
                    issued_count, created_at, updated_at
             FROM badges
@@ -184,7 +184,7 @@ impl BadgeRepository {
     pub async fn list_badges_by_series(&self, series_id: i64) -> Result<Vec<Badge>> {
         let badges = sqlx::query_as::<_, Badge>(
             r#"
-            SELECT id, series_id, badge_type, name, description, obtain_description,
+            SELECT id, series_id, code, badge_type, name, description, obtain_description,
                    sort_order, status, assets, validity_config, max_supply,
                    issued_count, created_at, updated_at
             FROM badges
@@ -204,7 +204,7 @@ impl BadgeRepository {
     pub async fn list_active_badges(&self) -> Result<Vec<Badge>> {
         let badges = sqlx::query_as::<_, Badge>(
             r#"
-            SELECT id, series_id, badge_type, name, description, obtain_description,
+            SELECT id, series_id, code, badge_type, name, description, obtain_description,
                    sort_order, status, assets, validity_config, max_supply,
                    issued_count, created_at, updated_at
             FROM badges
@@ -225,7 +225,9 @@ impl BadgeRepository {
     pub async fn get_badge_rules(&self, badge_id: i64) -> Result<Vec<BadgeRule>> {
         let rules = sqlx::query_as::<_, BadgeRule>(
             r#"
-            SELECT id, badge_id, rule_json, start_time, end_time,
+            SELECT id, badge_id, rule_json, event_type, rule_code,
+                   global_quota, global_granted, name, description,
+                   start_time, end_time,
                    max_count_per_user, enabled, created_at, updated_at
             FROM badge_rules
             WHERE badge_id = $1 AND enabled = true

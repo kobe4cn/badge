@@ -5,7 +5,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::enums::{ChangeType, LogAction, SourceType, UserBadgeStatus};
+use super::enums::{ChangeType, LogAction, RecipientType, SourceType, UserBadgeStatus};
 
 /// 用户徽章
 ///
@@ -29,6 +29,20 @@ pub struct UserBadge {
     pub expires_at: Option<DateTime<Utc>>,
     /// 发放来源
     pub source_type: SourceType,
+    /// 来源引用（事件 ID、任务 ID 等）
+    #[sqlx(default)]
+    pub source_ref: Option<String>,
+    /// 是否已发送过期提醒通知
+    #[serde(default)]
+    pub expire_reminded: bool,
+    /// 实际过期处理时间，由 ExpireWorker 写入
+    #[sqlx(default)]
+    pub expired_at: Option<DateTime<Utc>>,
+    /// 发放对象类型
+    pub recipient_type: RecipientType,
+    /// 实际使用人 ID（当 recipient_type=USER 时必填）
+    #[sqlx(default)]
+    pub actual_user_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -93,6 +107,9 @@ pub struct BadgeLedger {
     pub user_id: String,
     /// 徽章 ID
     pub badge_id: i64,
+    /// 关联的用户徽章记录 ID
+    #[sqlx(default)]
+    pub user_badge_id: Option<i64>,
     /// 变动类型
     pub change_type: ChangeType,
     /// 变动数量（始终为正数，符号由 change_type 决定）
@@ -107,6 +124,14 @@ pub struct BadgeLedger {
     /// 备注
     #[sqlx(default)]
     pub remark: Option<String>,
+    /// 操作人（手动操作时记录）
+    #[sqlx(default)]
+    pub operator: Option<String>,
+    /// 发放对象类型
+    pub recipient_type: RecipientType,
+    /// 实际使用人 ID
+    #[sqlx(default)]
+    pub actual_user_id: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -122,12 +147,16 @@ impl BadgeLedger {
             id: 0,
             user_id,
             badge_id,
+            user_badge_id: None,
             change_type: ChangeType::Acquire,
             quantity,
             balance_after,
             ref_id: None,
             ref_type: SourceType::System,
             remark: None,
+            operator: None,
+            recipient_type: RecipientType::Owner,
+            actual_user_id: None,
             created_at: Utc::now(),
         }
     }
@@ -144,12 +173,16 @@ impl BadgeLedger {
             id: 0,
             user_id,
             badge_id,
+            user_badge_id: None,
             change_type: ChangeType::RedeemOut,
             quantity,
             balance_after,
             ref_id: Some(order_id),
             ref_type: SourceType::Redemption,
             remark: None,
+            operator: None,
+            recipient_type: RecipientType::Owner,
+            actual_user_id: None,
             created_at: Utc::now(),
         }
     }
@@ -256,6 +289,11 @@ mod tests {
             acquired_at: Utc::now(),
             expires_at: None,
             source_type: SourceType::Manual,
+            source_ref: None,
+            expire_reminded: false,
+            expired_at: None,
+            recipient_type: RecipientType::Owner,
+            actual_user_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -266,12 +304,16 @@ mod tests {
             id: 1,
             user_id: "user-123".to_string(),
             badge_id: 1,
+            user_badge_id: None,
             change_type: ChangeType::Acquire,
             quantity: 1,
             balance_after: 1,
             ref_id: None,
             ref_type: SourceType::System,
             remark: None,
+            operator: None,
+            recipient_type: RecipientType::Owner,
+            actual_user_id: None,
             created_at: Utc::now(),
         }
     }

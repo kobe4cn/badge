@@ -4,8 +4,9 @@
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    Extension, Json,
 };
+use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -195,6 +196,7 @@ pub async fn list_roles(
     }
     if params.enabled.is_some() {
         conditions.push(format!("r.enabled = ${}", bind_index));
+        bind_index += 1;
     }
 
     let where_clause = conditions.join(" AND ");
@@ -215,7 +217,9 @@ pub async fn list_roles(
 
     let total = count_query.fetch_one(&state.pool).await?.count;
 
-    // 查询角色列表（带统计）
+    // 查询角色列表（带统计），LIMIT/OFFSET 使用参数化绑定防止 SQL 注入
+    let limit_idx = bind_index;
+    let offset_idx = bind_index + 1;
     let list_sql = format!(
         r#"
         SELECT r.id, r.code, r.name, r.description, r.is_system, r.enabled, r.created_at,
@@ -224,9 +228,9 @@ pub async fn list_roles(
         FROM role r
         WHERE {}
         ORDER BY r.created_at ASC
-        LIMIT {} OFFSET {}
+        LIMIT ${} OFFSET ${}
         "#,
-        where_clause, page_size, offset
+        where_clause, limit_idx, offset_idx
     );
 
     let mut list_query = sqlx::query_as::<_, RoleListRow>(&list_sql);
@@ -239,6 +243,8 @@ pub async fn list_roles(
     if let Some(enabled) = params.enabled {
         list_query = list_query.bind(enabled);
     }
+    list_query = list_query.bind(page_size);
+    list_query = list_query.bind(offset);
 
     let roles = list_query.fetch_all(&state.pool).await?;
 
@@ -382,6 +388,7 @@ pub async fn create_role(
 pub async fn update_role(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
     Json(req): Json<UpdateRoleRequest>,
 ) -> Result<Json<ApiResponse<RoleDetail>>> {
     req.validate()?;
@@ -399,6 +406,9 @@ pub async fn update_role(
     if role.is_system && req.enabled == Some(false) {
         return Err(AdminError::Validation("系统角色不能禁用".to_string()));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "role", id).await;
 
     // 更新角色信息
     sqlx::query(
@@ -448,6 +458,7 @@ pub async fn update_role(
 pub async fn delete_role(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Extension(audit_ctx): Extension<AuditContext>,
 ) -> Result<Json<ApiResponse<()>>> {
     // 检查是否是系统角色
     let is_system: bool = sqlx::query_scalar("SELECT is_system FROM role WHERE id = $1")
@@ -459,6 +470,9 @@ pub async fn delete_role(
     if is_system {
         return Err(AdminError::Validation("系统角色不能删除".to_string()));
     }
+
+    // 审计快照：记录变更前状态
+    audit_ctx.snapshot(&state.pool, "role", id).await;
 
     let result = sqlx::query("DELETE FROM role WHERE id = $1")
         .bind(id)
