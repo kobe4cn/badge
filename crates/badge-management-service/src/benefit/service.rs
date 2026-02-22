@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,8 @@ use sqlx::PgPool;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
+
+use badge_shared::cache::Cache;
 
 use crate::benefit::dto::{BenefitGrantRequest, BenefitGrantResult};
 use crate::benefit::registry::HandlerRegistry;
@@ -222,7 +224,7 @@ impl RevokeResult {
     }
 }
 
-/// 内存中的发放记录（用于演示，生产环境应使用数据库）
+/// 内存中的发放记录（用于本地缓存）
 #[derive(Debug, Clone)]
 struct GrantRecord {
     grant_no: String,
@@ -237,16 +239,34 @@ struct GrantRecord {
     updated_at: DateTime<Utc>,
 }
 
+/// Redis 幂等记录
+///
+/// 存储在 Redis 中的精简发放记录，用于跨实例幂等检查
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IdempotentGrantRecord {
+    grant_no: String,
+    status: GrantStatus,
+    benefit_type: BenefitType,
+    external_ref: Option<String>,
+    created_at: DateTime<Utc>,
+}
+
+/// 幂等检查 key 的 TTL（24 小时）
+const IDEMPOTENT_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
 /// 权益服务
 ///
 /// 提供权益发放、撤销、查询的统一接口
 pub struct BenefitService {
     /// Handler 注册表
     registry: Arc<HandlerRegistry>,
-    /// 内存存储（用于演示，生产环境应注入 Repository）
+    /// 内存存储（用于本地查询和缓存）
     grants: RwLock<HashMap<String, GrantRecord>>,
     /// 可选的数据库连接池（用于持久化 benefit_grants 记录）
     pool: Option<PgPool>,
+    /// Redis 缓存（用于分布式幂等检查，支持多实例部署）
+    cache: Option<Arc<Cache>>,
 }
 
 impl BenefitService {
@@ -256,6 +276,7 @@ impl BenefitService {
             registry,
             grants: RwLock::new(HashMap::new()),
             pool: None,
+            cache: None,
         }
     }
 
@@ -267,6 +288,15 @@ impl BenefitService {
     /// 设置数据库连接池（启用持久化到 benefit_grants 表）
     pub fn with_pool(mut self, pool: PgPool) -> Self {
         self.pool = Some(pool);
+        self
+    }
+
+    /// 设置 Redis 缓存（启用分布式幂等检查）
+    ///
+    /// 配置后，幂等检查将通过 Redis SET NX 实现跨实例去重。
+    /// Redis 不可用时自动降级到内存检查（fail-open）。
+    pub fn with_cache(mut self, cache: Arc<Cache>) -> Self {
+        self.cache = Some(cache);
         self
     }
 
@@ -304,27 +334,9 @@ impl BenefitService {
 
         info!(grant_no = %grant_no, "开始发放权益");
 
-        // 检查幂等性（使用内存存储演示）
-        {
-            let grants = self.grants.read().await;
-            if let Some(existing) = grants.get(&grant_no) {
-                warn!(
-                    grant_no = %grant_no,
-                    status = ?existing.status,
-                    "发现重复的发放请求"
-                );
-                return Ok(GrantBenefitResponse {
-                    grant_no: existing.grant_no.clone(),
-                    status: existing.status,
-                    benefit_type: existing.benefit_type,
-                    external_ref: existing.external_ref.clone(),
-                    granted_at: Some(existing.created_at),
-                    expires_at: None,
-                    payload: None,
-                    error_message: Some("重复的发放请求".to_string()),
-                    duration_ms: start.elapsed().as_millis() as u64,
-                });
-            }
+        // 分布式幂等检查：优先 Redis SET NX，失败时降级到内存检查
+        if let Some(response) = self.check_idempotency(&grant_no, request.benefit_type, &start).await {
+            return Ok(response);
         }
 
         // 获取对应的 Handler
@@ -356,10 +368,10 @@ impl BenefitService {
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        // 记录发放结果（内存存储演示）
+        // 记录发放结果到内存缓存
+        let now = Utc::now();
         {
             let mut grants = self.grants.write().await;
-            let now = Utc::now();
             grants.insert(
                 grant_no.clone(),
                 GrantRecord {
@@ -374,6 +386,16 @@ impl BenefitService {
                 },
             );
         }
+
+        // 更新 Redis 幂等记录为实际发放结果
+        self.update_idempotency_record(
+            &grant_no,
+            result.status,
+            request.benefit_type,
+            result.external_ref.as_deref(),
+            now,
+        )
+        .await;
 
         let response = GrantBenefitResponse::from_result(result, request.benefit_type, duration_ms);
 
@@ -669,6 +691,114 @@ impl BenefitService {
                 "自动权益发放失败: {}",
                 error_msg
             )))
+        }
+    }
+
+    /// 分布式幂等检查
+    ///
+    /// 优先通过 Redis SET NX 实现跨实例幂等，Redis 不可用时降级到内存检查。
+    /// 这种 fail-open 策略确保 Redis 故障不会阻塞业务流程。
+    async fn check_idempotency(
+        &self,
+        grant_no: &str,
+        benefit_type: BenefitType,
+        start: &Instant,
+    ) -> Option<GrantBenefitResponse> {
+        let idempotent_key = format!("benefit:idempotent:{}", grant_no);
+
+        // 优先使用 Redis 进行分布式幂等检查
+        if let Some(ref cache) = self.cache {
+            let placeholder = IdempotentGrantRecord {
+                grant_no: grant_no.to_string(),
+                status: GrantStatus::Processing,
+                benefit_type,
+                external_ref: None,
+                created_at: Utc::now(),
+            };
+
+            match cache.set_nx(&idempotent_key, &placeholder, IDEMPOTENT_TTL).await {
+                Ok(true) => {
+                    // SET NX 成功，当前实例获得处理权，继续执行
+                    return None;
+                }
+                Ok(false) => {
+                    // key 已存在，说明已被其他实例处理，尝试读取结果
+                    match cache.get::<IdempotentGrantRecord>(&idempotent_key).await {
+                        Ok(Some(record)) => {
+                            warn!(grant_no = %grant_no, status = ?record.status, "Redis 检测到重复的发放请求");
+                            return Some(GrantBenefitResponse {
+                                grant_no: record.grant_no,
+                                status: record.status,
+                                benefit_type: record.benefit_type,
+                                external_ref: record.external_ref,
+                                granted_at: Some(record.created_at),
+                                expires_at: None,
+                                payload: None,
+                                error_message: Some("重复的发放请求".to_string()),
+                                duration_ms: start.elapsed().as_millis() as u64,
+                            });
+                        }
+                        Ok(None) => {
+                            // key 在 SET NX 和 GET 之间过期（极端情况），降级到内存检查
+                            warn!(grant_no = %grant_no, "Redis 幂等 key 在读取前过期，降级到内存检查");
+                        }
+                        Err(e) => {
+                            warn!(grant_no = %grant_no, error = %e, "Redis GET 失败，降级到内存检查");
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Redis 故障，降级到内存检查（fail-open）
+                    warn!(grant_no = %grant_no, error = %e, "Redis 幂等检查失败，降级到内存检查");
+                }
+            }
+        }
+
+        // 降级：内存幂等检查（单实例有效）
+        let grants = self.grants.read().await;
+        if let Some(existing) = grants.get(grant_no) {
+            warn!(grant_no = %grant_no, status = ?existing.status, "内存检测到重复的发放请求");
+            return Some(GrantBenefitResponse {
+                grant_no: existing.grant_no.clone(),
+                status: existing.status,
+                benefit_type: existing.benefit_type,
+                external_ref: existing.external_ref.clone(),
+                granted_at: Some(existing.created_at),
+                expires_at: None,
+                payload: None,
+                error_message: Some("重复的发放请求".to_string()),
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+
+        None
+    }
+
+    /// 更新 Redis 幂等记录为实际发放结果
+    ///
+    /// 在发放完成后将占位记录替换为真实结果，后续重复请求可直接返回。
+    /// 更新失败不影响主流程（幂等 key 仍在 Redis 中，只是返回的 status 为 Processing）。
+    async fn update_idempotency_record(
+        &self,
+        grant_no: &str,
+        status: GrantStatus,
+        benefit_type: BenefitType,
+        external_ref: Option<&str>,
+        created_at: DateTime<Utc>,
+    ) {
+        if let Some(ref cache) = self.cache {
+            let idempotent_key = format!("benefit:idempotent:{}", grant_no);
+            let record = IdempotentGrantRecord {
+                grant_no: grant_no.to_string(),
+                status,
+                benefit_type,
+                external_ref: external_ref.map(String::from),
+                created_at,
+            };
+
+            if let Err(e) = cache.set(&idempotent_key, &record, IDEMPOTENT_TTL).await {
+                warn!(grant_no = %grant_no, error = %e, "更新 Redis 幂等记录失败");
+            }
         }
     }
 

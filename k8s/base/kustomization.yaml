@@ -1,0 +1,89 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: badge-system
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  # 基础设施
+  - namespace.yaml
+  - rbac.yaml
+  - secret.yaml
+  - ingress.yaml
+
+  # 服务 Deployments + Services + HPAs
+  - badge-admin-service/deployment.yaml
+  - badge-admin-service/service.yaml
+  - badge-admin-service/hpa.yaml
+
+  - badge-management-service/deployment.yaml
+  - badge-management-service/service.yaml
+  - badge-management-service/hpa.yaml
+
+  - unified-rule-engine/deployment.yaml
+  - unified-rule-engine/service.yaml
+  - unified-rule-engine/hpa.yaml
+
+  - event-engagement-service/deployment.yaml
+  - event-engagement-service/service.yaml
+  - event-engagement-service/hpa.yaml
+
+  - event-transaction-service/deployment.yaml
+  - event-transaction-service/service.yaml
+  - event-transaction-service/hpa.yaml
+
+  - notification-worker/deployment.yaml
+  - notification-worker/service.yaml
+  - notification-worker/hpa.yaml
+
+  # 数据库备份 CronJob + PVC + Secret
+  - cronjob-backup.yaml
+
+# 通过 generator 创建 ConfigMap，overlay 才能用 behavior: merge 覆盖
+configMapGenerator:
+  - name: badge-config
+    literals:
+      # 服务端口
+      - ADMIN_SERVICE_PORT=8080
+      - MANAGEMENT_SERVICE_PORT=50052
+      - RULE_ENGINE_PORT=50051
+      - ENGAGEMENT_SERVICE_PORT=8081
+      - TRANSACTION_SERVICE_PORT=8082
+      - NOTIFICATION_WORKER_PORT=8083
+      - METRICS_PORT=9090
+      # 数据库连接池
+      - DB_MAX_CONNECTIONS=50
+      - DB_MIN_CONNECTIONS=5
+      - DB_CONNECT_TIMEOUT_SECONDS=30
+      - DB_IDLE_TIMEOUT_SECONDS=600
+      # Redis
+      - REDIS_POOL_SIZE=20
+      # Kafka 消费者配置
+      - KAFKA_CONSUMER_GROUP=badge-service
+      - KAFKA_AUTO_OFFSET_RESET=earliest
+      - KAFKA_MAX_POLL_INTERVAL_MS=600000
+      - KAFKA_SESSION_TIMEOUT_MS=45000
+      - KAFKA_HEARTBEAT_INTERVAL_MS=15000
+      # Kafka Topics
+      - KAFKA_TOPIC_ENGAGEMENT_EVENTS=badge.engagement.events
+      - KAFKA_TOPIC_TRANSACTION_EVENTS=badge.transaction.events
+      - KAFKA_TOPIC_NOTIFICATIONS=badge.notifications
+      - KAFKA_TOPIC_DLQ=badge.dlq
+      - KAFKA_TOPIC_RULE_RELOAD=badge.rule.reload
+      # 规则引擎
+      - RULES_REFRESH_INTERVAL_SECS=30
+      - RULES_INITIAL_LOAD_TIMEOUT_SECS=10
+      - RULES_IDEMPOTENCY_TTL_HOURS=24
+      # 可观测性
+      - RUST_LOG=info
+      - LOG_FORMAT=json
+      - METRICS_ENABLED=true
+      - TRACING_ENABLED=true
+
+generatorOptions:
+  # ConfigMap 名称不添加哈希后缀，便于 envFrom 引用
+  disableNameSuffixHash: true

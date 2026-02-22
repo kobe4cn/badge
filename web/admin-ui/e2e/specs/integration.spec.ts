@@ -89,8 +89,8 @@ test.describe('集成测试: 认证流程', () => {
 
     const data = await response.json();
     expect(data.success).toBe(true);
-    expect(data.data.token).toBeTruthy();
-    expect(data.data.user).toBeTruthy();
+    expect(data.data.token).toBeDefined();
+    expect(data.data.user).toBeDefined();
     expect(data.data.user.username).toBe('admin');
 
     await loginPage.expectLoginSuccess();
@@ -365,7 +365,7 @@ test.describe('集成测试: 徽章完整流程', () => {
     if (!hasSuccess && hasError) {
       test.info().annotations.push({ type: 'note', description: '表单验证错误，需要调整必填字段' });
     }
-    expect(hasSuccess || !hasError).toBeTruthy();
+    expect(hasSuccess || !hasError).toBe(true);
   });
 });
 
@@ -418,7 +418,7 @@ test.describe('集成测试: 页面加载验证', () => {
     const hasTable = await page.locator('table').isVisible({ timeout: 3000 }).catch(() => false);
     const hasForm = await page.locator('form, .ant-form').isVisible({ timeout: 3000 }).catch(() => false);
 
-    expect(hasCanvas || hasTable || hasForm).toBeTruthy();
+    expect(hasCanvas || hasTable || hasForm).toBe(true);
   });
 
   test('规则画布加载', async ({ page }) => {
@@ -428,7 +428,7 @@ test.describe('集成测试: 页面加载验证', () => {
     const hasCanvas = await page.locator('.react-flow').isVisible({ timeout: 5000 }).catch(() => false);
     const hasForm = await page.locator('form, .ant-form').isVisible({ timeout: 3000 }).catch(() => false);
 
-    expect(hasCanvas || hasForm).toBeTruthy();
+    expect(hasCanvas || hasForm).toBe(true);
   });
 
   test('仪表盘页面加载', async ({ page }) => {

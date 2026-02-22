@@ -35,7 +35,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
       name: `${testPrefix}生命周期分类`,
       sortOrder: 0,
     });
-    expect(catRes?.data?.id).toBeTruthy();
+    expect(catRes?.data?.id).toBeDefined();
     categoryId = catRes.data.id;
 
     // 创建系列
@@ -44,7 +44,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
       categoryId,
       sortOrder: 0,
     });
-    expect(seriesRes?.data?.id).toBeTruthy();
+    expect(seriesRes?.data?.id).toBeDefined();
     seriesId = seriesRes.data.id;
 
     // 创建徽章
@@ -54,7 +54,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
       description: 'API集成测试 - 生命周期徽章',
     });
     const badgeRes = await api.createBadge(badge);
-    expect(badgeRes?.data?.id).toBeTruthy();
+    expect(badgeRes?.data?.id).toBeDefined();
     expect(badgeRes.data.name).toContain(testPrefix);
     badgeId = badgeRes.data.id;
   });
@@ -104,7 +104,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
       description: '创建后立即删除的草稿徽章',
     });
     const res = await api.createBadge(badge);
-    expect(res?.data?.id).toBeTruthy();
+    expect(res?.data?.id).toBeDefined();
 
     const draftId = res.data.id;
     await api.deleteBadge(draftId);
@@ -113,7 +113,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
     const badges = await api.getBadges({ keyword: `${testPrefix}待删除草稿` });
     const items = badges?.data?.items || [];
     const found = items.find((b: any) => b.id === draftId);
-    expect(found).toBeFalsy();
+    expect(found).toBeUndefined();
   });
 });
 
@@ -161,7 +161,7 @@ test.describe('API 集成测试: 规则管理', () => {
         conditions: [{ field: 'amount', op: 'gte', value: 100 }],
       },
     });
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
     ruleId = rule.data.id;
   });
 
@@ -175,7 +175,7 @@ test.describe('API 集成测试: 规则管理', () => {
         eventData: { amount: 200 },
       });
       // 测试接口只要能正常返回即可，结果取决于规则引擎实现
-      expect(result).toBeTruthy();
+      expect(result).toBeDefined();
     } catch {
       test.info().annotations.push({
         type: 'info',
@@ -194,7 +194,7 @@ test.describe('API 集成测试: 规则管理', () => {
     const rules = await api.getRules({ keyword: testPrefix });
     const target = (rules?.data?.items || []).find((r: any) => r.id === ruleId);
     if (target) {
-      expect(target.enabled === true || target.status === 'published' || target.status === 'PUBLISHED').toBeTruthy();
+      expect(target.enabled === true || ['published', 'PUBLISHED'].includes(target.status)).toBe(true);
     }
   });
 
@@ -207,7 +207,7 @@ test.describe('API 集成测试: 规则管理', () => {
     const rules = await api.getRules({ keyword: testPrefix });
     const target = (rules?.data?.items || []).find((r: any) => r.id === ruleId);
     if (target) {
-      expect(target.enabled === false || target.status === 'disabled' || target.status === 'DISABLED').toBeTruthy();
+      expect(target.enabled === false || ['disabled', 'DISABLED'].includes(target.status)).toBe(true);
     }
   });
 
@@ -220,7 +220,7 @@ test.describe('API 集成测试: 规则管理', () => {
     const rules = await api.getRules({ keyword: testPrefix });
     const items = rules?.data?.items || [];
     const found = items.find((r: any) => r.id === ruleId);
-    expect(found).toBeFalsy();
+    expect(found).toBeUndefined();
   });
 });
 
@@ -269,7 +269,7 @@ test.describe('API 集成测试: 发放管理', () => {
   test('发放日志查询 - GET /grants/logs', async () => {
     const logs = await api.getGrantLogs({ page: 1, pageSize: 10 });
     // 只要接口正常返回即表示通过
-    expect(logs).toBeTruthy();
+    expect(logs).toBeDefined();
     // 返回结构应包含列表
     expect(logs?.data).toBeDefined();
   });
@@ -293,7 +293,7 @@ test.describe('API 集成测试: 发放管理', () => {
         },
       });
       const detail = await response.json();
-      expect(detail).toBeTruthy();
+      expect(detail).toBeDefined();
       expect(detail?.data).toBeDefined();
     } catch {
       test.info().annotations.push({
@@ -313,7 +313,7 @@ test.describe('API 集成测试: 发放管理', () => {
         params: { page: 1, pageSize: 10 },
       });
       const records = await response.json();
-      expect(records).toBeTruthy();
+      expect(records).toBeDefined();
     } catch {
       test.info().annotations.push({
         type: 'info',
@@ -384,7 +384,7 @@ test.describe('API 集成测试: 兑换管理', () => {
 
   test('查询兑换订单列表', async () => {
     const orders = await api.getRedemptionOrders({ page: 1, pageSize: 10 });
-    expect(orders).toBeTruthy();
+    expect(orders).toBeDefined();
     // 即使列表为空也验证结构正确
     expect(orders?.data).toBeDefined();
   });
@@ -413,7 +413,7 @@ test.describe('API 集成测试: 兑换管理', () => {
         },
       );
       const detail = await response.json();
-      expect(detail).toBeTruthy();
+      expect(detail).toBeDefined();
     } catch {
       test.info().annotations.push({
         type: 'info',
@@ -470,7 +470,7 @@ test.describe('API 集成测试: 权益管理', () => {
 
   test('查询权益列表', async () => {
     const benefits = await api.getBenefits({ page: 1, pageSize: 10 });
-    expect(benefits).toBeTruthy();
+    expect(benefits).toBeDefined();
     expect(benefits?.data).toBeDefined();
   });
 
@@ -536,7 +536,7 @@ test.describe('API 集成测试: 依赖关系', () => {
     test.skip(!badgeA, '前置徽章数据未就绪');
 
     const deps = await api.getDependencies(badgeA);
-    expect(deps).toBeTruthy();
+    expect(deps).toBeDefined();
     // 至少包含刚才创建的依赖
     const items = deps?.data?.items || deps?.data || [];
     if (dependencyId) {
@@ -553,7 +553,7 @@ test.describe('API 集成测试: 依赖关系', () => {
     const deps = await api.getDependencies(badgeA);
     const items = deps?.data?.items || deps?.data || [];
     const found = items.find((d: any) => d.id === dependencyId);
-    expect(found).toBeFalsy();
+    expect(found).toBeUndefined();
   });
 });
 
@@ -611,7 +611,7 @@ test.describe('API 集成测试: 系统管理', () => {
   test('查询用户列表', async () => {
     // 不传分页参数使用默认值，避免 serde_urlencoded flatten 类型转换问题
     const users = await api.getSystemUsers();
-    expect(users).toBeTruthy();
+    expect(users).toBeDefined();
     expect(users?.data).toBeDefined();
   });
 
@@ -635,7 +635,7 @@ test.describe('API 集成测试: 系统管理', () => {
 
   test('查询权限树', async () => {
     const tree = await api.getPermissionTree();
-    expect(tree).toBeTruthy();
+    expect(tree).toBeDefined();
     // 权限树应返回嵌套结构或列表
     expect(tree?.data).toBeDefined();
   });
@@ -643,7 +643,7 @@ test.describe('API 集成测试: 系统管理', () => {
   test('API Key 创建和删除', async () => {
     try {
       const createRes = await api.createApiKey(`${testPrefix}Key`, ['badge:read']);
-      expect(createRes?.data?.id ?? createRes?.data?.key).toBeTruthy();
+      expect(createRes?.data?.id ?? createRes?.data?.key).toBeDefined();
       apiKeyId = createRes?.data?.id;
 
       if (apiKeyId) {
@@ -653,7 +653,7 @@ test.describe('API 集成测试: 系统管理', () => {
         const keys = await api.getApiKeys();
         const items = keys?.data?.items || keys?.data || [];
         const found = items.find((k: any) => k.id === apiKeyId);
-        expect(found).toBeFalsy();
+        expect(found).toBeUndefined();
 
         // 已删除，清理时不需要再删
         apiKeyId = 0;
@@ -686,13 +686,13 @@ test.describe('API 集成测试: 统计和模板', () => {
 
   test('获取统计概览', async () => {
     const stats = await api.getStatsOverview();
-    expect(stats).toBeTruthy();
+    expect(stats).toBeDefined();
     expect(stats?.data).toBeDefined();
   });
 
   test('获取模板列表', async () => {
     const templates = await api.getTemplates();
-    expect(templates).toBeTruthy();
+    expect(templates).toBeDefined();
     expect(templates?.data).toBeDefined();
   });
 });
@@ -724,7 +724,7 @@ test.describe('API 集成测试: 全链路', () => {
       name: `${testPrefix}全链路分类`,
       sortOrder: 0,
     });
-    expect(catRes?.data?.id).toBeTruthy();
+    expect(catRes?.data?.id).toBeDefined();
     const categoryId = catRes.data.id;
 
     // 2. 创建系列
@@ -733,7 +733,7 @@ test.describe('API 集成测试: 全链路', () => {
       categoryId,
       sortOrder: 0,
     });
-    expect(seriesRes?.data?.id).toBeTruthy();
+    expect(seriesRes?.data?.id).toBeDefined();
     const seriesId = seriesRes.data.id;
 
     // 3. 创建徽章
@@ -743,7 +743,7 @@ test.describe('API 集成测试: 全链路', () => {
       description: '全链路集成测试',
     });
     const badgeRes = await api.createBadge(badge);
-    expect(badgeRes?.data?.id).toBeTruthy();
+    expect(badgeRes?.data?.id).toBeDefined();
     const badgeId = badgeRes.data.id;
 
     // 4. 发布徽章
@@ -761,7 +761,7 @@ test.describe('API 集成测试: 全链路', () => {
         conditions: [{ field: 'amount', op: 'gte', value: 50 }],
       },
     });
-    expect(ruleRes?.data?.id).toBeTruthy();
+    expect(ruleRes?.data?.id).toBeDefined();
     const ruleId = ruleRes.data.id;
 
     // 6. 发布规则
@@ -775,11 +775,11 @@ test.describe('API 集成测试: 全链路', () => {
 
     // 8. 查询用户徽章
     const userBadges = await api.getUserBadges(targetUser);
-    expect(userBadges).toBeTruthy();
+    expect(userBadges).toBeDefined();
 
     // 9. 查询发放日志
     const logs = await api.getGrantLogs({ badgeId: badgeId, page: 1, pageSize: 10 });
-    expect(logs).toBeTruthy();
+    expect(logs).toBeDefined();
   });
 
   test('权益关联链路: 创建权益→创建徽章→关联→查询', async () => {
@@ -803,7 +803,7 @@ test.describe('API 集成测试: 全链路', () => {
       description: '用于权益关联的测试徽章',
     });
     const badgeRes = await api.createBadge(badge);
-    expect(badgeRes?.data?.id).toBeTruthy();
+    expect(badgeRes?.data?.id).toBeDefined();
     const badgeId = badgeRes.data.id;
 
     // 3. 关联权益与徽章
@@ -814,7 +814,7 @@ test.describe('API 集成测试: 全链路', () => {
 
     // 4. 查询权益列表确认关联存在
     const benefits = await api.getBenefits({ keyword: testPrefix });
-    expect(benefits).toBeTruthy();
+    expect(benefits).toBeDefined();
     const items = benefits?.data?.items || benefits?.data || [];
     if (benefitId) {
       const found = items.find((b: any) => b.id === benefitId);
@@ -900,7 +900,7 @@ test.describe('API 集成测试: RBAC 权限执行', () => {
       sortOrder: 0,
     });
     // operator 有 badge:category:write 权限
-    expect(res?.data?.id || res?.success).toBeTruthy();
+    expect(res?.data?.id != null || res?.success === true).toBe(true);
 
     // 清理
     if (res?.data?.id) {

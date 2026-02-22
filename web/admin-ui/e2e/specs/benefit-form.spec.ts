@@ -73,7 +73,7 @@ test.describe('权益表单', () => {
     // 必填字段未填时必须出现校验错误提示，防止无效数据提交到后端
     const errorMessage = page.locator('.ant-form-item-explain-error');
     const hasError = await errorMessage.count() > 0;
-    expect(hasError).toBeTruthy();
+    expect(hasError).toBe(true);
 
     // 关闭弹窗
     await page.locator('.ant-modal button').filter({ hasText: /取.*消/ }).click();
@@ -98,7 +98,7 @@ test.describe('权益表单', () => {
 
     const hasPoints = await dropdown.getByText('积分').isVisible({ timeout: 2000 }).catch(() => false);
     const hasCoupon = await dropdown.getByText('优惠券').isVisible({ timeout: 2000 }).catch(() => false);
-    expect(hasPoints || hasCoupon).toBeTruthy();
+    expect(hasPoints || hasCoupon).toBe(true);
 
     // 收起下拉面板，避免影响后续操作
     await page.keyboard.press('Escape');
@@ -208,7 +208,7 @@ test.describe('权益表单', () => {
     // 选择后下拉框应有已选中的值（selection-item 出现表示选中成功）
     const selectedValue = typeFormItem.locator('.ant-select-selection-item');
     const hasSelection = await selectedValue.isVisible({ timeout: 2000 }).catch(() => false);
-    expect(hasSelection).toBeTruthy();
+    expect(hasSelection).toBe(true);
 
     // 关闭弹窗但不提交，避免产生脏数据
     await page.locator('.ant-modal button').filter({ hasText: /取.*消/ }).click();

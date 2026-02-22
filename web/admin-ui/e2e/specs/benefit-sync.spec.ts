@@ -42,7 +42,7 @@ test.describe('权益配置与同步', () => {
       const modal = page.locator('.ant-modal, .ant-drawer');
       const hasModal = await modal.isVisible({ timeout: 3000 }).catch(() => false);
       const isOnCreatePage = page.url().includes('/create') || page.url().includes('/new');
-      expect(hasModal || isOnCreatePage).toBeTruthy();
+      expect(hasModal || isOnCreatePage).toBe(true);
 
       if (hasModal) {
         await page.locator('.ant-modal-close, button:has-text("取消")').first().click().catch(() => {});

@@ -107,7 +107,7 @@ test.describe.serial('安全测试: SQL 注入防护', () => {
     if (response.status() === 200) {
       // 即使返回 200，也要验证服务仍然正常（badges 表未被删除）
       const verifyRes = await api.getBadges({ current: 1, pageSize: 1 });
-      expect(verifyRes).toBeTruthy();
+      expect(verifyRes).toBeDefined();
     }
   });
 
@@ -244,7 +244,7 @@ test.describe.serial('安全测试: XSS 防护', () => {
         const name = found.name;
         const isRaw = name.includes('<script>');
         const isEscaped = name.includes('&lt;script');
-        expect(isRaw || isEscaped).toBeTruthy();
+        expect(isRaw || isEscaped).toBe(true);
       }
     }
   });
@@ -416,7 +416,7 @@ test.describe.serial('安全测试: XSS 防护', () => {
         const getText = await getResponse.text();
         // JSON 响应中 <script> 会被 JSON 序列化转义，不会被浏览器执行
         // 确保响应体不是裸 HTML
-        expect(getText.startsWith('<')).toBeFalsy();
+        expect(getText.startsWith('<')).toBe(false);
       }
     } finally {
       if (categoryId) {
@@ -562,7 +562,7 @@ test.describe('安全测试: 认证安全', () => {
     if (bruteTestUserId) {
       const lockedResults = results.slice(5);
       const hasLock = lockedResults.some((s) => s === 403);
-      expect(hasLock).toBeTruthy();
+      expect(hasLock).toBe(true);
     }
 
     // admin 账户不受影响，仍可正常登录
@@ -727,7 +727,7 @@ test.describe('安全测试: 输入边界验证', () => {
         const items = categories?.data?.items || categories?.data || [];
         const found = items.find((c: any) => c.id === id);
         // 存储的名称长度应小于原始长度（被截断）或等于（全部存储）
-        expect(found).toBeTruthy();
+        expect(found).toBeDefined();
         await api.deleteCategory(id).catch(() => {});
       }
     } else {
@@ -791,7 +791,7 @@ test.describe('安全测试: 输入边界验证', () => {
       const body = await response.json();
       const items = body?.data?.items || body?.data || [];
       // 至少不应导致服务端异常
-      expect(Array.isArray(items)).toBeTruthy();
+      expect(Array.isArray(items)).toBe(true);
     } else {
       expect([400, 422]).toContain(status);
     }

@@ -26,7 +26,7 @@ test.describe('徽章依赖配置', () => {
     const hasList = await dependencyPage.dependencyList.isVisible().catch(() => false);
 
     // 至少有一种状态显示
-    expect(hasAddButton || hasEmptyState || hasList).toBeTruthy();
+    expect(hasAddButton || hasEmptyState || hasList).toBe(true);
   });
 
   test('添加依赖按钮可见', async ({ page }) => {
@@ -39,7 +39,7 @@ test.describe('徽章依赖配置', () => {
 
     // 如果页面正常加载，添加按钮应该存在
     if (await page.locator('.ant-card, .dependency-list, [class*="dependency"]').isVisible().catch(() => false)) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     }
   });
 
@@ -68,7 +68,7 @@ test.describe('徽章依赖配置', () => {
     const badgeLabel = modal.getByText('依赖徽章');
     const hasTypeField = await typeLabel.isVisible().catch(() => false);
     const hasBadgeField = await badgeLabel.isVisible().catch(() => false);
-    expect(hasTypeField || hasBadgeField).toBeTruthy();
+    expect(hasTypeField || hasBadgeField).toBe(true);
 
     // 关闭弹窗
     await page.locator('.ant-modal-close, button:has-text("取消")').first().click().catch(() => {});
@@ -206,6 +206,6 @@ test.describe('依赖图可视化', () => {
     // 如果有节点之间存在依赖，则连线数应 > 0；无依赖时 0 条也是合理的
     expect(edgeCount).toBeGreaterThanOrEqual(0);
     // 但图表容器本身必须已渲染
-    expect(await graphContainer.isVisible()).toBeTruthy();
+    expect(await graphContainer.isVisible()).toBe(true);
   });
 });

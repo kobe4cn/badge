@@ -112,9 +112,13 @@ async fn main() -> Result<()> {
     let notification_sender = Arc::new(NotificationSender::new(notification_service.clone()));
     info!("Notification service initialized");
 
-    // 6.2 初始化权益服务（使用默认的 Handler 注册表 + 数据库持久化）
-    let benefit_service = Arc::new(BenefitService::with_defaults().with_pool(pool.clone()));
-    info!("Benefit service initialized with default handlers and database persistence");
+    // 6.2 初始化权益服务（默认 Handler + 数据库持久化 + Redis 分布式幂等）
+    let benefit_service = Arc::new(
+        BenefitService::with_defaults()
+            .with_pool(pool.clone())
+            .with_cache(cache.clone()),
+    );
+    info!("Benefit service initialized with default handlers, database persistence and Redis idempotency");
 
     let redemption_service = Arc::new(RedemptionService::with_benefit_service(
         redemption_repo.clone(),

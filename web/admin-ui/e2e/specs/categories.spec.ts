@@ -64,7 +64,7 @@ test.describe('徽章分类管理', () => {
     // 应该显示验证错误
     const errorMessage = page.locator('.ant-form-item-explain-error');
     const hasError = await errorMessage.count() > 0;
-    expect(hasError).toBeTruthy();
+    expect(hasError).toBe(true);
 
     // 关闭模态框
     await page.locator('.ant-modal button').filter({ hasText: /取.*消/ }).click();
@@ -94,7 +94,7 @@ test.describe('徽章分类管理', () => {
     const formVisible = await searchForm.isVisible({ timeout: 3000 }).catch(() => false);
     const buttonVisible = await searchButton.isVisible({ timeout: 3000 }).catch(() => false);
 
-    expect(formVisible || buttonVisible).toBeTruthy();
+    expect(formVisible || buttonVisible).toBe(true);
   });
 
   test('分类排序列表头点击', async ({ page }) => {
@@ -144,7 +144,7 @@ test.describe('徽章分类管理', () => {
 
     // 有数据行时编辑按钮必须存在，无数据时允许不存在
     if (rowCount > 0) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     } else {
       expect(isVisible).toBe(false);
     }
@@ -162,7 +162,7 @@ test.describe('徽章分类管理', () => {
 
     // 有数据行时删除按钮必须存在，无数据时允许不存在
     if (rowCount > 0) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     } else {
       expect(isVisible).toBe(false);
     }
@@ -180,7 +180,7 @@ test.describe('徽章分类管理', () => {
 
     // 状态开关与数据行一一对应，有数据时必须可见
     if (rowCount > 0) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     } else {
       expect(isVisible).toBe(false);
     }

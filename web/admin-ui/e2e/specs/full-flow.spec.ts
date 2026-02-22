@@ -67,7 +67,7 @@ test.describe('全链路测试: 徽章管理流程', () => {
     const hasForm = await form.isVisible({ timeout: 3000 }).catch(() => false);
 
     // 至少需要画布或表单之一可见
-    expect(hasCanvas || hasForm).toBeTruthy();
+    expect(hasCanvas || hasForm).toBe(true);
   });
 
   test('用户徽章页面', async ({ page }) => {

@@ -1,0 +1,86 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: badge-system
+
+resources:
+  - ../../base
+
+# 开发环境使用单副本、较低资源限制
+patches:
+  # 所有 Deployment 统一降为单副本
+  - target:
+      kind: Deployment
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # admin-service 降低资源
+  - target:
+      kind: Deployment
+      name: badge-admin-service
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+
+  # 所有 HPA 在开发环境禁用（min=max=1）
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 1
+
+  # 开发环境不启用 TLS Ingress
+  - target:
+      kind: Ingress
+      name: badge-ingress
+    patch: |
+      - op: remove
+        path: /spec/tls
+      - op: replace
+        path: /spec/rules/0/host
+        value: badge-dev.local
+
+configMapGenerator:
+  - name: badge-config
+    behavior: merge
+    literals:
+      - RUST_LOG=debug
+      - LOG_FORMAT=pretty
+      - TRACING_ENABLED=false
+      - DB_MAX_CONNECTIONS=10
+      - DB_MIN_CONNECTIONS=2
+      - REDIS_POOL_SIZE=5
+
+# 开发环境使用本地镜像
+images:
+  - name: badge-system/badge-admin-service
+    newName: badge-system/badge-admin-service
+    newTag: dev
+  - name: badge-system/badge-management-service
+    newName: badge-system/badge-management-service
+    newTag: dev
+  - name: badge-system/unified-rule-engine
+    newName: badge-system/unified-rule-engine
+    newTag: dev
+  - name: badge-system/event-engagement-service
+    newName: badge-system/event-engagement-service
+    newTag: dev
+  - name: badge-system/event-transaction-service
+    newName: badge-system/event-transaction-service
+    newTag: dev
+  - name: badge-system/notification-worker
+    newName: badge-system/notification-worker
+    newTag: dev

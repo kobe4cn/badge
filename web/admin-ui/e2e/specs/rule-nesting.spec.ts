@@ -122,7 +122,7 @@ test.describe('规则嵌套测试: 3 层嵌套', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
     ruleId = rule.data.id;
 
     // 验证返回的规则 JSON 结构完整
@@ -140,7 +140,7 @@ test.describe('规则嵌套测试: 3 层嵌套', () => {
     const items = rules?.data?.items || [];
     const target = items.find((r: any) => r.id === ruleId);
 
-    expect(target).toBeTruthy();
+    expect(target).toBeDefined();
     const ruleJson = target.ruleJson || target.rule_json;
     expect(calculateRuleDepth(ruleJson)).toBe(4);
     expect(countConditionNodes(ruleJson)).toBe(8);
@@ -241,7 +241,7 @@ test.describe('规则嵌套测试: 4 层嵌套', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
     ruleId = rule.data.id;
   });
 
@@ -252,15 +252,15 @@ test.describe('规则嵌套测试: 4 层嵌套', () => {
     const items = rules?.data?.items || [];
     const target = items.find((r: any) => r.id === ruleId);
 
-    expect(target).toBeTruthy();
+    expect(target).toBeDefined();
     const ruleJson = target.ruleJson || target.rule_json;
 
     // 递归验证所有层级
     function validateNode(node: any, depth: number): void {
       if (depth === 0) {
         expect(node.type).toBe('condition');
-        expect(node.field).toBeTruthy();
-        expect(node.operator).toBeTruthy();
+        expect(node.field).toBeDefined();
+        expect(node.operator).toBeDefined();
         expect(node.value).toBeDefined();
       } else {
         expect(node.type).toBe('group');
@@ -289,13 +289,13 @@ test.describe('规则嵌套测试: 4 层嵌套', () => {
     test.skip(!localRuleId, '规则创建失败');
 
     const res = await api.publishRule(localRuleId);
-    expect(res?.success === true || res?.data != null || res?.code === 0).toBeTruthy();
+    expect(res?.success === true || res?.data != null || res?.code === 0).toBe(true);
 
     // 验证规则状态
     const rules = await api.getRules({ keyword: testPrefix });
     const items = rules?.data?.items || [];
     const target = items.find((r: any) => r.id === localRuleId);
-    expect(target?.enabled === true || target?.status === 'published').toBeTruthy();
+    expect(target?.enabled === true || target?.status === 'published').toBe(true);
   });
 });
 
@@ -346,7 +346,7 @@ test.describe('规则嵌套测试: 5 层嵌套（边界）', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
     ruleId = rule.data.id;
   });
 
@@ -357,7 +357,7 @@ test.describe('规则嵌套测试: 5 层嵌套（边界）', () => {
     const items = rules?.data?.items || [];
     const target = items.find((r: any) => r.id === ruleId);
 
-    expect(target).toBeTruthy();
+    expect(target).toBeDefined();
     const ruleJson = target.ruleJson || target.rule_json;
 
     // 验证 JSON 结构完整（没有被截断）
@@ -386,7 +386,7 @@ test.describe('规则嵌套测试: 5 层嵌套（边界）', () => {
       });
 
       // 只要规则引擎能正常处理就算通过
-      expect(result).toBeTruthy();
+      expect(result).toBeDefined();
     } catch {
       test.info().annotations.push({
         type: 'info',
@@ -450,7 +450,7 @@ test.describe('规则嵌套测试: 混合结构', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
 
     const savedRule = rule.data.ruleJson || rule.data.rule_json;
     expect(savedRule.children[0].type).toBe('group');
@@ -497,7 +497,7 @@ test.describe('规则嵌套测试: 混合结构', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
 
     const savedRule = rule.data.ruleJson || rule.data.rule_json;
     expect(savedRule.children.length).toBe(3);
@@ -558,7 +558,7 @@ test.describe('规则嵌套测试: 混合结构', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
 
     // 验证规则结构
     const savedRule = rule.data.ruleJson || rule.data.rule_json;
@@ -619,7 +619,7 @@ test.describe('规则嵌套测试: 边界和错误处理', () => {
       });
 
       // 如果成功，验证服务端处理了空数组
-      expect(result).toBeTruthy();
+      expect(result).toBeDefined();
     } catch (e: any) {
       // 如果失败，应该是合理的验证错误
       expect(e.message).toMatch(/400|invalid|empty|children/i);
@@ -642,7 +642,7 @@ test.describe('规则嵌套测试: 边界和错误处理', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
     const savedRule = rule.data.ruleJson || rule.data.rule_json;
     expect(savedRule.type).toBe('condition');
     expect(savedRule.field).toBe('amount');
@@ -667,7 +667,7 @@ test.describe('规则嵌套测试: 边界和错误处理', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
   });
 
   test('特殊字符字段名 - 验证编码处理', async () => {
@@ -689,7 +689,7 @@ test.describe('规则嵌套测试: 边界和错误处理', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
     const savedRule = rule.data.ruleJson || rule.data.rule_json;
     expect(savedRule.children[0].value).toBe('测试');
   });
@@ -724,7 +724,7 @@ test.describe('规则嵌套测试: 边界和错误处理', () => {
       ruleJson,
     });
 
-    expect(rule?.data?.id).toBeTruthy();
+    expect(rule?.data?.id).toBeDefined();
     const savedRule = rule.data.ruleJson || rule.data.rule_json;
     expect(savedRule.children.length).toBe(14);
   });

@@ -1,0 +1,117 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: badge-system
+
+resources:
+  - ../../base
+
+patches:
+  # 生产环境 Secret 模板（实际应通过 Sealed Secrets / External Secrets 注入）
+  - path: secret.yaml
+
+  # 生产环境：admin-service 加大资源配额
+  - target:
+      kind: Deployment
+      name: badge-admin-service
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+
+  # 生产环境：management-service 加大资源配额
+  - target:
+      kind: Deployment
+      name: badge-management-service
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+
+  # 生产环境：rule-engine 加大资源（规则匹配是 CPU 密集型）
+  - target:
+      kind: Deployment
+      name: unified-rule-engine
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  # 生产环境 Ingress 域名
+  - target:
+      kind: Ingress
+      name: badge-ingress
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: badge-api.example.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: badge-api.example.com
+
+  # 所有 Deployment 添加反亲和性，分散到不同节点避免单点故障
+  - target:
+      kind: Deployment
+    patch: |
+      - op: add
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/part-of: badge-system
+
+configMapGenerator:
+  - name: badge-config
+    behavior: merge
+    literals:
+      - RUST_LOG=info
+      - LOG_FORMAT=json
+      - TRACING_ENABLED=true
+      - DB_MAX_CONNECTIONS=50
+      - DB_MIN_CONNECTIONS=5
+      - REDIS_POOL_SIZE=20
+
+# 生产镜像从私有仓库拉取，tag 由 CI/CD 覆盖
+images:
+  - name: badge-system/badge-admin-service
+    newName: registry.example.com/badge-system/badge-admin-service
+    newTag: latest
+  - name: badge-system/badge-management-service
+    newName: registry.example.com/badge-system/badge-management-service
+    newTag: latest
+  - name: badge-system/unified-rule-engine
+    newName: registry.example.com/badge-system/unified-rule-engine
+    newTag: latest
+  - name: badge-system/event-engagement-service
+    newName: registry.example.com/badge-system/event-engagement-service
+    newTag: latest
+  - name: badge-system/event-transaction-service
+    newName: registry.example.com/badge-system/event-transaction-service
+    newTag: latest
+  - name: badge-system/notification-worker
+    newName: registry.example.com/badge-system/notification-worker
+    newTag: latest

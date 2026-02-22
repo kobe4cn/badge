@@ -342,7 +342,7 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
       // 验证状态变更为已发布
       const updatedRow = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Publish"]`) });
       const hasPublished = await updatedRow.getByText(/已发布|active|published/i).isVisible({ timeout: 5000 }).catch(() => false);
-      expect(hasPublished).toBeTruthy();
+      expect(hasPublished).toBe(true);
     } else {
       // 行操作按钮可能在下拉菜单中
       const moreBtn = row.locator('button, a').filter({ hasText: /更多|\.\.\./ }).first();
@@ -408,7 +408,7 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
 
       const updatedRow = page.locator('tr').filter({ has: page.locator(`[title*="${testPrefix}Offline"]`) });
       const hasOffline = await updatedRow.getByText(/已下架|offline|inactive/i).isVisible({ timeout: 5000 }).catch(() => false);
-      expect(hasOffline).toBeTruthy();
+      expect(hasOffline).toBe(true);
     } else {
       test.info().annotations.push({ type: 'note', description: '下架按钮位置待确认' });
     }
@@ -495,7 +495,7 @@ test.describe('UI 集成测试: 徽章生命周期', () => {
 
     const hasSuccess = await page.locator('.ant-message-success').isVisible({ timeout: 5000 }).catch(() => false);
     const hasError = await page.locator('.ant-form-item-explain-error').isVisible({ timeout: 2000 }).catch(() => false);
-    expect(hasSuccess || !hasError).toBeTruthy();
+    expect(hasSuccess || !hasError).toBe(true);
   });
 });
 
@@ -562,7 +562,7 @@ test.describe('UI 集成测试: 发放管理', () => {
     if (!pageLoaded) {
       test.info().annotations.push({ type: 'note', description: '手动发放页面 /grants/manual 可能未实现或结构与预期不同' });
     }
-    expect(pageLoaded).toBeTruthy();
+    expect(pageLoaded).toBe(true);
 
     // 验证用户 ID 输入区域（可能是搜索框或输入框）
     const hasUserInput = await page.getByPlaceholder(/用户|User|ID/).first().isVisible({ timeout: 3000 }).catch(() => false);
@@ -574,7 +574,7 @@ test.describe('UI 集成测试: 发放管理', () => {
     if (!hasInteractive) {
       test.info().annotations.push({ type: 'note', description: '手动发放页面未发现表单控件，可能仅为信息展示页' });
     }
-    expect(hasInteractive || hasCard || hasMainContent).toBeTruthy();
+    expect(hasInteractive || hasCard || hasMainContent).toBe(true);
   });
 
   test('发放日志页面显示发放记录', async ({ page }) => {
@@ -589,7 +589,7 @@ test.describe('UI 集成测试: 发放管理', () => {
     // 等待表格或列表加载
     const hasTable = await page.locator('table').first().isVisible({ timeout: 10000 }).catch(() => false);
     const hasList = await page.locator('.ant-list, .ant-table').first().isVisible({ timeout: 5000 }).catch(() => false);
-    expect(hasTable || hasList).toBeTruthy();
+    expect(hasTable || hasList).toBe(true);
 
     // 验证列表中有记录（排除空状态）
     const isEmpty = await page.locator('.ant-empty').isVisible({ timeout: 3000 }).catch(() => false);
@@ -608,7 +608,7 @@ test.describe('UI 集成测试: 发放管理', () => {
     const hasEmpty = await page.locator('.ant-empty').isVisible({ timeout: 3000 }).catch(() => false);
     const hasContent = await page.locator('.ant-card, .ant-list, main').first().isVisible({ timeout: 3000 }).catch(() => false);
 
-    expect(hasTable || hasEmpty || hasContent).toBeTruthy();
+    expect(hasTable || hasEmpty || hasContent).toBe(true);
   });
 });
 
@@ -731,13 +731,13 @@ test.describe('UI 集成测试: 系统管理', () => {
       await searchInTable(page, testPrefix);
       const hasUser = await page.locator(`[title*="${userName}"]`).first()
         .isVisible({ timeout: 10000 }).catch(() => false);
-      expect(hasUser).toBeTruthy();
+      expect(hasUser).toBe(true);
     } else {
       // 表单可能有校验未通过（如角色为空），验证 UI 交互正常即可
       const drawerStillOpen = await modal.isVisible({ timeout: 2000 }).catch(() => false);
       const hasFormError = await page.locator('.ant-form-item-explain-error').first().isVisible({ timeout: 2000 }).catch(() => false);
       // 只要弹窗或表单有明确的错误提示，说明 UI 交互正常
-      expect(drawerStillOpen || hasFormError || postStatus >= 400).toBeTruthy();
+      expect(drawerStillOpen || hasFormError || postStatus >= 400).toBe(true);
       test.info().annotations.push({ type: 'note', description: `用户创建未成功(HTTP ${postStatus})，可能缺少角色等必填字段` });
     }
   });
@@ -792,7 +792,7 @@ test.describe('UI 集成测试: 系统管理', () => {
 
     const hasUpdated = await page.getByText('更新后的角色描述').first().isVisible({ timeout: 10000 }).catch(() => false);
     const hasRole = await page.getByText(`${testPrefix}Role`).first().isVisible({ timeout: 5000 }).catch(() => false);
-    expect(hasUpdated || hasRole).toBeTruthy();
+    expect(hasUpdated || hasRole).toBe(true);
   });
 
   test('API Key 管理：创建验证与删除', async ({ page }) => {
@@ -806,7 +806,7 @@ test.describe('UI 集成测试: 系统管理', () => {
     // 等待表格或列表加载
     const hasTable = await page.locator('table').first().isVisible({ timeout: 10000 }).catch(() => false);
     const hasList = await page.locator('.ant-list, .ant-card').first().isVisible({ timeout: 5000 }).catch(() => false);
-    expect(hasTable || hasList).toBeTruthy();
+    expect(hasTable || hasList).toBe(true);
 
     // 使用搜索框过滤数据，确保目标项在当前页
     await searchInTable(page, testPrefix);
@@ -882,7 +882,7 @@ test.describe('UI 集成测试: 系统管理', () => {
     if (!foundPermissionUI) {
       test.info().annotations.push({ type: 'note', description: '权限树页面未找到预期的权限 UI 组件，页面结构可能与预期不同' });
     }
-    expect(foundPermissionUI).toBeTruthy();
+    expect(foundPermissionUI).toBe(true);
   });
 });
 
@@ -907,7 +907,7 @@ test.describe('UI 集成测试: 仪表盘', () => {
     const hasNumbers = await page.locator('.ant-statistic-content-value, [class*="stat"]').first()
       .isVisible({ timeout: 5000 }).catch(() => false);
 
-    expect(hasStatCards || hasCards || hasNumbers).toBeTruthy();
+    expect(hasStatCards || hasCards || hasNumbers).toBe(true);
 
     // 验证至少存在一些统计数字（非空页面）
     const cardCount = await page.locator('.ant-card').count();
@@ -933,7 +933,7 @@ test.describe('UI 集成测试: 仪表盘', () => {
     const hasAnyVisualization = hasCanvas || hasSvgChart || hasChartContainer || hasEcharts;
     const hasCards = await page.locator('.ant-card').count();
 
-    expect(hasAnyVisualization || hasCards > 1).toBeTruthy();
+    expect(hasAnyVisualization || hasCards > 1).toBe(true);
   });
 });
 
@@ -1001,7 +1001,7 @@ test.describe('UI 集成测试: 会员视图', () => {
       const hasTable = await page.locator('table').first().isVisible({ timeout: 5000 }).catch(() => false);
       const hasList = await page.locator('.ant-list, .ant-card').first().isVisible({ timeout: 3000 }).catch(() => false);
 
-      expect(hasResult || hasTable || hasList).toBeTruthy();
+      expect(hasResult || hasTable || hasList).toBe(true);
     } else {
       // 页面可能直接是一个搜索框 + 表格的结构
       const anyInput = page.locator('input[type="text"], input[type="search"], .ant-input').first();
@@ -1033,6 +1033,6 @@ test.describe('UI 集成测试: 会员视图', () => {
     if (!pageLoaded) {
       test.info().annotations.push({ type: 'note', description: `用户详情页 /users/${testUserId} 可能未实现或重定向到了其他页面: ${currentUrl}` });
     }
-    expect(pageLoaded).toBeTruthy();
+    expect(pageLoaded).toBe(true);
   });
 });

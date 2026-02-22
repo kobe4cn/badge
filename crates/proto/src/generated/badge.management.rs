@@ -207,6 +207,33 @@ pub struct PinBadgeResponse {
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
 }
+/// 根据来源引用查询关联的用户徽章请求
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FindBadgesBySourceRefRequest {
+    #[prost(string, tag = "1")]
+    pub user_id: ::prost::alloc::string::String,
+    /// 发放时的来源引用（如事件 ID、订单号）
+    #[prost(string, tag = "2")]
+    pub source_ref: ::prost::alloc::string::String,
+}
+/// 根据来源引用查询关联的用户徽章响应
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FindBadgesBySourceRefResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub badges: ::prost::alloc::vec::Vec<SourceRefBadge>,
+}
+/// 来源引用关联的徽章信息
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SourceRefBadge {
+    #[prost(int64, tag = "1")]
+    pub badge_id: i64,
+    #[prost(int64, tag = "2")]
+    pub user_badge_id: i64,
+    #[prost(int32, tag = "3")]
+    pub quantity: i32,
+    #[prost(string, tag = "4")]
+    pub status: ::prost::alloc::string::String,
+}
 /// 刷新依赖图缓存请求
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RefreshDependencyCacheRequest {}
@@ -608,6 +635,36 @@ pub mod badge_management_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// 根据来源引用查询关联的用户徽章（退款撤销时使用）
+        pub async fn find_badges_by_source_ref(
+            &mut self,
+            request: impl tonic::IntoRequest<super::FindBadgesBySourceRefRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FindBadgesBySourceRefResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/badge.management.BadgeManagementService/FindBadgesBySourceRef",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "badge.management.BadgeManagementService",
+                        "FindBadgesBySourceRef",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// 刷新依赖图缓存（内部调用）
         pub async fn refresh_dependency_cache(
             &mut self,
@@ -737,6 +794,14 @@ pub mod badge_management_service_server {
             request: tonic::Request<super::PinBadgeRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PinBadgeResponse>,
+            tonic::Status,
+        >;
+        /// 根据来源引用查询关联的用户徽章（退款撤销时使用）
+        async fn find_badges_by_source_ref(
+            &self,
+            request: tonic::Request<super::FindBadgesBySourceRefRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FindBadgesBySourceRefResponse>,
             tonic::Status,
         >;
         /// 刷新依赖图缓存（内部调用）
@@ -1150,6 +1215,57 @@ pub mod badge_management_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = PinBadgeSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/badge.management.BadgeManagementService/FindBadgesBySourceRef" => {
+                    #[allow(non_camel_case_types)]
+                    struct FindBadgesBySourceRefSvc<T: BadgeManagementService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: BadgeManagementService,
+                    > tonic::server::UnaryService<super::FindBadgesBySourceRefRequest>
+                    for FindBadgesBySourceRefSvc<T> {
+                        type Response = super::FindBadgesBySourceRefResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::FindBadgesBySourceRefRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BadgeManagementService>::find_badges_by_source_ref(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = FindBadgesBySourceRefSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

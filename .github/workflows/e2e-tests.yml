@@ -605,6 +605,19 @@ jobs:
 
           echo "所有服务已就绪"
 
+      - name: Run criterion benchmarks
+        run: |
+          cargo bench -- --output-format bencher 2>&1 | tee target/bench-output.txt
+        continue-on-error: true
+
+      - name: Run benchmark script
+        run: |
+          ./scripts/benchmark.sh --quick --report target/benchmark-results.json
+        env:
+          ADMIN_URL: http://localhost:8080
+          EVENT_URL: http://localhost:8081
+        continue-on-error: true
+
       - name: Run performance tests
         run: cargo test --test performance -- --ignored --test-threads=1
         env:
@@ -613,9 +626,14 @@ jobs:
 
       - name: Upload performance results
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: performance-results
-          path: target/performance-results/
+          path: |
+            target/performance-results/
+            target/bench-output.txt
+            target/benchmark-results.json
+            target/criterion/
 
   # 聚合所有测试结果
   test-summary:

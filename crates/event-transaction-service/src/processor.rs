@@ -396,8 +396,9 @@ impl TransactionEventProcessor {
     /// 退款撤销的业务逻辑：
     /// 1. 从事件 data 中读取 original_order_id 和退款原因
     /// 2. 尝试读取 badge_ids（显式指定要撤销的徽章列表）
-    /// 3. 如果未指定 badge_ids，则从 rule_mapping 中查找所有可能的徽章
-    /// 4. 逐个调用 revoke_badge，收集结果
+    /// 3. 如果未指定 badge_ids，通过 DB 查询 source_ref 关联的实际发放记录
+    /// 4. 如果 DB 查询无结果，降级到 rule_mapping 查找所有可能的徽章
+    /// 5. 逐个调用 revoke_badge，收集结果
     async fn process_refund(&self, event: &EventPayload) -> Result<EventResult, BadgeError> {
         let start = std::time::Instant::now();
 
@@ -415,22 +416,10 @@ impl TransactionEventProcessor {
             "开始处理退款/取消撤销"
         );
 
-        // 确定需要撤销的徽章列表
-        // 支持两种字段名：badge_ids 和 badge_ids_to_revoke（兼容 mock 服务）
-        let badge_ids: Vec<i64> = if let Some(ids) = event.data["badge_ids"].as_array() {
-            // 事件中显式指定了需要撤销的徽章
-            ids.iter().filter_map(|v| v.as_i64()).collect()
-        } else if let Some(ids) = event.data["badge_ids_to_revoke"].as_array() {
-            // 兼容 mock 服务的字段名
-            ids.iter().filter_map(|v| v.as_i64()).collect()
-        } else {
-            // 未指定时，从映射中获取所有交易类规则对应的徽章 ID 作为撤销目标
-            self.rule_mapping
-                .get_rules_by_event_type(event.event_type.to_db_key())
-                .iter()
-                .map(|grant| grant.badge_id)
-                .collect()
-        };
+        // 确定需要撤销的徽章列表（三级降级策略）
+        let badge_ids: Vec<i64> = self
+            .resolve_badges_to_revoke(event, original_order_id)
+            .await;
 
         if badge_ids.is_empty() {
             debug!(
@@ -504,6 +493,102 @@ impl TransactionEventProcessor {
             processing_time_ms: start.elapsed().as_millis() as i64,
             errors,
         })
+    }
+
+    /// 三级降级策略确定需要撤销的徽章
+    ///
+    /// 1. 优先使用事件中显式指定的 badge_ids
+    /// 2. 通过 source_ref 从 DB 查询原始交易实际发放的徽章（精确匹配）
+    /// 3. 降级到 rule_mapping 获取所有交易规则对应的徽章（兜底）
+    async fn resolve_badges_to_revoke(
+        &self,
+        event: &EventPayload,
+        original_order_id: &str,
+    ) -> Vec<i64> {
+        // 策略 1: 事件中显式指定的 badge_ids
+        if let Some(ids) = event.data["badge_ids"].as_array() {
+            let explicit: Vec<i64> = ids.iter().filter_map(|v| v.as_i64()).collect();
+            if !explicit.is_empty() {
+                info!(
+                    event_id = %event.event_id,
+                    badge_count = explicit.len(),
+                    "使用事件显式指定的 badge_ids"
+                );
+                return explicit;
+            }
+        }
+        if let Some(ids) = event.data["badge_ids_to_revoke"].as_array() {
+            let explicit: Vec<i64> = ids.iter().filter_map(|v| v.as_i64()).collect();
+            if !explicit.is_empty() {
+                return explicit;
+            }
+        }
+
+        // 策略 2: 通过 source_ref 从 DB 查询原始交易关联的徽章
+        // source_ref 可能是原始事件 ID 或订单号
+        let source_refs = [
+            original_order_id.to_string(),
+            event.data["original_event_id"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        ];
+
+        for source_ref in &source_refs {
+            if source_ref.is_empty() {
+                continue;
+            }
+
+            match self
+                .rule_client
+                .find_badges_by_source_ref(&event.user_id, source_ref)
+                .await
+            {
+                Ok(badges) if !badges.is_empty() => {
+                    let badge_ids: Vec<i64> = badges.iter().map(|b| b.badge_id).collect();
+                    info!(
+                        event_id = %event.event_id,
+                        source_ref = %source_ref,
+                        badge_count = badge_ids.len(),
+                        "通过 source_ref 查询到关联徽章"
+                    );
+                    return badge_ids;
+                }
+                Ok(_) => {
+                    debug!(
+                        event_id = %event.event_id,
+                        source_ref = %source_ref,
+                        "source_ref 无关联徽章"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        event_id = %event.event_id,
+                        source_ref = %source_ref,
+                        error = %e,
+                        "查询 source_ref 关联徽章失败，尝试下一个 source_ref"
+                    );
+                }
+            }
+        }
+
+        // 策略 3: 降级到 rule_mapping（兜底）
+        let fallback: Vec<i64> = self
+            .rule_mapping
+            .get_rules_by_event_type(event.event_type.to_db_key())
+            .iter()
+            .map(|grant| grant.badge_id)
+            .collect();
+
+        if !fallback.is_empty() {
+            warn!(
+                event_id = %event.event_id,
+                badge_count = fallback.len(),
+                "未找到精确关联，降级到 rule_mapping 全量撤销"
+            );
+        }
+
+        fallback
     }
 }
 

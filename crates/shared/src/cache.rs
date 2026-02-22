@@ -99,6 +99,27 @@ impl Cache {
         Ok(exists)
     }
 
+    /// 原子性地仅在 key 不存在时设置值，并指定 TTL
+    ///
+    /// 基于 Redis SET NX EX 实现，适用于分布式幂等检查和互斥控制。
+    /// 返回 true 表示设置成功（key 不存在），false 表示 key 已存在。
+    pub async fn set_nx<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> Result<bool> {
+        let mut conn = self.get_conn().await?;
+        let serialized = serde_json::to_string(value)
+            .map_err(|e| BadgeError::Internal(format!("Cache serialization error: {}", e)))?;
+
+        let result: Option<String> = redis::cmd("SET")
+            .arg(key)
+            .arg(serialized)
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl.as_secs())
+            .query_async(&mut conn)
+            .await?;
+
+        Ok(result.is_some())
+    }
+
     /// 获取或设置（缓存穿透保护）
     #[instrument(skip(self, loader))]
     pub async fn get_or_set<T, F, Fut>(&self, key: &str, ttl: Duration, loader: F) -> Result<T>

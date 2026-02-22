@@ -77,7 +77,7 @@ test.describe('CSV 批量上传', () => {
     const hasForm = await formItems.count() > 0;
 
     // 至少应有上传区域或表单
-    expect(hasUpload || hasForm).toBeTruthy();
+    expect(hasUpload || hasForm).toBe(true);
   });
 
   test('上传有效 CSV 文件', async ({ page }) => {

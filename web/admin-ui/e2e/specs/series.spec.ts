@@ -55,7 +55,7 @@ test.describe('徽章系列管理', () => {
     // 应该显示验证错误
     const errorMessage = page.locator('.ant-form-item-explain-error');
     const hasError = await errorMessage.count() > 0;
-    expect(hasError).toBeTruthy();
+    expect(hasError).toBe(true);
 
     // 关闭表单
     await page.locator('.ant-modal button, .ant-drawer button').filter({ hasText: /取.*消/ }).click();
@@ -89,7 +89,7 @@ test.describe('徽章系列管理', () => {
 
     // 有数据行时编辑按钮必须存在，无数据时允许不存在
     if (rowCount > 0) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     } else {
       expect(isVisible).toBe(false);
     }
@@ -107,7 +107,7 @@ test.describe('徽章系列管理', () => {
 
     // 有数据行时删除按钮必须存在，无数据时允许不存在
     if (rowCount > 0) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     } else {
       expect(isVisible).toBe(false);
     }

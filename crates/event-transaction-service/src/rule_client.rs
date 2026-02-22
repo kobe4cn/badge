@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use badge_proto::badge::badge_management_service_client::BadgeManagementServiceClient;
-use badge_proto::badge::{GrantBadgeRequest, RevokeBadgeRequest};
+use badge_proto::badge::{FindBadgesBySourceRefRequest, GrantBadgeRequest, RevokeBadgeRequest};
 use badge_proto::rule_engine::BatchEvaluateRequest;
 use badge_proto::rule_engine::rule_engine_service_client::RuleEngineServiceClient;
 use tonic::transport::Channel;
@@ -42,10 +42,18 @@ pub struct RevokeResult {
     pub message: String,
 }
 
+/// 来源引用关联的徽章信息
+#[derive(Debug, Clone)]
+pub struct SourceRefBadge {
+    pub badge_id: i64,
+    pub user_badge_id: i64,
+    pub quantity: i32,
+}
+
 /// 规则与徽章 gRPC 客户端的抽象接口
 ///
-/// 相比行为事件服务的 BadgeRuleService，额外提供 revoke_badge 方法，
-/// 因为交易场景中退款/取消需要撤回已发放的徽章。
+/// 相比行为事件服务的 BadgeRuleService，额外提供 revoke_badge 和
+/// find_badges_by_source_ref 方法，支持退款/取消场景的精确徽章撤销。
 #[async_trait]
 pub trait TransactionRuleService: Send + Sync {
     /// 批量评估规则，返回匹配的规则列表
@@ -72,6 +80,15 @@ pub trait TransactionRuleService: Send + Sync {
         quantity: i32,
         reason: &str,
     ) -> Result<RevokeResult, TransactionError>;
+
+    /// 根据来源引用查询关联的用户徽章
+    ///
+    /// 退款时通过原始事件/订单引用查找发放的徽章，实现精确撤销。
+    async fn find_badges_by_source_ref(
+        &self,
+        user_id: &str,
+        source_ref: &str,
+    ) -> Result<Vec<SourceRefBadge>, TransactionError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +281,44 @@ impl TransactionRuleService for TransactionRuleClient {
             success: revoke_response.success,
             message: revoke_response.message,
         })
+    }
+
+    async fn find_badges_by_source_ref(
+        &self,
+        user_id: &str,
+        source_ref: &str,
+    ) -> Result<Vec<SourceRefBadge>, TransactionError> {
+        let request = FindBadgesBySourceRefRequest {
+            user_id: user_id.to_string(),
+            source_ref: source_ref.to_string(),
+        };
+
+        debug!(user_id, source_ref, "调用 FindBadgesBySourceRef");
+
+        let mut client = self.badge_service.clone();
+        let response = client.find_badges_by_source_ref(request).await.map_err(|e| {
+            TransactionError::BadgeRevokeError(format!("FindBadgesBySourceRef 调用失败: {e}"))
+        })?;
+
+        let badges: Vec<SourceRefBadge> = response
+            .into_inner()
+            .badges
+            .into_iter()
+            .map(|b| SourceRefBadge {
+                badge_id: b.badge_id,
+                user_badge_id: b.user_badge_id,
+                quantity: b.quantity,
+            })
+            .collect();
+
+        info!(
+            user_id,
+            source_ref,
+            found_count = badges.len(),
+            "查询来源引用关联徽章完成"
+        );
+
+        Ok(badges)
     }
 }
 

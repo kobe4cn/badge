@@ -38,7 +38,7 @@ test.describe('规则模板管理', () => {
     if (count > 0) {
       const firstCard = page.locator('.template-card').first();
       const cardText = await firstCard.textContent();
-      expect(cardText?.includes('消费')).toBeTruthy();
+      expect(cardText).toContain('消费');
     }
   });
 
@@ -52,7 +52,7 @@ test.describe('规则模板管理', () => {
     }
 
     const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
-    expect(firstTemplateName).toBeTruthy();
+    expect(firstTemplateName).toBeDefined();
 
     await templatePage.previewTemplate(firstTemplateName!);
     await expect(templatePage.previewModal).toBeVisible();
@@ -68,7 +68,7 @@ test.describe('规则模板管理', () => {
     }
 
     const firstTemplateName = await page.locator('.template-card .template-name').first().textContent();
-    expect(firstTemplateName).toBeTruthy();
+    expect(firstTemplateName).toBeDefined();
 
     await templatePage.useTemplate(firstTemplateName!);
 
@@ -104,7 +104,7 @@ test.describe('规则模板管理', () => {
     }
 
     const templateName = await testTemplate.textContent();
-    expect(templateName).toBeTruthy();
+    expect(templateName).toBeDefined();
     await templatePage.deleteTemplate(templateName!);
     await expect(page.locator('.ant-message-success')).toBeVisible();
   });

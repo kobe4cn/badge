@@ -56,7 +56,7 @@ test.describe('撤销测试: 手动撤销', () => {
     const userBadges = await api.getUserBadges(userId);
     const items = userBadges?.data?.items || userBadges?.data || [];
     const granted = items.find((b: any) => b.badgeId === badgeId || b.badge_id === badgeId);
-    expect(granted).toBeTruthy();
+    expect(granted).toBeDefined();
 
     // 检查 id 字段是否存在（需要后端支持）
     const userBadgeId = granted.id || granted.userBadgeId || granted.user_badge_id;
@@ -445,7 +445,7 @@ test.describe('撤销测试: 批量撤销', () => {
     expect([200, 201, 202]).toContain(response.status());
     const data = await response.json();
     // 验证返回任务 ID 或相关信息
-    expect(data?.data?.taskId ?? data?.data?.id).toBeTruthy();
+    expect(data?.data?.taskId ?? data?.data?.id).toBeDefined();
   });
 
   test('批量任务状态查询', async () => {

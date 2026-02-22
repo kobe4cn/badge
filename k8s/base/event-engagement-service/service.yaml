@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-engagement-service
+  namespace: badge-system
+  labels:
+    app.kubernetes.io/name: event-engagement-service
+    app.kubernetes.io/part-of: badge-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: event-engagement-service
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

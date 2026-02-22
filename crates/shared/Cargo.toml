@@ -24,6 +24,8 @@ dashmap = { workspace = true }
 parking_lot = { workspace = true }
 crossbeam-utils = "0.8"
 dotenvy = "0.15.7"
+notify = { workspace = true }
+arc-swap = { workspace = true }
 
 # Observability
 opentelemetry = { workspace = true }

@@ -28,6 +28,9 @@ service BadgeManagementService {
   // 置顶/佩戴徽章
   rpc PinBadge(PinBadgeRequest) returns (PinBadgeResponse);
 
+  // 根据来源引用查询关联的用户徽章（退款撤销时使用）
+  rpc FindBadgesBySourceRef(FindBadgesBySourceRefRequest) returns (FindBadgesBySourceRefResponse);
+
   // 刷新依赖图缓存（内部调用）
   rpc RefreshDependencyCache(RefreshDependencyCacheRequest) returns (RefreshDependencyCacheResponse);
 
@@ -184,6 +187,25 @@ message PinBadgeRequest {
 message PinBadgeResponse {
   bool success = 1;
   string message = 2;
+}
+
+// 根据来源引用查询关联的用户徽章请求
+message FindBadgesBySourceRefRequest {
+  string user_id = 1;
+  string source_ref = 2;  // 发放时的来源引用（如事件 ID、订单号）
+}
+
+// 根据来源引用查询关联的用户徽章响应
+message FindBadgesBySourceRefResponse {
+  repeated SourceRefBadge badges = 1;
+}
+
+// 来源引用关联的徽章信息
+message SourceRefBadge {
+  int64 badge_id = 1;
+  int64 user_badge_id = 2;
+  int32 quantity = 3;
+  string status = 4;
 }
 
 // 刷新依赖图缓存请求

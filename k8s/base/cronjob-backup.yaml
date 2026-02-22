@@ -1,0 +1,149 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: badge-db-backup
+  namespace: badge-system
+  labels:
+    app.kubernetes.io/name: badge-db-backup
+    app.kubernetes.io/part-of: badge-system
+    app.kubernetes.io/component: backup
+spec:
+  # 每日凌晨 2:00 UTC 执行
+  schedule: "0 2 * * *"
+  # 错过调度窗口超过 200 秒则跳过本次执行
+  startingDeadlineSeconds: 200
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # 备份超过 30 分钟视为失败
+      activeDeadlineSeconds: 1800
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: badge-db-backup
+            app.kubernetes.io/part-of: badge-system
+        spec:
+          serviceAccountName: badge-service-account
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  BACKUP_FILE="/backups/badge_backup_${TIMESTAMP}.dump"
+
+                  echo "[$(date)] 开始备份 ${DB_NAME}@${DB_HOST}:${DB_PORT} ..."
+
+                  pg_dump \
+                    -h "${DB_HOST}" \
+                    -p "${DB_PORT}" \
+                    -U "${DB_USER}" \
+                    -d "${DB_NAME}" \
+                    --no-owner \
+                    --no-privileges \
+                    --format=custom \
+                    --compress=6 \
+                    -f "${BACKUP_FILE}"
+
+                  echo "[$(date)] 备份完成: ${BACKUP_FILE} ($(du -h "${BACKUP_FILE}" | cut -f1))"
+
+                  # 验证备份完整性
+                  if pg_restore --list "${BACKUP_FILE}" > /dev/null 2>&1; then
+                    echo "[$(date)] 备份验证通过"
+                  else
+                    echo "[$(date)] ERROR: 备份验证失败！"
+                    exit 1
+                  fi
+
+                  # 清理超过保留天数的旧备份
+                  RETENTION_DAYS="${RETENTION_DAYS:-30}"
+                  DELETED=$(find /backups -name "badge_backup_*.dump" -mtime +"${RETENTION_DAYS}" -print -delete 2>/dev/null | wc -l | tr -d ' ')
+                  if [ "${DELETED}" -gt 0 ]; then
+                    echo "[$(date)] 已清理 ${DELETED} 个超过 ${RETENTION_DAYS} 天的旧备份"
+                  fi
+
+                  echo "[$(date)] 备份完毕"
+              env:
+                - name: DB_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: badge-backup-db
+                      key: host
+                - name: DB_PORT
+                  valueFrom:
+                    secretKeyRef:
+                      name: badge-backup-db
+                      key: port
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: badge-backup-db
+                      key: database
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: badge-backup-db
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: badge-backup-db
+                      key: password
+                - name: RETENTION_DAYS
+                  value: "30"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: badge-backup-pvc
+---
+# 备份数据库连接信息（独立 Secret，与应用 Secret 分离）
+apiVersion: v1
+kind: Secret
+metadata:
+  name: badge-backup-db
+  namespace: badge-system
+  labels:
+    app.kubernetes.io/name: badge-db-backup
+    app.kubernetes.io/part-of: badge-system
+type: Opaque
+stringData:
+  host: "badge-postgres-primary"
+  port: "5432"
+  database: "badge_db"
+  username: "badge"
+  password: "CHANGE_ME"
+---
+# 备份存储 PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: badge-backup-pvc
+  namespace: badge-system
+  labels:
+    app.kubernetes.io/name: badge-db-backup
+    app.kubernetes.io/part-of: badge-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # 按数据库大小 × 30 天估算，需根据实际调整
+      storage: 20Gi

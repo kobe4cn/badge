@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: unified-rule-engine
+  namespace: badge-system
+  labels:
+    app.kubernetes.io/name: unified-rule-engine
+    app.kubernetes.io/part-of: badge-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: unified-rule-engine
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

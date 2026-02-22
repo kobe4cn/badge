@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-transaction-service
+  namespace: badge-system
+  labels:
+    app.kubernetes.io/name: event-transaction-service
+    app.kubernetes.io/part-of: badge-system
+    app.kubernetes.io/component: event-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: event-transaction-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: event-transaction-service
+        app.kubernetes.io/part-of: badge-system
+        app.kubernetes.io/component: event-processor
+    spec:
+      serviceAccountName: badge-service-account
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: event-transaction-service
+          image: badge-system/event-transaction-service:latest
+          ports:
+            - name: http
+              containerPort: 8082
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: badge-config
+            - secretRef:
+                name: badge-secrets
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3

@@ -83,7 +83,7 @@ test.describe('兑换规则表单', () => {
     // 至少有一个必填字段的校验提示出现
     const errorMessage = page.locator('.ant-form-item-explain-error');
     const hasError = await errorMessage.count() > 0;
-    expect(hasError).toBeTruthy();
+    expect(hasError).toBe(true);
 
     // 关闭模态框
     await page.locator('.ant-modal button').filter({ hasText: /取.*消/ }).click();

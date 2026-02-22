@@ -268,6 +268,47 @@ impl Default for KafkaSecurityConfig {
     }
 }
 
+/// 配置中心配置
+///
+/// 控制配置热更新行为。方案 B（文件监听）是默认实现，
+/// 可通过 `backend` 字段切换为 ETCD 或 Nacos。
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfigCenterConfig {
+    /// 是否启用配置热更新
+    #[serde(default)]
+    pub enabled: bool,
+    /// 配置源类型：file / etcd / nacos
+    #[serde(default = "default_config_backend")]
+    pub backend: String,
+    /// 文件监听模式下的 debounce 时间（毫秒），避免文件连续写入触发多次重载
+    #[serde(default = "default_debounce_ms")]
+    pub debounce_ms: u64,
+    /// ETCD 端点（backend=etcd 时使用）
+    pub etcd_endpoints: Option<Vec<String>>,
+    /// Nacos 服务地址（backend=nacos 时使用）
+    pub nacos_addr: Option<String>,
+}
+
+fn default_config_backend() -> String {
+    "file".into()
+}
+
+fn default_debounce_ms() -> u64 {
+    2000
+}
+
+impl Default for ConfigCenterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            backend: default_config_backend(),
+            debounce_ms: default_debounce_ms(),
+            etcd_endpoints: None,
+            nacos_addr: None,
+        }
+    }
+}
+
 /// 应用配置
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct AppConfig {
@@ -282,6 +323,8 @@ pub struct AppConfig {
     pub rules: RulesConfig,
     #[serde(default)]
     pub tls: TlsConfig,
+    #[serde(default)]
+    pub config_center: ConfigCenterConfig,
 }
 
 impl AppConfig {

@@ -46,7 +46,7 @@ test.describe('权益管理 - 扩展测试', () => {
       const modal = page.locator('.ant-modal, .ant-drawer');
       const hasModal = await modal.isVisible({ timeout: 3000 }).catch(() => false);
       const isOnCreatePage = page.url().includes('/create') || page.url().includes('/new');
-      expect(hasModal || isOnCreatePage).toBeTruthy();
+      expect(hasModal || isOnCreatePage).toBe(true);
 
       // 关闭弹窗（如有）
       if (hasModal) {
@@ -105,7 +105,7 @@ test.describe('权益管理 - 扩展测试', () => {
     const isVisible = await editButton.isVisible({ timeout: 3000 }).catch(() => false);
 
     if (rowCount > 0) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     } else {
       expect(isVisible).toBe(false);
     }
@@ -122,7 +122,7 @@ test.describe('权益管理 - 扩展测试', () => {
     const isVisible = await deleteButton.isVisible({ timeout: 3000 }).catch(() => false);
 
     if (rowCount > 0) {
-      expect(isVisible).toBeTruthy();
+      expect(isVisible).toBe(true);
     } else {
       expect(isVisible).toBe(false);
     }

@@ -49,6 +49,16 @@ security_protocol = "PLAINTEXT"
 # sasl_password = ""
 # ssl_ca_location = "/etc/certs/kafka-ca.pem"
 
+[config_center]
+# 是否启用配置热更新（生产环境建议开启）
+enabled = false
+# 配置源类型：file（默认，基于文件监听）/ etcd / nacos
+backend = "file"
+# 文件监听 debounce 时间（毫秒），K8s ConfigMap 更新时会短时间内多次写入
+debounce_ms = 2000
+# etcd_endpoints = ["http://localhost:2379"]
+# nacos_addr = "http://localhost:8848"
+
 [observability]
 log_level = "info"
 log_format = "pretty"

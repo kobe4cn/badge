@@ -11,6 +11,7 @@ use badge_proto::rule_engine::rule_engine_service_client::RuleEngineServiceClien
 use badge_shared::{
     cache::Cache,
     config::AppConfig,
+    config_watcher::{self, DynamicConfig},
     database::Database,
     observability::{self, middleware as obs_middleware},
 };
@@ -28,6 +29,19 @@ async fn main() -> anyhow::Result<()> {
     let _guard = observability::init(&obs_config).await?;
 
     info!("Starting badge-admin-service on {}", config.server_addr());
+
+    // 初始化动态配置：通过 ArcSwap 提供近零开销的配置读取，
+    // FileConfigWatcher 监听文件变更后自动推送新配置
+    let dynamic_config = DynamicConfig::new(config.clone());
+    if config.config_center.enabled {
+        let watcher = config_watcher::create_watcher(
+            "badge-admin-service",
+            &config,
+            dynamic_config.clone(),
+        );
+        watcher.start().await.expect("配置监听器启动失败");
+        info!("动态配置监听已启用 (backend={})", config.config_center.backend);
+    }
 
     // 初始化基础设施
     let db = Database::connect(&config.database).await?;

@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: badge-system
+  labels:
+    app.kubernetes.io/part-of: badge-system

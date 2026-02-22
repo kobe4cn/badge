@@ -10,6 +10,7 @@ use tracing::instrument;
 
 use badge_proto::badge::{
     Badge as ProtoBadge, BadgeStatus as ProtoBadgeStatus, BadgeType as ProtoBadgeType,
+    FindBadgesBySourceRefRequest, FindBadgesBySourceRefResponse,
     GetBadgeDetailRequest, GetBadgeDetailResponse, GetBadgeWallRequest, GetBadgeWallResponse,
     GetUserBadgesRequest, GetUserBadgesResponse, GrantBadgeRequest as ProtoGrantBadgeRequest,
     GrantBadgeResponse as ProtoGrantBadgeResponse, PinBadgeRequest, PinBadgeResponse,
@@ -17,7 +18,8 @@ use badge_proto::badge::{
     RefreshAutoBenefitCacheRequest, RefreshAutoBenefitCacheResponse,
     RefreshDependencyCacheRequest, RefreshDependencyCacheResponse,
     RevokeBadgeRequest as ProtoRevokeBadgeRequest, RevokeBadgeResponse as ProtoRevokeBadgeResponse,
-    UserBadge as ProtoUserBadge, badge_management_service_server::BadgeManagementService,
+    SourceRefBadge, UserBadge as ProtoUserBadge,
+    badge_management_service_server::BadgeManagementService,
 };
 
 use crate::auto_benefit::AutoBenefitRuleCache;
@@ -566,6 +568,62 @@ where
             Ok(None) => Err(Status::not_found("用户徽章不存在")),
             Err(e) => Err(Status::internal(format!("数据库错误: {}", e))),
         }
+    }
+
+    /// 根据来源引用查询关联的用户徽章
+    ///
+    /// 退款撤销时通过 source_ref（如事件 ID、订单号）反查哪些徽章是由该交易发放的，
+    /// 从而精确定位需要撤销的徽章，避免误撤其他来源发放的徽章。
+    #[instrument(skip(self), fields(user_id = %request.get_ref().user_id, source_ref = %request.get_ref().source_ref))]
+    async fn find_badges_by_source_ref(
+        &self,
+        request: Request<FindBadgesBySourceRefRequest>,
+    ) -> Result<Response<FindBadgesBySourceRefResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.user_id.is_empty() {
+            return Err(Status::invalid_argument("user_id 不能为空"));
+        }
+        if req.source_ref.is_empty() {
+            return Err(Status::invalid_argument("source_ref 不能为空"));
+        }
+
+        // 通过 source_ref 查询 user_badges 表
+        let rows = sqlx::query(
+            r#"
+            SELECT ub.id AS user_badge_id, ub.badge_id, ub.quantity, ub.status
+            FROM user_badges ub
+            WHERE ub.user_id = $1 AND ub.source_ref = $2
+              AND UPPER(ub.status) = 'ACTIVE'
+            "#,
+        )
+        .bind(&req.user_id)
+        .bind(&req.source_ref)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| Status::internal(format!("查询关联徽章失败: {}", e)))?;
+
+        let badges: Vec<SourceRefBadge> = rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                SourceRefBadge {
+                    badge_id: row.get::<i64, _>("badge_id"),
+                    user_badge_id: row.get::<i64, _>("user_badge_id"),
+                    quantity: row.get::<i32, _>("quantity"),
+                    status: row.get::<String, _>("status"),
+                }
+            })
+            .collect();
+
+        tracing::info!(
+            user_id = %req.user_id,
+            source_ref = %req.source_ref,
+            found_count = badges.len(),
+            "查询来源引用关联徽章完成"
+        );
+
+        Ok(Response::new(FindBadgesBySourceRefResponse { badges }))
     }
 
     /// 刷新依赖图缓存

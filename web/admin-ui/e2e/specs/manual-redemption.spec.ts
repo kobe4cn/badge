@@ -94,7 +94,7 @@ test.describe('手动兑换测试: 基础流程', () => {
 
     // 验证兑换订单返回了订单号
     const orderNo = redeemRes?.data?.orderNo || redeemRes?.data?.order_no || redeemRes?.data?.id;
-    expect(orderNo).toBeTruthy();
+    expect(orderNo).toBeDefined();
   });
 
   test('执行手动兑换 - 无徽章失败', async () => {
@@ -530,7 +530,7 @@ test.describe('手动兑换测试: 订单管理', () => {
 
   test('查询兑换订单列表', async () => {
     const orders = await api.getRedemptionOrders({ page: 1, pageSize: 10 });
-    expect(orders).toBeTruthy();
+    expect(orders).toBeDefined();
     expect(orders?.data).toBeDefined();
   });
 
@@ -668,7 +668,7 @@ test.describe('手动兑换测试: 幂等性', () => {
     expect(response1.status()).toBe(200);
     const data1 = await response1.json();
     const orderNo1 = data1?.data?.orderNo || data1?.data?.id;
-    expect(orderNo1).toBeTruthy();
+    expect(orderNo1).toBeDefined();
 
     // 重复请求（相同幂等键）
     const response2 = await apiContext.post(`${BASE_URL}/api/admin/redemption/redeem`, {

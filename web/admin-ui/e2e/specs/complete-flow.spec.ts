@@ -37,7 +37,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
       name: `${testPrefix}完整流程分类`,
       sortOrder: 1,
     });
-    expect(categoryRes?.data?.id).toBeTruthy();
+    expect(categoryRes?.data?.id).toBeDefined();
     const categoryId = categoryRes.data.id;
 
     // 2. 创建系列
@@ -46,7 +46,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
       categoryId,
       sortOrder: 1,
     });
-    expect(seriesRes?.data?.id).toBeTruthy();
+    expect(seriesRes?.data?.id).toBeDefined();
     const seriesId = seriesRes.data.id;
 
     // 3. 创建徽章
@@ -56,7 +56,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
       description: '用于测试完整生命周期的徽章',
     });
     const badgeRes = await api.createBadge(badge);
-    expect(badgeRes?.data?.id).toBeTruthy();
+    expect(badgeRes?.data?.id).toBeDefined();
     const badgeId = badgeRes.data.id;
 
     // 验证初始状态为草稿
@@ -82,7 +82,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
     const grantedBadge = userItems.find(
       (b: any) => (b.badgeId || b.badge_id) === badgeId
     );
-    expect(grantedBadge).toBeTruthy();
+    expect(grantedBadge).toBeDefined();
 
     // 6. 撤销徽章
     if (grantedBadge?.id) {
@@ -168,11 +168,11 @@ test.describe('完整流程测试: 规则触发', () => {
       maxCountPerUser: 5,
       globalQuota: 100,
     });
-    expect(ruleRes?.data?.id).toBeTruthy();
+    expect(ruleRes?.data?.id).toBeDefined();
     ruleId = ruleRes.data.id;
 
     // 验证初始状态为禁用
-    expect(ruleRes.data.enabled === false || ruleRes.data.status === 'draft').toBeTruthy();
+    expect(ruleRes.data.enabled === false || ruleRes.data.status === 'draft').toBe(true);
 
     // 2. 发布规则
     const publishRes = await api.publishRule(ruleId);
@@ -181,7 +181,7 @@ test.describe('完整流程测试: 规则触发', () => {
     // 验证规则已启用
     let rules = await api.getRules({ keyword: testPrefix });
     let targetRule = rules?.data?.items?.find((r: any) => r.id === ruleId);
-    expect(targetRule?.enabled === true || targetRule?.status === 'published').toBeTruthy();
+    expect(targetRule?.enabled === true || targetRule?.status === 'published').toBe(true);
 
     // 3. 测试规则执行
     try {
@@ -190,7 +190,7 @@ test.describe('完整流程测试: 规则触发', () => {
         eventType: 'purchase',
         eventData: { amount: 200, user: { level: 2 } },
       });
-      expect(testRes).toBeTruthy();
+      expect(testRes).toBeDefined();
     } catch {
       test.info().annotations.push({
         type: 'info',
@@ -205,7 +205,7 @@ test.describe('完整流程测试: 规则触发', () => {
     // 验证规则已禁用
     rules = await api.getRules({ keyword: testPrefix });
     targetRule = rules?.data?.items?.find((r: any) => r.id === ruleId);
-    expect(targetRule?.enabled === false || targetRule?.status === 'disabled').toBeTruthy();
+    expect(targetRule?.enabled === false || targetRule?.status === 'disabled').toBe(true);
 
     // 5. 删除规则
     await api.deleteRule(ruleId);
@@ -213,7 +213,7 @@ test.describe('完整流程测试: 规则触发', () => {
     // 验证规则已删除
     rules = await api.getRules({ keyword: testPrefix });
     const found = rules?.data?.items?.find((r: any) => r.id === ruleId);
-    expect(found).toBeFalsy();
+    expect(found).toBeUndefined();
   });
 });
 
@@ -278,7 +278,7 @@ test.describe('完整流程测试: 徽章兑换', () => {
       startTime: now.toISOString(),
       endTime: new Date(now.getTime() + 30 * 24 * 3600 * 1000).toISOString(),
     });
-    expect(ruleRes?.data?.id).toBeTruthy();
+    expect(ruleRes?.data?.id).toBeDefined();
     redemptionRuleId = ruleRes.data.id;
 
     // 2. 发放徽章给用户
@@ -291,7 +291,7 @@ test.describe('完整流程测试: 徽章兑换', () => {
     expect(redeemRes?.code).toBe(0);
 
     const orderNo = redeemRes?.data?.orderNo || redeemRes?.data?.id;
-    expect(orderNo).toBeTruthy();
+    expect(orderNo).toBeDefined();
 
     // 4. 查询兑换订单列表
     const orders = await api.getRedemptionOrders({ userId, page: 1, pageSize: 10 });
@@ -299,7 +299,7 @@ test.describe('完整流程测试: 徽章兑换', () => {
 
     // 5. 查询权益发放记录
     const benefitGrants = await api.getBenefitGrants({ userId, page: 1, pageSize: 10 });
-    expect(benefitGrants).toBeTruthy();
+    expect(benefitGrants).toBeDefined();
   });
 });
 
@@ -390,7 +390,7 @@ test.describe('完整流程测试: 依赖级联', () => {
         (b.badgeId || b.badge_id) === badge1Id &&
         ['active', 'ACTIVE'].includes(b.status)
     );
-    expect(hasBadge1).toBeTruthy();
+    expect(hasBadge1).toBe(true);
 
     // 如果启用了自动级联，应该也有 badge2 和 badge3
     test.info().annotations.push({
@@ -584,7 +584,7 @@ test.describe('完整流程测试: RBAC 权限', () => {
       name: `${testPrefix}RBAC测试分类`,
       sortOrder: 0,
     });
-    expect(categoryRes?.data?.id).toBeTruthy();
+    expect(categoryRes?.data?.id).toBeDefined();
     const categoryId = categoryRes.data.id;
 
     // 2. Operator 在该分类下创建系列
@@ -593,7 +593,7 @@ test.describe('完整流程测试: RBAC 权限', () => {
       categoryId,
       sortOrder: 0,
     });
-    expect(seriesRes?.data?.id).toBeTruthy();
+    expect(seriesRes?.data?.id).toBeDefined();
     const seriesId = seriesRes.data.id;
 
     // 3. Operator 创建徽章
@@ -602,7 +602,7 @@ test.describe('完整流程测试: RBAC 权限', () => {
       seriesId,
     });
     const badgeRes = await operatorApi.createBadge(badge);
-    expect(badgeRes?.data?.id).toBeTruthy();
+    expect(badgeRes?.data?.id).toBeDefined();
 
     // 4. Viewer 只能读取，不能修改
     const viewerBadges = await viewerApi.getBadges({ keyword: testPrefix });
