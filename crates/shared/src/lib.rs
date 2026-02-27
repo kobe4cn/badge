@@ -6,6 +6,7 @@ pub mod cache;
 pub mod circuit_breaker;
 pub mod config;
 pub mod config_watcher;
+pub mod crypto;
 pub mod database;
 pub mod dlq;
 pub mod error;

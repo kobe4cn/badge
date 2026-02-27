@@ -94,6 +94,10 @@ bcrypt = "0.17"
 sha2 = "0.10"
 rand = "0.9"
 
+# Encryption
+aes-gcm = "0.10"
+base64 = "0.22"
+
 # HTTP client
 reqwest = { version = "0.12", features = ["json"] }
 

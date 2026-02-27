@@ -268,6 +268,24 @@ impl Default for KafkaSecurityConfig {
     }
 }
 
+/// 字段级加密配置
+///
+/// 控制敏感字段的存储加密行为（specs 3.3 条款）。
+/// 密钥通过环境变量 `BADGE_ENCRYPTION_KEY` 注入（hex 编码的 32 字节），
+/// 不在配置文件中存储，避免密钥泄露。
+#[derive(Debug, Clone, Deserialize)]
+pub struct EncryptionConfig {
+    /// 是否启用字段级加密（开发环境默认关闭，生产环境应开启）
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for EncryptionConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
 /// 配置中心配置
 ///
 /// 控制配置热更新行为。方案 B（文件监听）是默认实现，
@@ -325,6 +343,8 @@ pub struct AppConfig {
     pub tls: TlsConfig,
     #[serde(default)]
     pub config_center: ConfigCenterConfig,
+    #[serde(default)]
+    pub encryption: EncryptionConfig,
 }
 
 impl AppConfig {

@@ -59,6 +59,12 @@ debounce_ms = 2000
 # etcd_endpoints = ["http://localhost:2379"]
 # nacos_addr = "http://localhost:8848"
 
+[encryption]
+# 字段级加密开关：开发环境默认关闭，生产环境通过 BADGE_ENCRYPTION_ENABLED=true 启用
+enabled = false
+# 加密密钥通过环境变量 BADGE_ENCRYPTION_KEY 提供（hex 编码的 32 字节 / 64 字符）
+# 切勿在配置文件中写入密钥明文
+
 [observability]
 log_level = "info"
 log_format = "pretty"

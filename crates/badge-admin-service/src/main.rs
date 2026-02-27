@@ -12,6 +12,7 @@ use badge_shared::{
     cache::Cache,
     config::AppConfig,
     config_watcher::{self, DynamicConfig},
+    crypto::FieldEncryptor,
     database::Database,
     observability::{self, middleware as obs_middleware},
 };
@@ -69,6 +70,26 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut state = AppState::with_jwt_config(db.pool().clone(), cache.clone(), jwt_config);
+
+    // 初始化字段级加密器：根据配置和环境变量决定加密模式
+    if config.encryption.enabled {
+        match std::env::var("BADGE_ENCRYPTION_KEY") {
+            Ok(hex_key) => {
+                let encryptor = FieldEncryptor::from_hex(&hex_key)
+                    .expect("BADGE_ENCRYPTION_KEY 无效：需要 64 字符的 hex 编码密钥");
+                state.set_encryptor(encryptor);
+                info!("字段级加密已启用");
+            }
+            Err(_) => {
+                if config.is_production() {
+                    panic!("生产环境启用了加密但未设置 BADGE_ENCRYPTION_KEY");
+                }
+                warn!("加密已启用但未设置 BADGE_ENCRYPTION_KEY，降级为 passthrough 模式");
+            }
+        }
+    } else {
+        info!("字段级加密未启用（encryption.enabled=false）");
+    }
 
     // 初始化兑换服务：RedemptionRepository → RedemptionService → 注入 AppState
     let redemption_repo = Arc::new(

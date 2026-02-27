@@ -9,6 +9,7 @@ use badge_proto::badge::badge_management_service_client::BadgeManagementServiceC
 use badge_proto::rule_engine::rule_engine_service_client::RuleEngineServiceClient;
 use badge_shared::cache::Cache;
 use badge_shared::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use badge_shared::crypto::FieldEncryptor;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -60,6 +61,8 @@ pub struct AppState {
     pub badge_mgmt_circuit_breaker: CircuitBreaker,
     /// 规则引擎 gRPC 调用的熔断器
     pub rule_engine_circuit_breaker: CircuitBreaker,
+    /// 字段级加密器（审计日志、敏感字段加密写入时使用）
+    pub encryptor: Arc<FieldEncryptor>,
 }
 
 impl AppState {
@@ -80,6 +83,7 @@ impl AppState {
             rule_engine_client: Arc::new(RwLock::new(None)),
             badge_mgmt_circuit_breaker: badge_mgmt_cb,
             rule_engine_circuit_breaker: rule_engine_cb,
+            encryptor: Arc::new(FieldEncryptor::passthrough()),
         }
     }
 
@@ -99,6 +103,7 @@ impl AppState {
             rule_engine_client: Arc::new(RwLock::new(None)),
             badge_mgmt_circuit_breaker: badge_mgmt_cb,
             rule_engine_circuit_breaker: rule_engine_cb,
+            encryptor: Arc::new(FieldEncryptor::passthrough()),
         }
     }
 
@@ -126,7 +131,13 @@ impl AppState {
             rule_engine_client: Arc::new(RwLock::new(None)),
             badge_mgmt_circuit_breaker: badge_mgmt_cb,
             rule_engine_circuit_breaker: rule_engine_cb,
+            encryptor: Arc::new(FieldEncryptor::passthrough()),
         }
+    }
+
+    /// 设置字段级加密器
+    pub fn set_encryptor(&mut self, encryptor: FieldEncryptor) {
+        self.encryptor = Arc::new(encryptor);
     }
 
     /// 设置依赖关系仓储

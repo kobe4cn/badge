@@ -11,6 +11,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use badge_shared::crypto::FieldEncryptor;
 use sqlx::PgPool;
 use tokio::sync::Mutex;
 use tracing::{error, debug};
@@ -133,6 +134,7 @@ pub async fn audit_middleware(
     if response.status().is_success() {
         if let Some(claims) = claims {
             let pool = state.pool.clone();
+            let encryptor = state.encryptor.clone();
             let (module, action) = parse_module_action(&path, &method);
             let (target_type, target_id) = extract_target(&path);
 
@@ -141,6 +143,7 @@ pub async fn audit_middleware(
                 let before_data = audit_ctx.take_before_data().await;
                 write_audit_log(
                     &pool,
+                    &encryptor,
                     &claims.sub,
                     claims.display_name.as_deref().or(Some(&claims.username)),
                     &module,
@@ -224,8 +227,14 @@ fn extract_client_ip(request: &Request<axum::body::Body>) -> Option<String> {
 ///
 /// before_data 由 Handler 通过 AuditContext 提供，记录变更前的完整数据快照。
 /// request_body 为 JSON 请求体原文，存入 after_data 列作为变更内容。
+///
+/// 加密策略（specs 3.3 条款）：
+/// - before_data / after_data：包含业务数据快照，可能含优惠券码、地址等敏感信息
+/// - ip_address：用户 IP 属于可关联个人身份的元数据
+/// 上述字段在写入前通过 FieldEncryptor 加密，passthrough 模式下不加密。
 async fn write_audit_log(
     pool: &PgPool,
+    encryptor: &FieldEncryptor,
     operator_id: &str,
     operator_name: Option<&str>,
     module: &str,
@@ -240,6 +249,21 @@ async fn write_audit_log(
     // 尝试将请求体解析为 JSON Value，解析失败则丢弃（避免存入非法 JSON）
     let after_data: Option<serde_json::Value> =
         request_body.and_then(|s| serde_json::from_str(s).ok());
+
+    // 加密敏感字段：将 JSON 数据加密为字符串存储，IP 加密后存为密文字符串。
+    // 加密后 JSONB 列实际存储的是加密字符串（wrapped in JSON string），
+    // 读取时需先解密再解析。
+    let encrypted_before = before_data.as_ref().and_then(|v| {
+        encryptor.encrypt_json(v).ok().map(|s| serde_json::Value::String(s))
+    }).or(before_data);
+
+    let encrypted_after = after_data.as_ref().and_then(|v| {
+        encryptor.encrypt_json(v).ok().map(|s| serde_json::Value::String(s))
+    }).or(after_data);
+
+    let encrypted_ip = ip_address.map(|ip| {
+        encryptor.encrypt(ip).unwrap_or_else(|_| ip.to_string())
+    });
 
     let result = sqlx::query(
         r#"
@@ -256,10 +280,10 @@ async fn write_audit_log(
     .bind(action)
     .bind(target_type)
     .bind(target_id)
-    .bind(ip_address)
+    .bind(encrypted_ip.as_deref())
     .bind(user_agent)
-    .bind(before_data)
-    .bind(after_data)
+    .bind(encrypted_before)
+    .bind(encrypted_after)
     .execute(pool)
     .await;
 
