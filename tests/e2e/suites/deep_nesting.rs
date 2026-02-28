@@ -274,7 +274,7 @@ mod nesting_4_layer_tests {
             badge_id: badge.id,
             rule_code: format!("test_publish_4layer_{}", badge.id),
             name: "Test发布4层规则".to_string(),
-            event_type: "engagement".to_string(),
+            event_type: "checkin".to_string(),
             rule_json,
             start_time: None,
             end_time: None,
@@ -528,7 +528,7 @@ mod mixed_nesting_tests {
             .unwrap();
         let badge = env
             .api
-            .create_badge(&CreateBadgeRequest::new(series.id, "TestVIP徽章", "SPECIAL"))
+            .create_badge(&CreateBadgeRequest::new(series.id, "TestVIP徽章", "ACHIEVEMENT"))
             .await
             .unwrap();
 
@@ -706,7 +706,7 @@ mod nesting_edge_cases {
             badge_id: badge.id,
             rule_code: format!("test_all_operators_{}", badge.id),
             name: "Test全操作符规则".to_string(),
-            event_type: "test".to_string(),
+            event_type: "purchase".to_string(),
             rule_json,
             start_time: None,
             end_time: None,

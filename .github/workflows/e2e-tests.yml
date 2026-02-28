@@ -39,6 +39,8 @@ env:
   BADGE_KAFKA_BROKERS: localhost:9092
   # CI 环境禁用限流，避免 E2E 测试中的密集 API 调用被拦截
   BADGE_RATE_LIMIT_DISABLED: "true"
+  # 使用 CI 专用配置（config/ci.toml），缩短规则刷新间隔以加速测试
+  BADGE_ENV: ci
   # 旧名称保留用于兼容
   REDIS_URL: redis://localhost:6379
   KAFKA_BROKERS: localhost:9092
@@ -88,6 +90,11 @@ jobs:
           KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:29093
           KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
           CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+          # 单 broker 环境必须将副本因子降为 1，否则 __consumer_offsets 等内部 topic
+          # 会因无法满足默认 replication-factor=3 而报 INVALID_REPLICATION_FACTOR
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
     steps:
       - uses: actions/checkout@v4
@@ -197,13 +204,17 @@ jobs:
           pid2=$!
           wait_for_grpc_service "rule-engine-service" "50051" "/tmp/rule-engine.log" &
           pid3=$!
-          # Kafka 消费者服务使用 metrics 端口检测（event-engagement 没有 HTTP /health，使用 metrics 端口 9993）
+          # Kafka 消费者服务使用 metrics 端口检测（没有 HTTP /health，通过 metrics 端口判断就绪）
           wait_for_grpc_service "event-engagement-service" "9993" "/tmp/event-engagement.log" &
           pid4=$!
+          wait_for_grpc_service "event-transaction-service" "9994" "/tmp/event-transaction.log" &
+          pid5=$!
+          wait_for_grpc_service "notification-worker" "9995" "/tmp/notification-worker.log" &
+          pid6=$!
 
           # 等待所有健康检查完成，任一失败则退出
           failed=0
-          for pid in $pid1 $pid2 $pid3 $pid4; do
+          for pid in $pid1 $pid2 $pid3 $pid4 $pid5 $pid6; do
             wait $pid || failed=1
           done
 
@@ -515,6 +526,11 @@ jobs:
           KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:29093
           KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
           CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+          # 单 broker 环境必须将副本因子降为 1，否则 __consumer_offsets 等内部 topic
+          # 会因无法满足默认 replication-factor=3 而报 INVALID_REPLICATION_FACTOR
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
     steps:
       - uses: actions/checkout@v4

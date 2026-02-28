@@ -195,9 +195,9 @@ impl TestEnvironment {
 
     /// 等待规则热加载完成
     pub async fn wait_for_rule_reload(&self) -> Result<()> {
-        // 发送规则刷新消息后等待一段时间
-        // 增加到 2 秒以确保规则在 Kafka 消费者和 gRPC 服务之间完成同步
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // CI 中规则刷新间隔为 5 秒，等待 6 秒确保至少完成一次完整的
+        // Kafka 消息消费 + 规则加载 + gRPC 服务同步周期
+        tokio::time::sleep(Duration::from_secs(6)).await;
         Ok(())
     }
 

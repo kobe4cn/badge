@@ -1,0 +1,11 @@
+# CI 环境配置
+# 覆盖 default.toml 中的同名配置项，加速测试执行
+
+[rules]
+# CI 中缩短规则刷新间隔，让 Kafka 消费者更快拉取到新规则
+refresh_interval_secs = 5
+
+[observability]
+log_level = "info"
+log_format = "json"
+tracing_enabled = false

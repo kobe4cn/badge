@@ -480,7 +480,7 @@ mod transaction_consistency_tests {
             .bearer_auth(&token)
             .json(&json!({
                 "userId": user_id,
-                "redemptionRuleId": fake_rule_id
+                "ruleId": fake_rule_id
             }))
             .send()
             .await
