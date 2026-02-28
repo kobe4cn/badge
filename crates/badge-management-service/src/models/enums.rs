@@ -45,7 +45,7 @@ pub enum BadgeStatus {
 /// 追踪用户持有徽章的生命周期
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[sqlx(type_name = "varchar", rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
 pub enum UserBadgeStatus {
     /// 有效 - 正常持有中
     #[default]

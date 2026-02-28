@@ -100,8 +100,8 @@ async fn seed_user_badge(pool: &PgPool, user_id: &str, badge_id: i64, quantity: 
     sqlx::query(
         r#"
         INSERT INTO user_badges (user_id, badge_id, quantity, status, source_type)
-        VALUES ($1, $2, $3, 'ACTIVE', 'MANUAL')
-        ON CONFLICT (user_id, badge_id) DO UPDATE SET quantity = $3, status = 'ACTIVE'
+        VALUES ($1, $2, $3, 'active', 'MANUAL')
+        ON CONFLICT (user_id, badge_id) DO UPDATE SET quantity = $3, status = 'active'
         "#,
     )
     .bind(user_id)
@@ -116,7 +116,7 @@ async fn seed_user_badge(pool: &PgPool, user_id: &str, badge_id: i64, quantity: 
 async fn set_user_badge_revoked(pool: &PgPool, user_id: &str, badge_id: i64) {
     sqlx::query(
         r#"
-        UPDATE user_badges SET status = 'REVOKED', quantity = 0
+        UPDATE user_badges SET status = 'revoked', quantity = 0
         WHERE user_id = $1 AND badge_id = $2
         "#,
     )

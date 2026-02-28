@@ -5,6 +5,7 @@
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
+    http::HeaderMap,
 };
 use crate::middleware::AuditContext;
 use chrono::{DateTime, Utc};
@@ -498,12 +499,20 @@ pub async fn delete_redemption_rule(
 /// POST /api/admin/redemption/redeem
 pub async fn redeem(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RedeemRequest>,
 ) -> Result<Json<ApiResponse<RedeemResponseDto>>, AdminError> {
     req.validate()?;
 
+    // 优先使用请求体中的 idempotency_key，其次从 Idempotency-Key HTTP 头读取
     let idempotency_key = req
         .idempotency_key
+        .or_else(|| {
+            headers
+                .get("Idempotency-Key")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     // 检查幂等性

@@ -191,6 +191,18 @@ impl From<badge_management::BadgeError> for AdminError {
             badge_management::BadgeError::SeriesNotFound(id) => Self::SeriesNotFound(id),
             badge_management::BadgeError::CategoryNotFound(id) => Self::CategoryNotFound(id),
             badge_management::BadgeError::Validation(msg) => Self::Validation(msg),
+            // 兑换相关业务错误：映射为适当的 HTTP 状态码而非 500
+            badge_management::BadgeError::BenefitNotFound(id) => Self::BenefitNotFound(id),
+            badge_management::BadgeError::RedemptionRuleNotFound(id) => Self::RuleNotFound(id),
+            badge_management::BadgeError::RedemptionRuleInactive(_)
+            | badge_management::BadgeError::BenefitOutOfStock(_)
+            | badge_management::BadgeError::InsufficientBadges { .. }
+            | badge_management::BadgeError::UserBadgeNotFound { .. }
+            | badge_management::BadgeError::RedemptionFrequencyLimitReached { .. }
+            | badge_management::BadgeError::DuplicateRedemption(_)
+            | badge_management::BadgeError::InvalidOrderStatus { .. } => {
+                Self::Validation(err.to_string())
+            }
             other => Self::Internal(other.to_string()),
         }
     }

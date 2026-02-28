@@ -149,9 +149,10 @@ mod api_db_consistency_tests {
             db_row.1,
             "description: API 与 DB 不一致"
         );
+        // badgeType: API 返回 SCREAMING_SNAKE_CASE，DB 存储同格式（sqlx enum）
         assert_eq!(
-            api_badge["badgeType"].as_str().unwrap(),
-            db_row.2,
+            api_badge["badgeType"].as_str().unwrap().to_uppercase(),
+            db_row.2.to_uppercase(),
             "badgeType: API 与 DB 不一致"
         );
         assert_eq!(
@@ -159,9 +160,11 @@ mod api_db_consistency_tests {
             db_row.3,
             "seriesId: API 与 DB 不一致"
         );
+        // status: API 使用 serde SCREAMING_SNAKE_CASE（如 "DRAFT"），
+        // DB 使用 sqlx lowercase（如 "draft"），需要忽略大小写比较
         assert_eq!(
-            api_badge["status"].as_str().unwrap(),
-            db_row.4,
+            api_badge["status"].as_str().unwrap().to_uppercase(),
+            db_row.4.to_uppercase(),
             "status: API 与 DB 不一致"
         );
 

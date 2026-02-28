@@ -112,7 +112,7 @@ impl UserBadgeRepository {
             SELECT badge_id
             FROM user_badges
             WHERE user_id = $1
-              AND status = 'ACTIVE'
+              AND status = 'active'
               AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         )

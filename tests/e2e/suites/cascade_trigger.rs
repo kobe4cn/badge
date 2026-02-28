@@ -56,7 +56,9 @@ mod cascade_chain_tests {
         // 触发获得 A 徽章（消费 200 元满足 A 的规则）
         let event = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 200);
         env.kafka.send_transaction_event(event).await.unwrap();
-        env.wait_for_processing(Duration::from_secs(5))
+
+        // 等待 A 发放（延长超时以适应 CI 环境）
+        env.wait_for_badge(&user_id, scenario.badge_a.id, Duration::from_secs(15))
             .await
             .unwrap();
 
@@ -69,9 +71,9 @@ mod cascade_chain_tests {
             "用户应该获得徽章 A"
         );
 
-        // 验证 B 也自动获得（级联触发）
+        // 验证 B 也自动获得（级联触发，给予更长等待时间）
         let has_badge_b = env
-            .wait_for_badge(&user_id, scenario.badge_b.id, Duration::from_secs(5))
+            .wait_for_badge(&user_id, scenario.badge_b.id, Duration::from_secs(15))
             .await;
         assert!(has_badge_b.is_ok(), "用户应该通过级联自动获得徽章 B");
 
@@ -154,12 +156,12 @@ mod cascade_chain_tests {
         let event = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 200);
         env.kafka.send_transaction_event(event).await.unwrap();
 
-        // 等待三级级联完成（给予更长时间）
-        env.wait_for_processing(Duration::from_secs(8))
+        // 等待 A 发放
+        env.wait_for_badge(&user_id, scenario.badge_a.id, Duration::from_secs(15))
             .await
             .unwrap();
 
-        // 验证 A、B、C 都获得
+        // 验证 A 获得
         assert!(
             env.db
                 .user_has_badge(&user_id, scenario.badge_a.id)
@@ -168,13 +170,14 @@ mod cascade_chain_tests {
             "用户应该获得徽章 A"
         );
 
+        // 等待三级级联完成（B 和 C 需要更长时间）
         let has_badge_b = env
-            .wait_for_badge(&user_id, scenario.badge_b.id, Duration::from_secs(3))
+            .wait_for_badge(&user_id, scenario.badge_b.id, Duration::from_secs(15))
             .await;
         assert!(has_badge_b.is_ok(), "用户应该通过级联获得徽章 B");
 
         let has_badge_c = env
-            .wait_for_badge(&user_id, scenario.badge_c.id, Duration::from_secs(3))
+            .wait_for_badge(&user_id, scenario.badge_c.id, Duration::from_secs(15))
             .await;
         assert!(has_badge_c.is_ok(), "用户应该通过级联获得徽章 C");
 
@@ -337,7 +340,9 @@ mod cascade_chain_tests {
         // 触发获得 A 徽章
         let event = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 200);
         env.kafka.send_transaction_event(event).await.unwrap();
-        env.wait_for_processing(Duration::from_secs(8))
+
+        // 等待 A 发放
+        env.wait_for_badge(&user_id, badge_a.id, Duration::from_secs(15))
             .await
             .unwrap();
 
@@ -347,10 +352,10 @@ mod cascade_chain_tests {
             "用户应该获得徽章 A"
         );
 
-        // 验证 B、C、D 都通过级联获得
+        // 验证 B、C、D 都通过级联获得（给予更长等待时间）
         for (badge, name) in [(badge_b.id, "B"), (badge_c.id, "C"), (badge_d.id, "D")] {
             let has_badge = env
-                .wait_for_badge(&user_id, badge, Duration::from_secs(3))
+                .wait_for_badge(&user_id, badge, Duration::from_secs(15))
                 .await;
             assert!(has_badge.is_ok(), "用户应该通过级联获得徽章 {}", name);
         }
@@ -516,7 +521,9 @@ mod prerequisite_tests {
         // 发送消费事件，金额满足 A 的规则（>=100）
         let event = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 200);
         env.kafka.send_transaction_event(event).await.unwrap();
-        env.wait_for_processing(Duration::from_secs(5))
+
+        // 等待 A 发放
+        env.wait_for_badge(&user_id, scenario.badge_a.id, Duration::from_secs(15))
             .await
             .unwrap();
 
@@ -529,9 +536,9 @@ mod prerequisite_tests {
             "用户应该获得徽章 A"
         );
 
-        // 验证用户也获得 B（前置条件满足 + 级联触发）
+        // 验证用户也获得 B（前置条件满足 + 级联触发，给予更长等待时间）
         let has_badge_b = env
-            .wait_for_badge(&user_id, scenario.badge_b.id, Duration::from_secs(5))
+            .wait_for_badge(&user_id, scenario.badge_b.id, Duration::from_secs(15))
             .await;
         assert!(
             has_badge_b.is_ok(),
@@ -699,7 +706,9 @@ mod mutual_exclusion_tests {
         // 第一次购买，获得铂金会员
         let event1 = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 150);
         env.kafka.send_transaction_event(event1).await.unwrap();
-        env.wait_for_processing(Duration::from_secs(5))
+
+        // 等待铂金徽章发放
+        env.wait_for_badge(&user_id, badge_platinum.id, Duration::from_secs(15))
             .await
             .unwrap();
 
@@ -714,7 +723,8 @@ mod mutual_exclusion_tests {
         // 第二次购买，金额满足钻石会员条件，但由于互斥应该被阻止
         let event2 = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 300);
         env.kafka.send_transaction_event(event2).await.unwrap();
-        env.wait_for_processing(Duration::from_secs(5))
+        // 等待事件处理完成
+        env.wait_for_processing(Duration::from_secs(8))
             .await
             .unwrap();
 

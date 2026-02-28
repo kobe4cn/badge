@@ -308,7 +308,7 @@ impl CompetitiveRedemptionService {
             } else {
                 // 数量归零，将状态标记为已兑换
                 sqlx::query(
-                    r#"UPDATE user_badges SET quantity = 0, status = 'REDEEMED', updated_at = NOW() WHERE id = $1"#,
+                    r#"UPDATE user_badges SET quantity = 0, status = 'redeemed', updated_at = NOW() WHERE id = $1"#,
                 )
                 .bind(user_badge.id)
                 .execute(&mut *tx)
