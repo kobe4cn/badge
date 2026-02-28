@@ -154,6 +154,16 @@ impl TestEnvironment {
         // 3. 创建辅助工具
         tracing::debug!("创建辅助工具...");
         let api = ApiClient::new(&config.admin_service_url);
+
+        // 4. 登录获取 JWT token，所有 admin API 均需认证
+        let admin_user = std::env::var("E2E_ADMIN_USER")
+            .unwrap_or_else(|_| "admin".into());
+        let admin_pass = std::env::var("E2E_ADMIN_PASS")
+            .unwrap_or_else(|_| "admin123".into());
+        tracing::debug!("使用 admin 用户登录...");
+        api.login(&admin_user, &admin_pass).await?;
+        tracing::info!("Admin 登录成功");
+
         let kafka = KafkaHelper::new(&config.kafka_brokers).await?;
         let db = DbVerifier::new(db_pool.clone());
         let cleanup = TestCleanup::new(db_pool.clone());

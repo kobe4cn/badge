@@ -63,8 +63,8 @@ test.describe('API 集成测试: 徽章生命周期', () => {
     test.skip(!badgeId, '前置用例未创建徽章');
 
     const res = await api.publishBadge(badgeId);
-    // 发布接口应返回 code=0 表示成功
-    expect(res?.code).toBe(0);
+    // 发布接口应返回 code="SUCCESS" 表示成功
+    expect(res?.code).toBe('SUCCESS');
 
     // 再次查询确认状态
     const badges = await api.getBadges({ keyword: testPrefix });
@@ -78,7 +78,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
     test.skip(!badgeId, '前置用例未创建徽章');
 
     const res = await api.offlineBadge(badgeId);
-    expect(res?.code).toBe(0);
+    expect(res?.code).toBe('SUCCESS');
 
     const badges = await api.getBadges({ keyword: testPrefix });
     const target = (badges?.data?.items || []).find((b: any) => b.id === badgeId);
@@ -91,7 +91,7 @@ test.describe('API 集成测试: 徽章生命周期', () => {
     test.skip(!badgeId, '前置用例未创建徽章');
 
     const res = await api.archiveBadge(badgeId);
-    expect(res?.code).toBe(0);
+    expect(res?.code).toBe('SUCCESS');
   });
 
   test('删除草稿徽章', async () => {
@@ -188,7 +188,7 @@ test.describe('API 集成测试: 规则管理', () => {
     test.skip(!ruleId, '前置用例未创建规则');
 
     const res = await api.publishRule(ruleId);
-    expect(res?.code).toBe(0);
+    expect(res?.code).toBe('SUCCESS');
 
     // 验证规则列表中状态为已启用
     const rules = await api.getRules({ keyword: testPrefix });
@@ -202,7 +202,7 @@ test.describe('API 集成测试: 规则管理', () => {
     test.skip(!ruleId, '前置用例未创建规则');
 
     const res = await api.disableRule(ruleId);
-    expect(res?.code).toBe(0);
+    expect(res?.code).toBe('SUCCESS');
 
     const rules = await api.getRules({ keyword: testPrefix });
     const target = (rules?.data?.items || []).find((r: any) => r.id === ruleId);
@@ -263,7 +263,7 @@ test.describe('API 集成测试: 发放管理', () => {
     test.skip(!badgeId, '前置数据未就绪');
 
     const grant = await api.grantBadgeManual('e2e_test_user_001', badgeId, 'E2E测试手动发放');
-    expect(grant?.code).toBe(0);
+    expect(grant?.code).toBe('SUCCESS');
   });
 
   test('发放日志查询 - GET /grants/logs', async () => {
@@ -478,7 +478,7 @@ test.describe('API 集成测试: 权益管理', () => {
     test.skip(!benefitId || !badgeId, '前置数据未就绪');
 
     const res = await api.linkBadgeToBenefit(benefitId, badgeId);
-    expect(res?.code).toBe(0);
+    expect(res?.code).toBe('SUCCESS');
   });
 });
 
@@ -748,7 +748,7 @@ test.describe('API 集成测试: 全链路', () => {
 
     // 4. 发布徽章
     const publishRes = await api.publishBadge(badgeId);
-    expect(publishRes?.code).toBe(0);
+    expect(publishRes?.code).toBe('SUCCESS');
 
     // 5. 创建规则
     const ruleRes = await api.createRule({
@@ -766,12 +766,12 @@ test.describe('API 集成测试: 全链路', () => {
 
     // 6. 发布规则
     const publishRuleRes = await api.publishRule(ruleId);
-    expect(publishRuleRes?.code).toBe(0);
+    expect(publishRuleRes?.code).toBe('SUCCESS');
 
     // 7. 手动发放
     const targetUser = `e2e_fullchain_${Date.now()}`;
     const grantRes = await api.grantBadgeManual(targetUser, badgeId, '全链路测试发放');
-    expect(grantRes?.code).toBe(0);
+    expect(grantRes?.code).toBe('SUCCESS');
 
     // 8. 查询用户徽章
     const userBadges = await api.getUserBadges(targetUser);
@@ -809,7 +809,7 @@ test.describe('API 集成测试: 全链路', () => {
     // 3. 关联权益与徽章
     if (benefitId && badgeId) {
       const linkRes = await api.linkBadgeToBenefit(benefitId, badgeId);
-      expect(linkRes?.code).toBe(0);
+      expect(linkRes?.code).toBe('SUCCESS');
     }
 
     // 4. 查询权益列表确认关联存在

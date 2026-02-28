@@ -86,11 +86,11 @@ test.describe('手动兑换测试: 基础流程', () => {
 
     // 1. 先发放徽章给用户
     const grantRes = await api.grantBadgeManual(userId, badgeId, '兑换测试发放徽章');
-    expect(grantRes?.code).toBe(0);
+    expect(grantRes?.code).toBe('SUCCESS');
 
     // 2. 执行兑换
     const redeemRes = await api.redeemBadge(userId, redemptionRuleId);
-    expect(redeemRes?.code).toBe(0);
+    expect(redeemRes?.code).toBe('SUCCESS');
 
     // 验证兑换订单返回了订单号
     const orderNo = redeemRes?.data?.orderNo || redeemRes?.data?.order_no || redeemRes?.data?.id;
@@ -301,7 +301,7 @@ test.describe('手动兑换测试: 频率限制', () => {
 
     // 第一次兑换应该成功
     const firstRedeem = await api.redeemBadge(userId, ruleId);
-    expect(firstRedeem?.code).toBe(0);
+    expect(firstRedeem?.code).toBe('SUCCESS');
 
     // 第二次兑换应该失败（超出限制）
     let secondRedeemFailed = false;
@@ -448,7 +448,7 @@ test.describe('手动兑换测试: 多徽章组合', () => {
 
     // 兑换应该成功
     const redeemRes = await api.redeemBadge(userId, ruleId);
-    expect(redeemRes?.code).toBe(0);
+    expect(redeemRes?.code).toBe('SUCCESS');
   });
 
   test('多徽章组合兑换 - 部分满足失败', async () => {
@@ -503,7 +503,7 @@ test.describe('手动兑换测试: 多徽章组合', () => {
 
     // 兑换应该成功
     const redeemRes = await api.redeemBadge(userId, ruleId);
-    expect(redeemRes?.code).toBe(0);
+    expect(redeemRes?.code).toBe('SUCCESS');
   });
 });
 

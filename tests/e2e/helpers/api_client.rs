@@ -5,13 +5,20 @@
 use anyhow::Result;
 use reqwest::{Client, Response};
 use serde::{Serialize, de::DeserializeOwned};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 /// API 客户端
+///
+/// 所有 admin API 请求均需要 JWT 认证。
+/// 调用 `login()` 获取 token 后，后续请求自动携带 Authorization header。
 #[derive(Clone)]
 pub struct ApiClient {
     client: Client,
     base_url: String,
+    /// JWT token，通过 login() 获取后自动附加到每个请求的 Authorization header
+    token: Arc<RwLock<Option<String>>>,
 }
 
 impl ApiClient {
@@ -24,7 +31,39 @@ impl ApiClient {
         Self {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
+            token: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// 登录并缓存 JWT token
+    ///
+    /// 后续所有 API 请求将自动携带此 token 进行认证。
+    /// E2E 测试必须在发起业务请求前调用此方法。
+    pub async fn login(&self, username: &str, password: &str) -> Result<()> {
+        let resp = self
+            .client
+            .post(self.url("/api/admin/auth/login"))
+            .json(&serde_json::json!({
+                "username": username,
+                "password": password
+            }))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let error_text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("登录失败 {}: {}", status, error_text));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        let token = body["data"]["token"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("登录响应中缺少 token 字段"))?
+            .to_string();
+
+        *self.token.write().await = Some(token);
+        Ok(())
     }
 
     // ========== 分类 API ==========
@@ -233,11 +272,10 @@ impl ApiClient {
 
     /// 刷新依赖缓存
     pub async fn refresh_dependency_cache(&self) -> Result<()> {
-        let resp = self
+        let builder = self
             .client
-            .post(self.url("/api/admin/cache/dependencies/refresh"))
-            .send()
-            .await?;
+            .post(self.url("/api/admin/cache/dependencies/refresh"));
+        let resp = self.with_auth(builder).await.send().await?;
         if resp.status().is_success() {
             Ok(())
         } else {
@@ -250,11 +288,10 @@ impl ApiClient {
     /// 在创建 auto_redeem=true 的兑换规则后调用此方法，
     /// 使规则立即生效，无需等待缓存过期
     pub async fn refresh_auto_benefit_cache(&self) -> Result<()> {
-        let resp = self
+        let builder = self
             .client
-            .post(self.url("/api/admin/cache/auto-benefit/refresh"))
-            .send()
-            .await?;
+            .post(self.url("/api/admin/cache/auto-benefit/refresh"));
+        let resp = self.with_auth(builder).await.send().await?;
         if resp.status().is_success() {
             Ok(())
         } else {
@@ -264,40 +301,57 @@ impl ApiClient {
 
     // ========== 内部方法 ==========
 
+    /// 为请求构建器附加 Bearer 认证头（如果已登录）
+    async fn with_auth(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let token_guard = self.token.read().await;
+        if let Some(ref token) = *token_guard {
+            builder.bearer_auth(token)
+        } else {
+            builder
+        }
+    }
+
     async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let resp = self.client.get(self.url(path)).send().await?;
+        let builder = self.client.get(self.url(path));
+        let resp = self.with_auth(builder).await.send().await?;
         self.handle_response(resp).await
     }
 
     /// 获取分页数据，返回列表中的 items
     async fn get_paged<T: DeserializeOwned>(&self, path: &str) -> Result<Vec<T>> {
-        let resp = self.client.get(self.url(path)).send().await?;
+        let builder = self.client.get(self.url(path));
+        let resp = self.with_auth(builder).await.send().await?;
         self.handle_paged_response(resp).await
     }
 
     async fn post<T: DeserializeOwned, R: Serialize>(&self, path: &str, body: &R) -> Result<T> {
-        let resp = self.client.post(self.url(path)).json(body).send().await?;
+        let builder = self.client.post(self.url(path)).json(body);
+        let resp = self.with_auth(builder).await.send().await?;
         self.handle_response(resp).await
     }
 
     async fn post_empty<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let resp = self.client.post(self.url(path)).send().await?;
+        let builder = self.client.post(self.url(path));
+        let resp = self.with_auth(builder).await.send().await?;
         self.handle_response(resp).await
     }
 
     async fn put<T: DeserializeOwned, R: Serialize>(&self, path: &str, body: &R) -> Result<T> {
-        let resp = self.client.put(self.url(path)).json(body).send().await?;
+        let builder = self.client.put(self.url(path)).json(body);
+        let resp = self.with_auth(builder).await.send().await?;
         self.handle_response(resp).await
     }
 
     #[allow(dead_code)] // API 完整性预留，PATCH 方法可能在将来的端点中使用
     async fn patch<T: DeserializeOwned, R: Serialize>(&self, path: &str, body: &R) -> Result<T> {
-        let resp = self.client.patch(self.url(path)).json(body).send().await?;
+        let builder = self.client.patch(self.url(path)).json(body);
+        let resp = self.with_auth(builder).await.send().await?;
         self.handle_response(resp).await
     }
 
     async fn delete(&self, path: &str) -> Result<()> {
-        let resp = self.client.delete(self.url(path)).send().await?;
+        let builder = self.client.delete(self.url(path));
+        let resp = self.with_auth(builder).await.send().await?;
         if resp.status().is_success() {
             Ok(())
         } else {

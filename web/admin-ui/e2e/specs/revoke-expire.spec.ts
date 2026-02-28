@@ -50,7 +50,7 @@ test.describe('撤销测试: 手动撤销', () => {
 
     // 1. 先发放徽章
     const grantRes = await api.grantBadgeManual(userId, badgeId, 'E2E撤销测试发放');
-    expect(grantRes?.code).toBe(0);
+    expect(grantRes?.code).toBe('SUCCESS');
 
     // 2. 查询用户徽章确认发放成功
     const userBadges = await api.getUserBadges(userId);
@@ -76,7 +76,7 @@ test.describe('撤销测试: 手动撤销', () => {
 
     expect(revokeRes.status()).toBe(200);
     const revokeData = await revokeRes.json();
-    expect(revokeData?.code).toBe(0);
+    expect(revokeData?.code).toBe('SUCCESS');
 
     // 4. 验证撤销后用户徽章状态
     const userBadgesAfter = await api.getUserBadges(userId);
@@ -336,7 +336,7 @@ test.describe('撤销测试: 过期处理', () => {
 
     expect(response.status()).toBe(200);
     const data = await response.json();
-    expect(data?.code).toBe(0);
+    expect(data?.code).toBe('SUCCESS');
 
     // 验证用户徽章包含过期时间
     const userBadges = await api.getUserBadges(userId);

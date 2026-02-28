@@ -64,7 +64,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
 
     // 4. 发布徽章
     const publishRes = await api.publishBadge(badgeId);
-    expect(publishRes?.code).toBe(0);
+    expect(publishRes?.code).toBe('SUCCESS');
 
     // 验证状态变为已发布
     let badges = await api.getBadges({ keyword: testPrefix });
@@ -74,7 +74,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
     // 5. 发放徽章给用户
     const userId = `e2e_lifecycle_${Date.now()}`;
     const grantRes = await api.grantBadgeManual(userId, badgeId, '完整流程测试发放');
-    expect(grantRes?.code).toBe(0);
+    expect(grantRes?.code).toBe('SUCCESS');
 
     // 验证用户拥有徽章
     const userBadges = await api.getUserBadges(userId);
@@ -101,7 +101,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
 
     // 7. 下架徽章
     const offlineRes = await api.offlineBadge(badgeId);
-    expect(offlineRes?.code).toBe(0);
+    expect(offlineRes?.code).toBe('SUCCESS');
 
     // 验证状态变为下架
     badges = await api.getBadges({ keyword: testPrefix });
@@ -110,7 +110,7 @@ test.describe('完整流程测试: 徽章生命周期', () => {
 
     // 8. 归档徽章
     const archiveRes = await api.archiveBadge(badgeId);
-    expect(archiveRes?.code).toBe(0);
+    expect(archiveRes?.code).toBe('SUCCESS');
   });
 });
 
@@ -176,7 +176,7 @@ test.describe('完整流程测试: 规则触发', () => {
 
     // 2. 发布规则
     const publishRes = await api.publishRule(ruleId);
-    expect(publishRes?.code).toBe(0);
+    expect(publishRes?.code).toBe('SUCCESS');
 
     // 验证规则已启用
     let rules = await api.getRules({ keyword: testPrefix });
@@ -200,7 +200,7 @@ test.describe('完整流程测试: 规则触发', () => {
 
     // 4. 禁用规则
     const disableRes = await api.disableRule(ruleId);
-    expect(disableRes?.code).toBe(0);
+    expect(disableRes?.code).toBe('SUCCESS');
 
     // 验证规则已禁用
     rules = await api.getRules({ keyword: testPrefix });
@@ -284,11 +284,11 @@ test.describe('完整流程测试: 徽章兑换', () => {
     // 2. 发放徽章给用户
     const userId = `e2e_redeem_flow_${Date.now()}`;
     const grantRes = await api.grantBadgeManual(userId, badgeId, '兑换流程测试发放');
-    expect(grantRes?.code).toBe(0);
+    expect(grantRes?.code).toBe('SUCCESS');
 
     // 3. 执行兑换
     const redeemRes = await api.redeemBadge(userId, redemptionRuleId);
-    expect(redeemRes?.code).toBe(0);
+    expect(redeemRes?.code).toBe('SUCCESS');
 
     const orderNo = redeemRes?.data?.orderNo || redeemRes?.data?.id;
     expect(orderNo).toBeDefined();
