@@ -143,10 +143,22 @@ jobs:
 
       - name: Start services
         run: |
-          # 启动后台服务，使用已编译的二进制文件
-          ./target/debug/badge-admin > /tmp/badge-admin.log 2>&1 &
+          # gRPC 服务先启动——admin-service 启动时会尝试连接 gRPC 端口，
+          # 如果 badge-management / rule-engine 还没就绪，client 将为 None，
+          # 导致缓存刷新、级联评估等 gRPC 调用不可用。
           ./target/debug/badge-management > /tmp/badge-management.log 2>&1 &
           ./target/debug/rule-engine > /tmp/rule-engine.log 2>&1 &
+
+          # 等待 gRPC 服务端口就绪后再启动依赖它们的服务
+          for i in $(seq 1 30); do
+            if nc -z localhost 50052 2>/dev/null && nc -z localhost 50051 2>/dev/null; then
+              echo "gRPC 服务端口就绪 (耗时 $((i))s)"
+              break
+            fi
+            sleep 1
+          done
+
+          ./target/debug/badge-admin > /tmp/badge-admin.log 2>&1 &
           ./target/debug/event-engagement > /tmp/event-engagement.log 2>&1 &
           ./target/debug/event-transaction > /tmp/event-transaction.log 2>&1 &
           ./target/debug/notification-worker > /tmp/notification-worker.log 2>&1 &

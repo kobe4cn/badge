@@ -233,15 +233,11 @@ mod checkin_event_tests {
         // 连续签到 7 天，达到阈值应触发徽章发放
         let event7 = EngagementEvent::checkin_with_days(&user_id, 7);
         env.kafka.send_engagement_event(event7).await.unwrap();
-        env.wait_for_processing(Duration::from_secs(3))
+
+        // 使用轮询等待代替盲等，engagement 服务的事件处理链路较长
+        env.wait_for_badge(&user_id, scenario.badge_7days.id, Duration::from_secs(15))
             .await
             .unwrap();
-        assert!(
-            env.db
-                .user_has_badge(&user_id, scenario.badge_7days.id)
-                .await
-                .unwrap()
-        );
 
         env.cleanup().await.unwrap();
     }

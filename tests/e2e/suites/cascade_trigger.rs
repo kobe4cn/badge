@@ -423,7 +423,8 @@ mod prerequisite_tests {
             .unwrap();
 
         // 为 B 创建一个基于消费金额的规则（不依赖级联事件）
-        env.api
+        let rule_b = env
+            .api
             .create_rule(&CreateRuleRequest {
                 badge_id: scenario.badge_b.id,
                 rule_code: format!("test_prereq_b_{}", scenario.badge_b.id),
@@ -442,6 +443,9 @@ mod prerequisite_tests {
             })
             .await
             .unwrap();
+
+        // 发布规则使其生效，确保测试验证的是前置条件阻止发放而非规则未启用
+        env.api.publish_rule(rule_b.id).await.unwrap();
 
         env.api.refresh_dependency_cache().await.unwrap();
         env.kafka.send_rule_reload().await.unwrap();
