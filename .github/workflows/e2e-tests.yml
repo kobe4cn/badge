@@ -117,6 +117,11 @@ jobs:
       - name: Run database migrations
         run: sqlx database create && sqlx migrate run
 
+      - name: Reset test user password change requirement
+        run: |
+          # CI 环境的种子用户不需要强制改密，直接清除标记以便 E2E 测试正常执行
+          psql "$DATABASE_URL" -c "UPDATE admin_user SET must_change_password = false WHERE username IN ('admin', 'operator', 'viewer');"
+
       - name: Build all services
         run: |
           # 先完整编译所有服务，避免并发 cargo run 时的锁争用
@@ -351,6 +356,11 @@ jobs:
       - name: Run database migrations
         run: sqlx database create && sqlx migrate run
 
+      - name: Reset test user password change requirement
+        run: |
+          # CI 环境的种子用户不需要强制改密，直接清除标记以便 E2E 测试正常执行
+          psql "$DATABASE_URL" -c "UPDATE admin_user SET must_change_password = false WHERE username IN ('admin', 'operator', 'viewer');"
+
       - name: Build backend
         run: cargo build -p badge-admin-service --bin badge-admin
 
@@ -522,6 +532,11 @@ jobs:
 
       - name: Run database migrations
         run: sqlx database create && sqlx migrate run
+
+      - name: Reset test user password change requirement
+        run: |
+          # CI 环境的种子用户不需要强制改密，直接清除标记以便 E2E 测试正常执行
+          psql "$DATABASE_URL" -c "UPDATE admin_user SET must_change_password = false WHERE username IN ('admin', 'operator', 'viewer');"
 
       - name: Build services
         run: |

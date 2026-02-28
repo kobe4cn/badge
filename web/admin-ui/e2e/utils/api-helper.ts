@@ -85,6 +85,19 @@ export class ApiHelper {
     const data = await this.safeJson(response, 'login');
     // 优先从标准嵌套格式提取，回退到扁平格式
     this.token = data.data?.token || data.token;
+
+    // 种子用户首次登录需要修改默认密码，自动完成密码变更以便后续测试流程继续
+    const mustChange = data.data?.mustChangePassword || data.mustChangePassword;
+    if (mustChange && this.token) {
+      const newPassword = `${password}_changed`;
+      await this.request.post(`${this.baseUrl}/api/admin/auth/change-password`, {
+        headers: { ...this.getHeaders(), 'Authorization': `Bearer ${this.token}` },
+        data: { oldPassword: password, newPassword },
+      });
+      // 用新密码重新登录以获取不含 must_change_password 标记的 token
+      return this.login(username, newPassword);
+    }
+
     return this.token || '';
   }
 
