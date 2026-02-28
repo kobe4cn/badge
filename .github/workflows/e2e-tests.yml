@@ -37,6 +37,8 @@ env:
   BADGE_DATABASE_URL: postgres://badge:badge@localhost:5432/badge_test
   BADGE_REDIS_URL: redis://localhost:6379
   BADGE_KAFKA_BROKERS: localhost:9092
+  # CI 环境禁用限流，避免 E2E 测试中的密集 API 调用被拦截
+  BADGE_RATE_LIMIT_DISABLED: "true"
   # 旧名称保留用于兼容
   REDIS_URL: redis://localhost:6379
   KAFKA_BROKERS: localhost:9092
@@ -220,16 +222,26 @@ jobs:
           # 确保输出目录存在
           mkdir -p target/test-results
 
-          # 运行测试并转换为 JUnit 格式，保留退出码以正确反映测试结果
-          # 使用 CARGO_TERM_COLOR=never 保证输出干净，不依赖 nightly -Z 参数
+          # cargo2junit 需要 JSON 格式的测试输出（-Z unstable-options --format json）
+          # 该标志仅限 nightly 编译器使用，RUSTC_BOOTSTRAP=1 可在 stable 上解锁此能力
           set +e
-          cargo test --test e2e -- --ignored --test-threads=1 2>&1 | cargo2junit > target/test-results/backend-e2e.xml
-          TEST_EXIT_CODE=$?
+          RUSTC_BOOTSTRAP=1 cargo test --test e2e -- --ignored --test-threads=1 \
+            -Z unstable-options --format json --report-time \
+            2> /tmp/backend-e2e-stderr.log \
+            | cargo2junit > target/test-results/backend-e2e.xml
+          # PIPESTATUS[0] 捕获管道中 cargo test 的真实退出码，而非 cargo2junit 的
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
-          # 如果没有生成有效的 XML 文件，创建一个空的测试报告
-          if [ ! -s target/test-results/backend-e2e.xml ]; then
-            echo '<?xml version="1.0" encoding="UTF-8"?><testsuites><testsuite name="backend-e2e" tests="0" failures="0" errors="0" skipped="0"></testsuite></testsuites>' > target/test-results/backend-e2e.xml
+          # 输出 stderr 日志便于调试
+          if [ -s /tmp/backend-e2e-stderr.log ]; then
+            echo "=== cargo test stderr ==="
+            cat /tmp/backend-e2e-stderr.log
+          fi
+
+          # 如果 cargo2junit 未能生成有效 XML（例如测试编译失败、零测试匹配），生成空报告
+          if [ ! -s target/test-results/backend-e2e.xml ] || ! grep -q '<testsuite' target/test-results/backend-e2e.xml; then
+            echo '<?xml version="1.0" encoding="UTF-8"?><testsuites><testsuite name="backend-e2e" tests="0" failures="0" errors="1" skipped="0"><testcase name="e2e-setup" classname="backend-e2e"><error message="E2E 测试未能产生有效结果，请检查 stderr 日志" /></testcase></testsuite></testsuites>' > target/test-results/backend-e2e.xml
           fi
 
           exit $TEST_EXIT_CODE

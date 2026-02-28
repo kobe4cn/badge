@@ -83,6 +83,11 @@ pub async fn rate_limit_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    // CI/测试环境可通过环境变量禁用限流，避免密集 API 调用被拦截
+    if std::env::var("BADGE_RATE_LIMIT_DISABLED").is_ok() {
+        return next.run(request).await;
+    }
+
     let path = request.uri().path().to_string();
 
     // 健康检查和监控端点跳过限流
