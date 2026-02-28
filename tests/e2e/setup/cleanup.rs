@@ -38,10 +38,11 @@ impl TestCleanup {
             .await?;
 
         // 3. 用户徽章相关（引用 badges）
-        self.clean_user_badge_logs().await?;
-        self.clean_user_badges_by_badge_ids(&test_badge_ids).await?;
+        // badge_ledger 有 FK 引用 user_badges，必须先清理 ledger
         self.clean_badge_ledger().await?;
+        self.clean_user_badge_logs().await?;
         self.clean_cascade_logs().await?;
+        self.clean_user_badges_by_badge_ids(&test_badge_ids).await?;
 
         // 4. 徽章规则和依赖（引用 badges）
         self.clean_badge_rules_by_badge_ids(&test_badge_ids).await?;
