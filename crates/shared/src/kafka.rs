@@ -211,7 +211,8 @@ impl KafkaConsumer {
             // 高负载下单条消息可能耗时较长，需放宽 poll 间隔避免被踢出消费组
             .set("max.poll.interval.ms", &config.max_poll_interval_ms.to_string())
             .set("session.timeout.ms", &config.session_timeout_ms.to_string())
-            .set("heartbeat.interval.ms", &config.heartbeat_interval_ms.to_string());
+            .set("heartbeat.interval.ms", &config.heartbeat_interval_ms.to_string())
+            .set("metadata.max.age.ms", &config.metadata_max_age_ms.to_string());
 
         apply_security_config(&mut client_config, &config.security);
 
@@ -224,6 +225,7 @@ impl KafkaConsumer {
             group_id,
             max_poll_interval_ms = config.max_poll_interval_ms,
             session_timeout_ms = config.session_timeout_ms,
+            metadata_max_age_ms = config.metadata_max_age_ms,
             security_protocol = %config.security.security_protocol,
             "Kafka 消费者已初始化"
         );

@@ -131,16 +131,46 @@ jobs:
           # CI 环境的种子用户不需要强制改密，直接清除标记以便 E2E 测试正常执行
           psql "$DATABASE_URL" -c "UPDATE admin_user SET must_change_password = false WHERE username IN ('admin', 'operator', 'viewer');"
 
+      - name: Wait for Kafka broker ready
+        run: |
+          # 等待 Kafka broker 完全就绪（能响应元数据请求）
+          echo "等待 Kafka broker 就绪..."
+          for i in $(seq 1 30); do
+            if echo "dump" | nc -w 2 localhost 9092 >/dev/null 2>&1 || \
+               (echo "" | timeout 5 kafkacat -b localhost:9092 -L 2>/dev/null); then
+              echo "Kafka broker 已就绪 (尝试 $i)"
+              break
+            fi
+            echo "等待中... ($i/30)"
+            sleep 2
+          done
+
       - name: Pre-create Kafka topics
         run: |
           # 在服务启动前预创建所有业务 topic，消除 auto.create.topics 的竞态延迟。
-          # kcat -P 发一条空消息即可触发 topic 创建，消费者订阅时即可拿到分区。
-          sudo apt-get install -y kafkacat 2>/dev/null || true
-          for topic in badge.transaction.events badge.engagement.events badge.rule.reload badge.notifications badge.dlq; do
-            echo "" | kcat -b localhost:9092 -t "$topic" -P 2>/dev/null || \
-            echo "" | kafkacat -b localhost:9092 -t "$topic" -P 2>/dev/null || \
-            echo "::warning::无法预创建 topic $topic（kcat 不可用，依赖 auto.create.topics）"
-          done
+          # 使用 kafkacat/kcat 发一条空消息触发 topic 自动创建。
+          sudo apt-get install -y kafkacat || sudo apt-get install -y kcat || true
+
+          KCAT_CMD=""
+          if command -v kcat &>/dev/null; then KCAT_CMD="kcat"
+          elif command -v kafkacat &>/dev/null; then KCAT_CMD="kafkacat"
+          fi
+
+          if [ -z "$KCAT_CMD" ]; then
+            echo "::warning::kcat/kafkacat 均不可用，topic 将由 auto.create.topics 按需创建"
+          else
+            echo "使用 $KCAT_CMD 预创建 topics"
+            for topic in badge.transaction.events badge.engagement.events badge.rule.reload badge.notifications badge.dlq; do
+              for attempt in 1 2 3; do
+                if echo "" | $KCAT_CMD -b localhost:9092 -t "$topic" -P 2>/dev/null; then
+                  echo "✓ topic $topic 已创建"
+                  break
+                fi
+                echo "重试 topic $topic ($attempt/3)..."
+                sleep 2
+              done
+            done
+          fi
           echo "Kafka topics 预创建完成"
 
       - name: Build all services
