@@ -18,7 +18,7 @@ mod warmup_tests {
     /// 预热交易事件管道（event-transaction-service）
     ///
     /// 创建最简规则，发送购买事件并验证徽章发放。
-    /// 使用较长超时（30s）容纳首次分区分配和规则加载的冷启动开销。
+    /// 使用多轮重试和详细诊断，确保在 CI 环境下可靠通过。
     #[tokio::test]
     #[ignore = "需要运行服务"]
     async fn test_0_warmup_transaction_pipeline() {
@@ -72,43 +72,89 @@ mod warmup_tests {
             .await
             .unwrap();
 
-        // 触发规则热加载并给予充足时间
+        // 诊断：验证规则在 DB 中存在且状态正确
+        let db_rule = env.db.get_rule(rule.id).await.unwrap();
+        assert!(
+            db_rule.is_some(),
+            "规则 {} 应存在于数据库",
+            rule.id
+        );
+        let db_rule = db_rule.unwrap();
+        assert!(db_rule.enabled, "规则 {} 应为启用状态", rule.id);
+
+        // 同时向两个服务组发送规则刷新，确保 transaction 服务收到
+        env.kafka
+            .send_rule_reload_for_group("transaction")
+            .await
+            .unwrap();
         env.kafka.send_rule_reload().await.unwrap();
         env.wait_for_rule_reload().await.unwrap();
 
-        // 发送购买事件
+        // 多轮尝试：CI 环境下消费者可能在首次事件时仍未就绪
         let user_id = UserGenerator::user_id();
-        let event = TransactionEvent::purchase(&user_id, &OrderGenerator::order_id(), 100);
-        env.kafka.send_transaction_event(event).await.unwrap();
+        let mut granted = false;
 
-        // 首次管道调用使用加倍超时（30s），容纳冷启动延迟
-        let result = env
-            .wait_for_badge(&user_id, badge.id, Duration::from_secs(30))
-            .await;
+        for attempt in 0..3 {
+            let event = TransactionEvent::purchase(
+                &user_id,
+                &OrderGenerator::order_id(),
+                100 + attempt * 10,
+            );
+            env.kafka.send_transaction_event(event).await.unwrap();
 
-        match &result {
-            Ok(()) => {
-                tracing::info!("交易管道预热成功：徽章 {} 已发放给用户 {}", badge.id, user_id);
-            }
-            Err(e) => {
-                // 输出诊断信息帮助排查
-                let rule_count = env
-                    .db
-                    .count_enabled_rules("purchase")
-                    .await
-                    .unwrap_or(-1);
-                tracing::error!(
-                    "交易管道预热失败：{}\n  badge_id={}, user_id={}, enabled_purchase_rules={}",
-                    e,
-                    badge.id,
-                    user_id,
-                    rule_count,
-                );
+            let timeout = if attempt == 0 {
+                Duration::from_secs(20)
+            } else {
+                Duration::from_secs(15)
+            };
+
+            match env.wait_for_badge(&user_id, badge.id, timeout).await {
+                Ok(()) => {
+                    tracing::info!(
+                        attempt,
+                        "交易管道预热成功：徽章 {} 已发放给用户 {}",
+                        badge.id,
+                        user_id
+                    );
+                    granted = true;
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        attempt,
+                        badge_id = badge.id,
+                        user_id = %user_id,
+                        error = %e,
+                        "交易管道预热尝试 {}/3 失败，将重试",
+                        attempt + 1,
+                    );
+                    // 重试前再次触发规则刷新
+                    let _ = env.kafka.send_rule_reload_for_group("transaction").await;
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
             }
         }
 
+        if !granted {
+            // 最终失败时输出详细诊断
+            let rule_count = env
+                .db
+                .count_enabled_rules("purchase")
+                .await
+                .unwrap_or(-1);
+            let badge_record = env.db.get_badge(badge.id).await.unwrap();
+            tracing::error!(
+                badge_id = badge.id,
+                user_id = %user_id,
+                enabled_purchase_rules = rule_count,
+                badge_exists = badge_record.is_some(),
+                badge_status = badge_record.as_ref().map(|b| b.status.as_str()).unwrap_or("N/A"),
+                "交易管道预热最终失败"
+            );
+        }
+
         env.cleanup().await.unwrap();
-        result.unwrap();
+        assert!(granted, "交易管道预热失败：3 次尝试均未能在超时内发放徽章");
     }
 
     /// 预热行为事件管道（event-engagement-service）
@@ -166,38 +212,71 @@ mod warmup_tests {
             .await
             .unwrap();
 
+        // 诊断：验证规则在 DB 中存在
+        let db_rule = env.db.get_rule(rule.id).await.unwrap();
+        assert!(db_rule.is_some(), "规则应存在于数据库");
+        assert!(db_rule.unwrap().enabled, "规则应为启用状态");
+
+        env.kafka
+            .send_rule_reload_for_group("engagement")
+            .await
+            .unwrap();
         env.kafka.send_rule_reload().await.unwrap();
         env.wait_for_rule_reload().await.unwrap();
 
         let user_id = UserGenerator::user_id();
-        let event = EngagementEvent::checkin(&user_id);
-        env.kafka.send_engagement_event(event).await.unwrap();
+        let mut granted = false;
 
-        let result = env
-            .wait_for_badge(&user_id, badge.id, Duration::from_secs(30))
-            .await;
+        for attempt in 0..3 {
+            let event = EngagementEvent::checkin(&user_id);
+            env.kafka.send_engagement_event(event).await.unwrap();
 
-        match &result {
-            Ok(()) => {
-                tracing::info!("Engagement 管道预热成功：徽章 {} 已发放", badge.id);
-            }
-            Err(e) => {
-                let rule_count = env
-                    .db
-                    .count_enabled_rules("checkin")
-                    .await
-                    .unwrap_or(-1);
-                tracing::error!(
-                    "Engagement 管道预热失败：{}\n  badge_id={}, user_id={}, enabled_checkin_rules={}",
-                    e,
-                    badge.id,
-                    user_id,
-                    rule_count,
-                );
+            let timeout = if attempt == 0 {
+                Duration::from_secs(20)
+            } else {
+                Duration::from_secs(15)
+            };
+
+            match env.wait_for_badge(&user_id, badge.id, timeout).await {
+                Ok(()) => {
+                    tracing::info!(
+                        attempt,
+                        "Engagement 管道预热成功：徽章 {} 已发放",
+                        badge.id
+                    );
+                    granted = true;
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        attempt,
+                        badge_id = badge.id,
+                        user_id = %user_id,
+                        error = %e,
+                        "Engagement 管道预热尝试 {}/3 失败，将重试",
+                        attempt + 1,
+                    );
+                    let _ = env.kafka.send_rule_reload_for_group("engagement").await;
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
             }
         }
 
+        if !granted {
+            let rule_count = env
+                .db
+                .count_enabled_rules("checkin")
+                .await
+                .unwrap_or(-1);
+            tracing::error!(
+                badge_id = badge.id,
+                user_id = %user_id,
+                enabled_checkin_rules = rule_count,
+                "Engagement 管道预热最终失败"
+            );
+        }
+
         env.cleanup().await.unwrap();
-        result.unwrap();
+        assert!(granted, "Engagement 管道预热失败：3 次尝试均未能在超时内发放徽章");
     }
 }

@@ -43,7 +43,9 @@ impl TransactionConsumer {
         producer: KafkaProducer,
         rule_loader: Arc<RuleLoader>,
     ) -> Result<Self, TransactionError> {
-        let consumer = KafkaConsumer::new(&config.kafka, None)?;
+        // 使用独立消费组，避免与 event-engagement-service 共享组导致
+        // badge.rule.reload 分区只被一端接收、rebalance 期间消息丢失
+        let consumer = KafkaConsumer::new(&config.kafka, Some("transaction"))?;
         Ok(Self {
             consumer,
             processor,

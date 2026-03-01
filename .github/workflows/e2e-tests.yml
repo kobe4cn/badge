@@ -328,19 +328,29 @@ jobs:
         if: failure()
         run: |
           echo "============================================================"
-          echo "=== 服务日志输出（用于排查 E2E 测试失败） ==="
+          echo "=== 服务日志摘要（ERROR/WARN，完整日志见 artifacts） ==="
           echo "============================================================"
-          for svc in badge-admin badge-management rule-engine event-transaction event-engagement notification-worker; do
+          for svc in event-transaction event-engagement badge-management rule-engine badge-admin notification-worker; do
             log="/tmp/${svc}.log"
             echo ""
             echo "==================== ${svc} ===================="
             if [ -f "$log" ]; then
-              # 输出最后 200 行，避免日志过长
-              tail -200 "$log"
+              # 只显示 ERROR 和 WARN 级别日志（避免超出 step 输出限制）
+              grep -i '"level":"ERROR"\|"level":"WARN"\|ERROR\|WARN' "$log" | tail -50 || echo "（无 ERROR/WARN 日志）"
+              echo "--- 最后 20 行 ---"
+              tail -20 "$log"
             else
               echo "（日志文件不存在）"
             fi
           done
+
+      - name: Upload service logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: service-logs
+          path: /tmp/*.log
+          retention-days: 7
 
       - name: Backend test report
         uses: dorny/test-reporter@v1
