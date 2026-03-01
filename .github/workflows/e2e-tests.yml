@@ -162,7 +162,8 @@ jobs:
             echo "使用 $KCAT_CMD 预创建 topics"
             for topic in badge.transaction.events badge.engagement.events badge.rule.reload badge.notifications badge.dlq; do
               for attempt in 1 2 3; do
-                if echo "" | $KCAT_CMD -b localhost:9092 -t "$topic" -P 2>/dev/null; then
+                # 发送非空消息以确保触发 auto.create.topics（空消息可能被忽略）
+                if echo "init" | $KCAT_CMD -b localhost:9092 -t "$topic" -P 2>/dev/null; then
                   echo "✓ topic $topic 已创建"
                   break
                 fi
@@ -170,6 +171,9 @@ jobs:
                 sleep 2
               done
             done
+            # 验证 topics 实际存在
+            echo "验证 topics..."
+            $KCAT_CMD -b localhost:9092 -L 2>/dev/null | grep "topic " || echo "::warning::无法列出 topics"
           fi
           echo "Kafka topics 预创建完成"
 

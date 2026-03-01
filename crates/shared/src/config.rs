@@ -119,10 +119,16 @@ pub struct KafkaConfig {
     /// 心跳间隔（毫秒），建议 ≤ session_timeout_ms 的 1/3。
     #[serde(default = "default_heartbeat_interval_ms")]
     pub heartbeat_interval_ms: u32,
-    /// 元数据刷新间隔（毫秒），影响消费者发现新 topic/分区的速度。
-    /// 默认 900000（15 分钟）；CI 环境需设为较小值（如 5000）以快速发现启动后创建的 topic。
+    /// 元数据缓存最大存活时间（毫秒）。超过此时间后强制刷新全量元数据。
+    /// 默认 900000（15 分钟）；CI 环境设为 5000 以快速发现变更。
     #[serde(default = "default_metadata_max_age_ms")]
     pub metadata_max_age_ms: u32,
+    /// topic 级别元数据定期刷新间隔（毫秒）。
+    /// 当消费者初次发现 topic 不存在后，fast retry 耗尽（默认 10 次）后
+    /// 按此间隔重试发现 topic。默认 300000（5 分钟）会导致严重延迟。
+    /// CI 环境设为 5000 以快速发现新创建的 topic。
+    #[serde(default = "default_topic_metadata_refresh_interval_ms")]
+    pub topic_metadata_refresh_interval_ms: u32,
     #[serde(default)]
     pub topics: KafkaTopicsConfig,
     /// 安全配置（SASL_SSL），开发环境不配置时使用 PLAINTEXT
@@ -142,6 +148,9 @@ fn default_heartbeat_interval_ms() -> u32 {
 fn default_metadata_max_age_ms() -> u32 {
     900_000
 }
+fn default_topic_metadata_refresh_interval_ms() -> u32 {
+    300_000
+}
 
 impl Default for KafkaConfig {
     fn default() -> Self {
@@ -153,6 +162,7 @@ impl Default for KafkaConfig {
             session_timeout_ms: default_session_timeout_ms(),
             heartbeat_interval_ms: default_heartbeat_interval_ms(),
             metadata_max_age_ms: default_metadata_max_age_ms(),
+            topic_metadata_refresh_interval_ms: default_topic_metadata_refresh_interval_ms(),
             topics: KafkaTopicsConfig::default(),
             security: KafkaSecurityConfig::default(),
         }

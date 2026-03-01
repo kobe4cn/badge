@@ -212,7 +212,8 @@ impl KafkaConsumer {
             .set("max.poll.interval.ms", &config.max_poll_interval_ms.to_string())
             .set("session.timeout.ms", &config.session_timeout_ms.to_string())
             .set("heartbeat.interval.ms", &config.heartbeat_interval_ms.to_string())
-            .set("metadata.max.age.ms", &config.metadata_max_age_ms.to_string());
+            .set("metadata.max.age.ms", &config.metadata_max_age_ms.to_string())
+            .set("topic.metadata.refresh.interval.ms", &config.topic_metadata_refresh_interval_ms.to_string());
 
         apply_security_config(&mut client_config, &config.security);
 

@@ -9,9 +9,11 @@ refresh_interval_secs = 3
 # CI 单消费者环境缩短会话超时和心跳间隔，加速消费者组协调
 session_timeout_ms = 10000
 heartbeat_interval_ms = 3000
-# CI 环境 topic 可能在服务启动后才创建，缩短元数据刷新间隔以快速发现新 topic
-# （默认 900000ms = 15 分钟，CI 设为 5 秒避免消费者长时间无法消费）
+# CI 环境 topic 可能在服务启动后才创建，缩短元数据刷新以快速发现新 topic
 metadata_max_age_ms = 5000
+# rdkafka topic 级别元数据刷新间隔（默认 300000ms = 5 分钟）。
+# 当 fast retry（250ms × 10）耗尽后回退到此间隔，导致 5 分钟无法消费事件。
+topic_metadata_refresh_interval_ms = 5000
 
 [observability]
 log_level = "info"
