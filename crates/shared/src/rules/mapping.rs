@@ -1,22 +1,24 @@
 //! 规则到徽章的内存映射
 //!
-//! 使用 DashMap 实现高并发读写，支持按事件类型索引规则。
+//! 使用 ArcSwap 实现原子替换，保证并发读取时不会看到中间状态（空映射）。
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use crossbeam_utils::atomic::AtomicCell;
-use dashmap::DashMap;
 
 use super::models::{BadgeGrant, LoadStatus};
 
 /// 规则到徽章的映射
 ///
 /// 按 event_type 分组存储规则，支持高并发读取。
-/// 使用 DashMap 分段锁，性能优于 RwLock<HashMap>。
+/// 使用 ArcSwap 原子指针交换，避免 clear()+insert() 导致的空读窗口。
 pub struct RuleBadgeMapping {
-    /// event_type -> Vec<BadgeGrant>
-    mappings: DashMap<String, Vec<BadgeGrant>>,
+    /// event_type -> Vec<BadgeGrant>，通过 ArcSwap 实现原子替换
+    mappings: ArcSwap<HashMap<String, Vec<BadgeGrant>>>,
     /// 最后加载时间
     last_loaded_at: AtomicCell<Option<DateTime<Utc>>>,
     /// 规则总数
@@ -26,7 +28,7 @@ pub struct RuleBadgeMapping {
 impl RuleBadgeMapping {
     pub fn new() -> Self {
         Self {
-            mappings: DashMap::new(),
+            mappings: ArcSwap::from_pointee(HashMap::new()),
             last_loaded_at: AtomicCell::new(None),
             rule_count: AtomicUsize::new(0),
         }
@@ -34,20 +36,19 @@ impl RuleBadgeMapping {
 
     /// 根据事件类型获取所有适用规则
     pub fn get_rules_by_event_type(&self, event_type: &str) -> Vec<BadgeGrant> {
-        self.mappings
+        let snapshot = self.mappings.load();
+        snapshot
             .get(event_type)
-            .map(|r| r.value().clone())
+            .cloned()
             .unwrap_or_default()
     }
 
     /// 全量替换规则（刷新时调用）
     ///
-    /// 将新规则按 event_type 分组后替换现有映射。
-    /// 使用全量替换而非增量更新，确保一致性。
+    /// 先构建完整的新映射，再通过 ArcSwap::store 原子替换指针。
+    /// 并发读取者始终看到完整的旧映射或完整的新映射，不会看到空状态。
     pub fn replace_all(&self, rules: Vec<BadgeGrant>) {
-        // 按 event_type 分组
-        let mut grouped: std::collections::HashMap<String, Vec<BadgeGrant>> =
-            std::collections::HashMap::new();
+        let mut grouped: HashMap<String, Vec<BadgeGrant>> = HashMap::new();
 
         for rule in &rules {
             grouped
@@ -56,26 +57,17 @@ impl RuleBadgeMapping {
                 .push(rule.clone());
         }
 
-        // 清空现有映射
-        self.mappings.clear();
+        // 原子替换：读取者不会看到中间状态
+        self.mappings.store(Arc::new(grouped));
 
-        // 插入新规则
-        for (event_type, rules) in grouped {
-            self.mappings.insert(event_type, rules);
-        }
-
-        // 更新统计
         self.rule_count.store(rules.len(), Ordering::SeqCst);
         self.last_loaded_at.store(Some(Utc::now()));
     }
 
     /// 获取加载状态
     pub fn load_status(&self) -> LoadStatus {
-        let event_types: Vec<String> = self
-            .mappings
-            .iter()
-            .map(|entry| entry.key().clone())
-            .collect();
+        let snapshot = self.mappings.load();
+        let event_types: Vec<String> = snapshot.keys().cloned().collect();
 
         LoadStatus {
             loaded: self.last_loaded_at.load().is_some(),
@@ -97,10 +89,8 @@ impl RuleBadgeMapping {
 
     /// 获取所有事件类型
     pub fn event_types(&self) -> Vec<String> {
-        self.mappings
-            .iter()
-            .map(|entry| entry.key().clone())
-            .collect()
+        let snapshot = self.mappings.load();
+        snapshot.keys().cloned().collect()
     }
 }
 

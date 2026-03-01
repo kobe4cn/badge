@@ -3,7 +3,12 @@
 
 [rules]
 # CI 中缩短规则刷新间隔，让 Kafka 消费者更快拉取到新规则
-refresh_interval_secs = 5
+refresh_interval_secs = 3
+
+[kafka]
+# CI 单消费者环境缩短会话超时和心跳间隔，加速消费者组协调
+session_timeout_ms = 10000
+heartbeat_interval_ms = 3000
 
 [observability]
 log_level = "info"

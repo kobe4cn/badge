@@ -237,6 +237,15 @@ jobs:
 
           echo "所有服务已就绪"
 
+      - name: Warm up Kafka consumers
+        run: |
+          # 服务健康检查通过后（metrics 端口就绪），Kafka 消费者可能仍在
+          # 完成 JoinGroup/SyncGroup/PartitionAssignment 流程。
+          # 等待 15 秒确保所有消费者完成初始化并开始处理消息。
+          echo "等待 Kafka 消费者组完成初始化..."
+          sleep 15
+          echo "Kafka 消费者预热完成"
+
       - name: Install cargo2junit
         run: cargo install cargo2junit
 

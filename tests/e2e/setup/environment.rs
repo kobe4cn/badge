@@ -195,9 +195,9 @@ impl TestEnvironment {
 
     /// 等待规则热加载完成
     pub async fn wait_for_rule_reload(&self) -> Result<()> {
-        // CI 中规则刷新间隔为 5 秒，等待 6 秒确保至少完成一次完整的
-        // Kafka 消息消费 + 规则加载 + gRPC 服务同步周期
-        tokio::time::sleep(Duration::from_secs(6)).await;
+        // CI 中规则刷新间隔为 3 秒，等待两个完整周期（7 秒）确保
+        // Kafka 消息消费 + DB 规则加载 + gRPC 服务同步全部完成
+        tokio::time::sleep(Duration::from_secs(7)).await;
         Ok(())
     }
 
