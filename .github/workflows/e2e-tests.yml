@@ -131,6 +131,18 @@ jobs:
           # CI 环境的种子用户不需要强制改密，直接清除标记以便 E2E 测试正常执行
           psql "$DATABASE_URL" -c "UPDATE admin_user SET must_change_password = false WHERE username IN ('admin', 'operator', 'viewer');"
 
+      - name: Pre-create Kafka topics
+        run: |
+          # 在服务启动前预创建所有业务 topic，消除 auto.create.topics 的竞态延迟。
+          # kcat -P 发一条空消息即可触发 topic 创建，消费者订阅时即可拿到分区。
+          sudo apt-get install -y kafkacat 2>/dev/null || true
+          for topic in badge.transaction.events badge.engagement.events badge.rule.reload badge.notifications badge.dlq; do
+            echo "" | kcat -b localhost:9092 -t "$topic" -P 2>/dev/null || \
+            echo "" | kafkacat -b localhost:9092 -t "$topic" -P 2>/dev/null || \
+            echo "::warning::无法预创建 topic $topic（kcat 不可用，依赖 auto.create.topics）"
+          done
+          echo "Kafka topics 预创建完成"
+
       - name: Build all services
         run: |
           # 先完整编译所有服务，避免并发 cargo run 时的锁争用
@@ -311,6 +323,24 @@ jobs:
           DATABASE_URL: postgres://badge:badge@localhost:5432/badge_test
           BADGE_DATABASE_URL: postgres://badge:badge@localhost:5432/badge_test
           BADGE_REDIS_URL: redis://localhost:6379
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          echo "============================================================"
+          echo "=== 服务日志输出（用于排查 E2E 测试失败） ==="
+          echo "============================================================"
+          for svc in badge-admin badge-management rule-engine event-transaction event-engagement notification-worker; do
+            log="/tmp/${svc}.log"
+            echo ""
+            echo "==================== ${svc} ===================="
+            if [ -f "$log" ]; then
+              # 输出最后 200 行，避免日志过长
+              tail -200 "$log"
+            else
+              echo "（日志文件不存在）"
+            fi
+          done
 
       - name: Backend test report
         uses: dorny/test-reporter@v1

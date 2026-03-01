@@ -255,6 +255,19 @@ impl DbVerifier {
         let result: (i64,) = sqlx::query_as(&sql).fetch_one(&self.pool).await?;
         Ok(result.0)
     }
+
+    /// 查询指定事件类型的已启用规则数量（诊断用）
+    pub async fn count_enabled_rules(&self, event_type: &str) -> Result<i64> {
+        let result: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM badge_rules r \
+             JOIN event_types et ON r.event_type = et.code \
+             WHERE r.enabled = true AND et.code = $1",
+        )
+        .bind(event_type)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(result.0)
+    }
 }
 
 // ========== 记录类型 ==========
